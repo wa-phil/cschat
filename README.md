@@ -27,7 +27,7 @@ A simple, interactive C# console chat client for [Ollama](https://ollama.com/) L
 
 2. **Clone the repository:**
    ```sh
-   git clone <your-repo-url>
+   git clone https://github.com/wa-phil/cschat
    cd cschat
    ```
 
