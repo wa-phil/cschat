@@ -74,7 +74,7 @@ public class CommandManager
                 Name = "provider", Description = "Select the LLM Provider",
                 Action = async () =>
                 {
-                    var providers = Program.Providers.Select(p => p.Name).ToList();
+                    var providers = Program.Providers.Keys.ToList();
                     var selected = User.RenderMenu(providers, providers.IndexOf(Program.config.Provider));
                     if (!string.IsNullOrWhiteSpace(selected) && !selected.Equals(Program.config.Provider, StringComparison.OrdinalIgnoreCase))
                     {

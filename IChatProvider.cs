@@ -8,9 +8,18 @@ public class ChatMessage
     public string Content { get; set; }
 }
 
+[AttributeUsage(AttributeTargets.Class, Inherited = false)]
+public class ProviderNameAttribute : Attribute
+{
+    public string Name { get; }
+    public ProviderNameAttribute(string name)
+    {
+        Name = name;
+    }
+}
+
 public interface IChatProvider
 {
-    string Name { get; }
     Task<List<string>> GetAvailableModelsAsync(Config config);
     Task<string> PostChatAsync(Config config, List<ChatMessage> history, string input);
 }

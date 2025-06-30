@@ -5,9 +5,9 @@ using System.Text;
 using System.Threading.Tasks;
 using TinyJson;
 
+[ProviderName("Ollama")]
 public class Ollama : IChatProvider
 {
-    public string Name => "Ollama";
     public async Task<List<string>> GetAvailableModelsAsync(Config config)
     {
         using var client = new HttpClient();

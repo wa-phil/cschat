@@ -16,24 +16,36 @@ static class Program
         new ChatMessage { Role = "system", Content = config.SystemPrompt }
     };
     public static CommandManager commandManager = CommandManager.CreateDefaultCommands();
-    public static List<IChatProvider> Providers = DiscoverProviders();
+    public static Dictionary<string, Type> Providers = DiscoverProviders();
     public static IChatProvider Provider = null;
 
-    static List<IChatProvider> DiscoverProviders() =>
+    static Dictionary<string, Type> DiscoverProviders() =>
         Assembly.GetExecutingAssembly()
             .GetTypes()
             .Where(t => typeof(IChatProvider).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract)
-            .Select(t => (IChatProvider)Activator.CreateInstance(t))
-            .ToList();
+            .Select(t => new {
+                Type = t,
+                Attr = t.GetCustomAttribute<ProviderNameAttribute>()
+            })
+            .Where(x => x.Attr != null)
+            .ToDictionary(x => x.Attr.Name, x => x.Type, StringComparer.OrdinalIgnoreCase);
 
     public static void SetProvider(string providerName)
     {
-        Provider = Providers.FirstOrDefault(p => string.Equals(p.Name, providerName, StringComparison.OrdinalIgnoreCase));
-        if (Provider == null && Providers.Count > 0)
+        if (Providers.TryGetValue(providerName, out var type))
         {
-            Provider = Providers[0];
+            Provider = (IChatProvider)Activator.CreateInstance(type);
         }
-        config.Provider = Provider?.Name;
+        else if (Providers.Count > 0)
+        {
+            var first = Providers.First();
+            Provider = (IChatProvider)Activator.CreateInstance(first.Value);
+        }
+        else
+        {
+            Provider = null;
+        }
+        config.Provider = providerName;
     }
 
     public static async Task<string> SelectModelAsync()
@@ -77,7 +89,7 @@ static class Program
 
         Config.Save(config, ConfigFilePath);
 
-        Console.WriteLine($"Connecting to {Provider.Name} at {config.Host} using model '{config.Model}'");
+        Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
         Console.WriteLine("Type your message and press Enter. Press '/' to bring up available commands, /? for help. (Shift+Enter for new line)");
         Console.WriteLine();
         while (true)
