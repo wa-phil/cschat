@@ -1,0 +1,29 @@
+using System;
+using TinyJson;
+using System.IO;
+
+class Config
+{
+    public string Host { get; set; } = "http://localhost:11434";
+    public string Model { get; set; }
+    public string SystemPrompt { get; set; } = "You are a helpful assistant.";
+
+    public static Config Load(string configFilePath)
+    {
+        if (File.Exists(configFilePath))
+        {
+            Console.WriteLine($"Loading configuration from {configFilePath}");
+            var json = File.ReadAllText(configFilePath);
+            Console.WriteLine($"Configuration loaded: {json}");
+            return json.FromJson<Config>() ?? new Config();
+        }
+        return new Config();
+    }
+
+    public static void Save(Config config, string configFilePath)
+    {
+        Console.WriteLine($"Saving configuration to {configFilePath}");
+        var json = config.ToJson();
+        File.WriteAllText(configFilePath, json);
+    }    
+}

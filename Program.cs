@@ -1,19 +1,13 @@
 ﻿using System;
+using TinyJson;
 using System.IO;
-using System.Net.Http;
+using System.Linq;
 using System.Text;
+using Mono.Options;
+using System.Net.Http;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using Mono.Options;
-using TinyJson;
-using System.Linq;
 
-class OllamaConfig
-{
-    public string Host { get; set; } = "http://localhost:11434";
-    public string Model { get; set; }
-    public string SystemPrompt { get; set; } = "You are a helpful assistant.";
-}
 
 class ChatMessage
 {
@@ -23,30 +17,11 @@ class ChatMessage
 
 static class Program
 {
-    static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ollama_config.json");
+    public static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ollama_config.json");
 
-    static OllamaConfig config = LoadConfig();
+    public static Config config = Config.Load(ConfigFilePath);
 
-    static OllamaConfig LoadConfig()
-    {
-        if (File.Exists(ConfigFilePath))
-        {
-            Console.WriteLine($"Loading configuration from {ConfigFilePath}");
-            var json = File.ReadAllText(ConfigFilePath);
-            Console.WriteLine($"Configuration loaded: {json}");
-            return json.FromJson<OllamaConfig>() ?? new OllamaConfig();
-        }
-        return new OllamaConfig();
-    }
-
-    static void SaveConfig(OllamaConfig config)
-    {
-        Console.WriteLine($"Saving configuration to {ConfigFilePath}");
-        var json = config.ToJson();
-        File.WriteAllText(ConfigFilePath, json);
-    }
-
-    static async Task<List<string>> GetAvailableModelsAsync()
+    public static async Task<List<string>> GetAvailableModelsAsync()
     {
         using var client = new HttpClient();
         try
@@ -67,7 +42,75 @@ static class Program
         }
     }
 
-    static async Task<string> SelectModelAsync()
+    // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
+    public static string RenderMenu(List<string> choices, int selected = 0)
+    {
+        // Always print enough newlines to ensure space for the menu
+        int menuLines = choices.Count;
+        for (int i = 0; i < menuLines; i++)
+        {
+            Console.WriteLine();
+        }
+
+        // Now set menuTop to the first menu line
+        int menuTop = Console.CursorTop - menuLines;
+
+        void DrawMenu()
+        {
+            for (int i = 0; i < choices.Count; i++)
+            {
+                Console.SetCursorPosition(0, menuTop + i);
+                string line;
+                if (i == selected)
+                {
+                    Console.ForegroundColor = ConsoleColor.Black;
+                    Console.BackgroundColor = ConsoleColor.White;
+                    line = $"> [{i}] {choices[i]} ";
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Gray;
+                    Console.BackgroundColor = ConsoleColor.Black;
+                    line = $"  [{i}] {choices[i]} ";
+                }
+                Console.Write(line.PadRight(Console.WindowWidth - 1));
+                Console.ResetColor();
+            }
+            // Move cursor below menu
+            Console.SetCursorPosition(0, menuTop + choices.Count);
+        }
+
+        DrawMenu();
+
+        ConsoleKeyInfo key;
+        while (true)
+        {
+            key = Console.ReadKey(true);
+            if (key.Key == ConsoleKey.UpArrow)
+            {
+                if (selected > 0) selected--;
+                DrawMenu();
+            }
+            else if (key.Key == ConsoleKey.DownArrow)
+            {
+                if (selected < choices.Count - 1) selected++;
+                DrawMenu();
+            }
+            else if (key.Key == ConsoleKey.Enter)
+            {
+                Console.SetCursorPosition(0, menuTop + choices.Count);
+                return choices[selected];
+            }
+            else if (key.Key == ConsoleKey.Escape)
+            {
+                Console.SetCursorPosition(0, menuTop + choices.Count);
+                Console.WriteLine("Selection cancelled.");
+                return null;
+            }
+        }
+    }
+
+    public static async Task<string> SelectModelAsync()
     {
         var models = await GetAvailableModelsAsync();
         if (models.Count == 0)
@@ -77,95 +120,16 @@ static class Program
         }
 
         Console.WriteLine("Available models:");
-        for (int i = 0; i < models.Count; i++)
-        {
-            Console.WriteLine($"  [{i}] {models[i]}");
-        }
-
-        Console.Write("Select a model by number: ");
-        if (int.TryParse(Console.ReadLine(), out int index) && index >= 0 && index < models.Count)
-        {
-            return models[index];
-        }
-
-        Console.WriteLine("Invalid selection.");
-        return null;
+        var selected = RenderMenu(models, models.IndexOf(config.Model));
+        return selected;
     }
 
-    static List<ChatMessage> history = new List<ChatMessage>
+    public static List<ChatMessage> history = new List<ChatMessage>
     {
         new ChatMessage { Role = "system", Content = config.SystemPrompt }
     };
 
-    static CommandManager commandManager = new CommandManager(new[]
-        {
-            new Command
-            {
-                Name = "clear", Description = "clear chat history",
-                Action = async () =>
-                {
-                    history.Clear();
-                    history.Add(new ChatMessage { Role = "system", Content = config.SystemPrompt });
-                    Console.WriteLine("Chat history cleared.");
-                }
-            },
-            new Command
-            {
-                Name = "history", Description = "Show chat history",
-                Action = async () =>
-                {
-                    Console.WriteLine("Chat History:");
-                    foreach (var msg in history)
-                    {
-                        Console.WriteLine($"{msg.Role}: {msg.Content}");
-                    }
-                }
-            },
-            new Command
-            {
-                Name = "model", Description = "List and select available models",
-                Action = async () =>
-                {
-                    var selected = await SelectModelAsync();
-                    if (selected != null)
-                    {
-                        config.Model = selected;
-                        SaveConfig(config);
-                        Console.WriteLine($"Switched to model '{selected}'");
-                    }
-                }
-            },
-            new Command
-            {
-                Name = "host", Description = "Change Ollama host",
-                Action = async () =>
-                {
-                    Console.Write("Enter new Ollama host: ");
-                    var hostInput = Console.ReadLine();
-                    if (!string.IsNullOrWhiteSpace(hostInput))
-                    {
-                        config.Host = hostInput.Trim();
-                        SaveConfig(config);
-                        Console.WriteLine($"Switched to host '{config.Host}'");
-                    }
-                }
-            },
-            new Command
-            {
-                Name = "exit", Description = "Quit the application",
-                Action = () => { Environment.Exit(0); return Task.CompletedTask; }
-            },
-            new Command
-            {
-                Name = "?", Description = "Show this help message",
-                Action = () => { commandManager.ShowHelp(); return Task.CompletedTask; }
-            },
-            new Command
-            {
-                Name = "help", Description = "Show this help message",
-                Action = () => { commandManager.ShowHelp(); return Task.CompletedTask; }
-            }
-        });
+    public static CommandManager commandManager = CommandManager.CreateDefaultCommands();
 
     static async Task<string> ReadInputWithFeaturesAsync()
     {
@@ -267,7 +231,7 @@ static class Program
             config.Model = selected;
         }
 
-        SaveConfig(config);
+        Config.Save(config, ConfigFilePath);
 
         Console.WriteLine($"Connecting to Ollama at {config.Host} using model '{config.Model}'");
         Console.WriteLine("Type your message and press Enter. Commands: /model /host /exit /? (Shift+Enter for new line)");
