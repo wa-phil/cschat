@@ -105,7 +105,28 @@ public class CommandManager
             },
             new Command
             {
+                Name = "system", Description = "Change system prompt",
+                Action = async () =>
+                {
+                    Console.WriteLine($"Current system prompt: {Program.config.SystemPrompt}");
+                    Console.Write("Enter new system prompt (or press enter to keep current): ");
+                    var promptInput = Console.ReadLine();
+                    if (!string.IsNullOrWhiteSpace(promptInput))
+                    {
+                        Program.config.SystemPrompt = promptInput.Trim();
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        Console.WriteLine("System prompt updated.");
+                    }
+                }
+            },
+            new Command
+            {
                 Name = "exit", Description = "Quit the application",
+                Action = () => { Environment.Exit(0); return Task.CompletedTask; }
+            },
+            new Command
+            {
+                Name = "quit", Description = "Quit the application",
                 Action = () => { Environment.Exit(0); return Task.CompletedTask; }
             },
             new Command
