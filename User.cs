@@ -76,7 +76,6 @@ public class User
     {
         var buffer = new List<char>();
         var lines = new List<string>();
-        bool isCommand = false;
         int cursor = 0;
         ConsoleKeyInfo key;
         while (true)
@@ -143,6 +142,23 @@ public class User
             }
         }
         lines.Add(new string(buffer.ToArray()));
-        return string.Join("\n", lines).Trim();
+        var input = string.Join("\n", lines).Trim();
+        if (string.IsNullOrWhiteSpace(input))
+            return null;
+        if (input.StartsWith("/"))
+        {
+            var cmdName = input.Split(' ')[0].Substring(1);
+            var cmd = commandManager.Find("/" + cmdName);
+            if (cmd != null)
+            {
+                await cmd.Action();
+            }
+            else
+            {
+                Console.WriteLine("Unknown command. Type /? for help.");
+            }
+            return null; // Hide command details from main loop
+        }
+        return input;
     }
 }

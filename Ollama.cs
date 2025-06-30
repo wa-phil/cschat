@@ -8,6 +8,9 @@ using TinyJson;
 [ProviderName("Ollama")]
 public class Ollama : IChatProvider
 {
+
+    private readonly HttpClient client = new HttpClient();
+   
     public async Task<List<string>> GetAvailableModelsAsync(Config config)
     {
         using var client = new HttpClient();
@@ -29,22 +32,28 @@ public class Ollama : IChatProvider
         }
     }
 
-    public async Task<string> PostChatAsync(Config config, List<ChatMessage> history, string userInput)
-    {
-        history.Add(new ChatMessage { Role = "user", Content = userInput });
-        using var client = new HttpClient();
+    public async Task<string> PostChatAsync(Config config, List<ChatMessage> history)
+    {        
         var requestBody = new
         {
             model = config.Model,
-            messages = history.ToArray()
+            messages = history.ConvertAll(msg => new
+            {
+                role = msg.Role.ToString().ToLower(),
+                content = msg.Content
+            }),
+            stream = false,
+            temperature = config.Temperature,
+            max_tokens = config.MaxTokens,
         };
-
         var content = new StringContent(requestBody.ToJson(), Encoding.UTF8, "application/json");
         try
         {
             var response = await client.PostAsync($"{config.Host}/v1/chat/completions", content);
             if (!response.IsSuccessStatusCode)
+            {
                 return $"Error: {response.StatusCode}";
+            }
 
             var respJson = await response.Content.ReadAsStringAsync();
             dynamic respObj = respJson.FromJson<dynamic>();

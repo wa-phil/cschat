@@ -13,7 +13,7 @@ static class Program
     public static Config config = Config.Load(ConfigFilePath);
     public static List<ChatMessage> history = new List<ChatMessage>
     {
-        new ChatMessage { Role = "system", Content = config.SystemPrompt }
+        new ChatMessage { Role = Roles.System, Content = config.SystemPrompt }
     };
     public static CommandManager commandManager = CommandManager.CreateDefaultCommands();
     public static Dictionary<string, Type> Providers = DiscoverProviders();
@@ -97,21 +97,10 @@ static class Program
             Console.Write("> ");
             var userInput = await User.ReadInputWithFeaturesAsync(commandManager);
             if (string.IsNullOrWhiteSpace(userInput)) continue;
-            if (userInput.StartsWith("/"))
-            {
-                var cmdName = userInput.Split(' ')[0].Substring(1);
-                var cmd = commandManager.Find("/" + cmdName);
-                if (cmd != null)
-                {
-                    await cmd.Action();
-                    continue;
-                }
-                Console.WriteLine("Unknown command. Type /? for help.");
-                continue;
-            }
-            string response = await Provider.PostChatAsync(config, history, userInput);
+            history.Add(new ChatMessage { Role = Roles.User, Content = userInput });
+            string response = await Provider.PostChatAsync(config, history);
             Console.WriteLine(response);
-            history.Add(new ChatMessage { Role = "assistant", Content = response });
+            history.Add(new ChatMessage { Role = Roles.Assistant, Content = response });
         }
     }
 }

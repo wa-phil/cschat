@@ -2,9 +2,17 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
+
+public enum Roles
+{
+    System,
+    User,
+    Assistant
+}
+
 public class ChatMessage
 {
-    public string Role { get; set; }
+    public Roles Role { get; set; }
     public string Content { get; set; }
 }
 
@@ -21,5 +29,5 @@ public class ProviderNameAttribute : Attribute
 public interface IChatProvider
 {
     Task<List<string>> GetAvailableModelsAsync(Config config);
-    Task<string> PostChatAsync(Config config, List<ChatMessage> history, string input);
+    Task<string> PostChatAsync(Config config, List<ChatMessage> history);
 }

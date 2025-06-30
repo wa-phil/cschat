@@ -7,6 +7,8 @@ public class Config
     public string Provider { get; set; } = "Ollama";
     public string Model { get; set; }
     public string Host { get; set; } = "http://localhost:11434";
+    public int MaxTokens { get; set; } = 4000;
+    public float Temperature { get; set; } = 0.7f;
     public string SystemPrompt { get; set; } = "You are a helpful assistant.";
 
     public static Config Load(string configFilePath)

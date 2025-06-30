@@ -53,7 +53,7 @@ public class CommandManager
                 Action = async () =>
                 {
                     Program.history.Clear();
-                    Program.history.Add(new ChatMessage { Role = "system", Content = Program.config.SystemPrompt });
+                    Program.history.Add(new ChatMessage { Role = Roles.System, Content = Program.config.SystemPrompt });
                     Console.WriteLine("Chat history cleared.");
                 }
             },
@@ -130,6 +130,44 @@ public class CommandManager
                     }
                 }
             },
+            new Command
+            {
+                Name = "temperature", Description = "Set response temperature",
+                Action = async () =>
+                {
+                    Console.Write($"Current temperature: {Program.config.Temperature}. Enter new value (0.0 to 1.0): ");
+                    var tempInput = Console.ReadLine();
+                    if (float.TryParse(tempInput, out var temp) && temp >= 0.0f && temp <= 1.0f)
+                    {
+                        Program.config.Temperature = temp;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        Console.WriteLine($"Temperature set to {temp}");
+                    }
+                    else
+                    {
+                        Console.WriteLine("Invalid temperature value. Must be between 0.0 and 1.0.");
+                    }
+                }
+            },
+            new Command
+            {
+                Name = "max-tokens", Description = "Set maximum tokens for response",
+                Action = async () =>
+                {
+                    Console.Write($"Current max tokens: {Program.config.MaxTokens}. Enter new value (1 to 10000): ");
+                    var tokensInput = Console.ReadLine();
+                    if (int.TryParse(tokensInput, out var tokens) && tokens >= 1 && tokens <= 32000)
+                    {
+                        Program.config.MaxTokens = tokens;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        Console.WriteLine($"Max tokens set to {tokens}");
+                    }
+                    else
+                    {
+                        Console.WriteLine("Invalid max tokens value. Must be between 1 and 32000.");
+                    }
+                }
+            },  
             new Command
             {
                 Name = "exit", Description = "Quit the application",
