@@ -2,10 +2,11 @@ using System;
 using TinyJson;
 using System.IO;
 
-class Config
+public class Config
 {
-    public string Host { get; set; } = "http://localhost:11434";
+    public string Provider { get; set; } = "Ollama";
     public string Model { get; set; }
+    public string Host { get; set; } = "http://localhost:11434";
     public string SystemPrompt { get; set; } = "You are a helpful assistant.";
 
     public static Config Load(string configFilePath)

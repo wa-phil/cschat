@@ -1,86 +1,72 @@
 ﻿using System;
-using TinyJson;
 using System.IO;
 using System.Linq;
-using System.Text;
 using Mono.Options;
-using System.Net.Http;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
 
-class ChatMessage
-{
-    public string Role { get; set; }
-    public string Content { get; set; }
-}
-
 static class Program
 {
-    public static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ollama_config.json");
-
+    public static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
     public static Config config = Config.Load(ConfigFilePath);
-
-    public static async Task<List<string>> GetAvailableModelsAsync()
+    public static List<ChatMessage> history = new List<ChatMessage>
     {
-        using var client = new HttpClient();
-        try
+        new ChatMessage { Role = "system", Content = config.SystemPrompt }
+    };
+    public static CommandManager commandManager = CommandManager.CreateDefaultCommands();
+    public static List<IChatProvider> Providers = DiscoverProviders();
+    public static IChatProvider Provider = null;
+
+    static List<IChatProvider> DiscoverProviders() =>
+        Assembly.GetExecutingAssembly()
+            .GetTypes()
+            .Where(t => typeof(IChatProvider).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract)
+            .Select(t => (IChatProvider)Activator.CreateInstance(t))
+            .ToList();
+
+    public static void SetProvider(string providerName)
+    {
+        Provider = Providers.FirstOrDefault(p => string.Equals(p.Name, providerName, StringComparison.OrdinalIgnoreCase));
+        if (Provider == null && Providers.Count > 0)
         {
-            var resp = await client.GetStringAsync($"{config.Host}/api/tags");
-            dynamic parsed = resp.FromJson<dynamic>();
-            var models = new List<string>();
-            foreach (var model in parsed["models"])
-            {
-                models.Add((string)model["name"]);
-            }
-            return models;
+            Provider = Providers[0];
         }
-        catch
-        {
-            Console.WriteLine("Failed to fetch models from host.");
-            return new List<string>();
-        }
+        config.Provider = Provider?.Name;
     }
 
     public static async Task<string> SelectModelAsync()
     {
-        var models = await GetAvailableModelsAsync();
-        if (models.Count == 0)
+        var models = await Provider.GetAvailableModelsAsync(config);
+        if (models == null || models.Count == 0)
         {
             Console.WriteLine("No models available.");
             return null;
         }
-
         Console.WriteLine("Available models:");
         var selected = User.RenderMenu(models, models.IndexOf(config.Model));
         return selected;
     }
 
-    public static List<ChatMessage> history = new List<ChatMessage>
-    {
-        new ChatMessage { Role = "system", Content = config.SystemPrompt }
-    };
-
-    public static CommandManager commandManager = CommandManager.CreateDefaultCommands();
-
     static async Task Main(string[] args)
     {
         bool showHelp = false;
-
         var options = new OptionSet {
             { "h|host=", "Ollama server host (default: http://localhost:11434)", v => { if (v != null) config.Host = v; } },
             { "m|model=", "Model name", v => { if (v != null) config.Model = v; } },
             { "s|system=", "System prompt", v => { if (v != null) config.SystemPrompt = v; } },
+            { "p|provider=", "Provider name", v => { if (v != null) SetProvider(v); } },
             { "?|help", "Show help", v => showHelp = v != null }
         };
-
         options.Parse(args);
-
         if (showHelp)
         {
             options.WriteOptionDescriptions(Console.Out);
             return;
         }
+        
+        SetProvider(config.Provider);
 
         if (string.IsNullOrWhiteSpace(config.Model))
         {
@@ -91,16 +77,14 @@ static class Program
 
         Config.Save(config, ConfigFilePath);
 
-        Console.WriteLine($"Connecting to Ollama at {config.Host} using model '{config.Model}'");
+        Console.WriteLine($"Connecting to {Provider.Name} at {config.Host} using model '{config.Model}'");
         Console.WriteLine("Type your message and press Enter. Press '/' to bring up available commands, /? for help. (Shift+Enter for new line)");
         Console.WriteLine();
-
         while (true)
         {
             Console.Write("> ");
             var userInput = await User.ReadInputWithFeaturesAsync(commandManager);
             if (string.IsNullOrWhiteSpace(userInput)) continue;
-
             if (userInput.StartsWith("/"))
             {
                 var cmdName = userInput.Split(' ')[0].Substring(1);
@@ -113,38 +97,9 @@ static class Program
                 Console.WriteLine("Unknown command. Type /? for help.");
                 continue;
             }
-
-            var response = await PostChat(history, userInput);
+            string response = await Provider.PostChatAsync(config, history, userInput);
             Console.WriteLine(response);
             history.Add(new ChatMessage { Role = "assistant", Content = response });
-        }
-    }
-
-    static async Task<string> PostChat(List<ChatMessage> history, string userInput)
-    {
-        history.Add(new ChatMessage { Role = "user", Content = userInput });
-        using var client = new HttpClient();
-        var requestBody = new
-        {
-            model = config.Model,
-            messages = history.ToArray()
-        };
-
-        var content = new StringContent(requestBody.ToJson(), Encoding.UTF8, "application/json");
-        try
-        {
-            var response = await client.PostAsync($"{config.Host}/v1/chat/completions", content);
-            if (!response.IsSuccessStatusCode)
-                return $"Error: {response.StatusCode}";
-
-            var respJson = await response.Content.ReadAsStringAsync();
-            dynamic respObj = respJson.FromJson<dynamic>();
-            return respObj["choices"][0]["message"]["content"];
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Exception occurred: {ex.Message}");
-            throw;
         }
     }
 }

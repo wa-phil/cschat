@@ -31,12 +31,8 @@ public class CommandManager
 
     public IEnumerable<Command> GetAll() => _commands;
 
-    public IEnumerable<string> GetCompletions(string input)
-    {
-        return _commands
-            .Select(c => $"/{c.Name}")
-            .Where(cmd => cmd.StartsWith(input, StringComparison.OrdinalIgnoreCase));
-    }
+    public IEnumerable<string> GetCompletions(string input) =>
+        _commands.Select(c => $"/{c.Name}").Where(cmd => cmd.StartsWith(input, StringComparison.OrdinalIgnoreCase));
 
     public void ShowHelp()
     {
@@ -70,6 +66,21 @@ public class CommandManager
                     foreach (var msg in Program.history)
                     {
                         Console.WriteLine($"{msg.Role}: {msg.Content}");
+                    }
+                }
+            },
+            new Command
+            {
+                Name = "provider", Description = "Select the LLM Provider",
+                Action = async () =>
+                {
+                    var providers = Program.Providers.Select(p => p.Name).ToList();
+                    var selected = User.RenderMenu(providers, providers.IndexOf(Program.config.Provider));
+                    if (!string.IsNullOrWhiteSpace(selected) && !selected.Equals(Program.config.Provider, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Program.SetProvider(selected);
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        Console.WriteLine($"Switched to provider '{Program.config.Provider}'");
                     }
                 }
             },
