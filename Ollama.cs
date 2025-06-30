@@ -8,10 +8,16 @@ using TinyJson;
 [ProviderName("Ollama")]
 public class Ollama : IChatProvider
 {
-
+    private Config config = null;
     private readonly HttpClient client = new HttpClient();
+    public Ollama(Config cfg)
+    {
+        this.config = cfg ?? throw new ArgumentNullException(nameof(cfg));
+        client.BaseAddress = new Uri(config.Host);
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
+    }
    
-    public async Task<List<string>> GetAvailableModelsAsync(Config config)
+    public async Task<List<string>> GetAvailableModelsAsync()
     {
         using var client = new HttpClient();
         try
@@ -32,7 +38,7 @@ public class Ollama : IChatProvider
         }
     }
 
-    public async Task<string> PostChatAsync(Config config, List<ChatMessage> history)
+    public async Task<string> PostChatAsync(List<ChatMessage> history)
     {        
         var requestBody = new
         {

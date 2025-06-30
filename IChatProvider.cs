@@ -28,6 +28,6 @@ public class ProviderNameAttribute : Attribute
 
 public interface IChatProvider
 {
-    Task<List<string>> GetAvailableModelsAsync(Config config);
-    Task<string> PostChatAsync(Config config, List<ChatMessage> history);
+    Task<List<string>> GetAvailableModelsAsync();
+    Task<string> PostChatAsync(List<ChatMessage> history);
 }

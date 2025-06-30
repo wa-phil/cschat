@@ -34,12 +34,12 @@ static class Program
     {
         if (Providers.TryGetValue(providerName, out var type))
         {
-            Provider = (IChatProvider)Activator.CreateInstance(type);
+            Provider = (IChatProvider)Activator.CreateInstance(type, new object[] { config });
         }
         else if (Providers.Count > 0)
         {
             var first = Providers.First();
-            Provider = (IChatProvider)Activator.CreateInstance(first.Value);
+            Provider = (IChatProvider)Activator.CreateInstance(first.Value, new object[] { config });
         }
         else
         {
@@ -50,7 +50,7 @@ static class Program
 
     public static async Task<string> SelectModelAsync()
     {
-        var models = await Provider.GetAvailableModelsAsync(config);
+        var models = await Provider.GetAvailableModelsAsync();
         if (models == null || models.Count == 0)
         {
             Console.WriteLine("No models available.");
@@ -98,7 +98,7 @@ static class Program
             var userInput = await User.ReadInputWithFeaturesAsync(commandManager);
             if (string.IsNullOrWhiteSpace(userInput)) continue;
             history.Add(new ChatMessage { Role = Roles.User, Content = userInput });
-            string response = await Provider.PostChatAsync(config, history);
+            string response = await Provider.PostChatAsync(history);
             Console.WriteLine(response);
             history.Add(new ChatMessage { Role = Roles.Assistant, Content = response });
         }
