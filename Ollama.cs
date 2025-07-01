@@ -38,12 +38,12 @@ public class Ollama : IChatProvider
         }
     }
 
-    public async Task<string> PostChatAsync(List<ChatMessage> history)
+    public async Task<string> PostChatAsync(Memory memory)
     {        
         var requestBody = new
         {
             model = config.Model,
-            messages = history.ConvertAll(msg => new
+            messages = memory.Messages.ConvertAll(msg => new
             {
                 role = msg.Role.ToString().ToLower(),
                 content = msg.Content

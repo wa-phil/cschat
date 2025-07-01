@@ -52,8 +52,8 @@ public class CommandManager
                 Name = "clear", Description = "clear chat history",
                 Action = async () =>
                 {
-                    Program.history.Clear();
-                    Program.history.Add(new ChatMessage { Role = Roles.System, Content = Program.config.SystemPrompt });
+                    Program.memory.Clear();
+                    Program.memory.AddSystemMessage(Program.config.SystemPrompt);
                     Console.WriteLine("Chat history cleared.");
                 }
             },
@@ -63,7 +63,7 @@ public class CommandManager
                 Action = async () =>
                 {
                     Console.WriteLine("Chat History:");
-                    foreach (var msg in Program.history)
+                    foreach (var msg in Program.memory.Messages)
                     {
                         Console.WriteLine($"{msg.Role}: {msg.Content}");
                     }

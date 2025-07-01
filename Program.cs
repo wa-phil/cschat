@@ -11,16 +11,11 @@ static class Program
 {
     public static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
     public static Config config = Config.Load(ConfigFilePath);
-    public static List<ChatMessage> history = new List<ChatMessage>
-    {
-        new ChatMessage { Role = Roles.System, Content = config.SystemPrompt }
-    };
+    public static Memory memory = new Memory(config.SystemPrompt); 
     public static CommandManager commandManager = CommandManager.CreateDefaultCommands();
-    public static Dictionary<string, Type> Providers = DiscoverProviders();
-    public static IChatProvider Provider = null;
-
-    static Dictionary<string, Type> DiscoverProviders() =>
-        Assembly.GetExecutingAssembly()
+    public static Dictionary<string, Type> Providers
+    {
+        get => Assembly.GetExecutingAssembly()
             .GetTypes()
             .Where(t => typeof(IChatProvider).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract)
             .Select(t => new {
@@ -29,6 +24,9 @@ static class Program
             })
             .Where(x => x.Attr != null)
             .ToDictionary(x => x.Attr.Name, x => x.Type, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public static IChatProvider Provider = null;
 
     public static void SetProvider(string providerName)
     {
@@ -97,10 +95,10 @@ static class Program
             Console.Write("> ");
             var userInput = await User.ReadInputWithFeaturesAsync(commandManager);
             if (string.IsNullOrWhiteSpace(userInput)) continue;
-            history.Add(new ChatMessage { Role = Roles.User, Content = userInput });
-            string response = await Provider.PostChatAsync(history);
+            memory.AddUserMessage(userInput);
+            string response = await Provider.PostChatAsync(memory);
             Console.WriteLine(response);
-            history.Add(new ChatMessage { Role = Roles.Assistant, Content = response });
+            memory.AddAssistantMessage(response);
         }
     }
 }
