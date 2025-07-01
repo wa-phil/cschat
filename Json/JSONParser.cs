@@ -157,7 +157,7 @@ namespace TinyJson
             return builder.ToString();
         }
 
-        internal static object ParseValue(Type type, string json)
+        internal static object? ParseValue(Type type, string json)
         {
             if (type == typeof(string))
             {
@@ -265,9 +265,9 @@ namespace TinyJson
             return null;
         }
 
-        static object ParseAnonymousValue(string json)
+        static object? ParseAnonymousValue(string json)
         {
-            if (json.Length == 0)
+            if (string.IsNullOrEmpty(json))
                 return null;
             if (json[0] == '{' && json[json.Length - 1] == '}')
             {
@@ -318,7 +318,7 @@ namespace TinyJson
             for (int i = 0; i < members.Length; i++)
             {
                 T member = members[i];
-                if (member.IsDefined(typeof(IgnoreDataMemberAttribute), true))
+                if (null == member || member.IsDefined(typeof(IgnoreDataMemberAttribute), true))
                     continue;
 
                 string name = member.Name;
@@ -335,17 +335,22 @@ namespace TinyJson
             return nameToMember;
         }
 
-        static object ParseObject(Type type, string json)
+        static object? ParseObject(Type type, string json)
         {
-            object instance = FormatterServices.GetUninitializedObject(type);
+            if (null == propertyInfoCache || null == fieldInfoCache)
+            {
+                throw new InvalidOperationException("JSONParser requires ThreadStatic fieldInfoCache and propertyInfoCache to be initialized.");
+            }
+            // Create an uninitialized object instance of the type, but don't use formatter services
+            object instance = Activator.CreateInstance(type);
 
             //The list is split into key/value pairs only, this means the split must be divisible by 2 to be valid JSON
             List<string> elems = Split(json);
             if (elems.Count % 2 != 0)
                 return instance;
 
-            Dictionary<string, FieldInfo> nameToField;
-            Dictionary<string, PropertyInfo> nameToProperty;
+            Dictionary<string, FieldInfo>? nameToField = null;
+            Dictionary<string, PropertyInfo>? nameToProperty = null;
             if (!fieldInfoCache.TryGetValue(type, out nameToField))
             {
                 nameToField = CreateMemberNameDictionary(type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy));
@@ -361,11 +366,11 @@ namespace TinyJson
             {
                 if (elems[i].Length <= 2)
                     continue;
-                string key = elems[i].Substring(1, elems[i].Length - 2);
+                string key = elems[i]?.Substring(1, elems[i].Length - 2) ?? string.Empty;
                 string value = elems[i + 1];
 
-                FieldInfo fieldInfo;
-                PropertyInfo propertyInfo;
+                FieldInfo? fieldInfo = null;;
+                PropertyInfo? propertyInfo = null;
                 if (nameToField.TryGetValue(key, out fieldInfo))
                     fieldInfo.SetValue(instance, ParseValue(fieldInfo.FieldType, value));
                 else if (nameToProperty.TryGetValue(key, out propertyInfo))

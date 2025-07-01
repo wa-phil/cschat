@@ -46,16 +46,17 @@ static class Program
 
     public static void SetProvider(string providerName) => Log.Method(ctx =>
     {
+        config.Provider = providerName;
         ctx.Append(Log.Data.Provider, providerName);
         serviceProvider.ThrowIfNull("Service provider is not initialized.");
         if (Providers.TryGetValue(providerName, out var type))
         {
-            Provider = (IChatProvider?)serviceProvider.GetService(type);
+            Provider = (IChatProvider?)serviceProvider?.GetService(type);
         }
         else if (Providers.Count > 0)
         {
             var first = Providers.First();
-            Provider = (IChatProvider?)serviceProvider.GetService(first.Value);
+            Provider = (IChatProvider?)serviceProvider?.GetService(first.Value);
             ctx.Append(Log.Data.Message, $"{providerName} not found, using default provider: {first.Key}");
         }
         else
@@ -64,7 +65,7 @@ static class Program
             ctx.Failed($"No providers available. Please check your configuration or add a provider.", Error.ProviderNotConfigured);
             return;
         }
-        config.Provider = providerName;
+        ctx.Append(Log.Data.ProviderSet, Provider != null);
         ctx.Succeeded();
     });
 

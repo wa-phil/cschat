@@ -20,8 +20,12 @@ namespace TinyJson
             return stringBuilder.ToString();
         }
 
-        static void AppendValue(StringBuilder stringBuilder, object item)
+        static void AppendValue(StringBuilder stringBuilder, object? item)
         {
+            
+            if (stringBuilder == null)
+                throw new ArgumentNullException(nameof(stringBuilder));
+
             if (item == null)
             {
                 stringBuilder.Append("null");
@@ -32,7 +36,7 @@ namespace TinyJson
             if (type == typeof(string) || type == typeof(char))
             {
                 stringBuilder.Append('"');
-                string str = item.ToString();
+                string str = item?.ToString() ?? "";
                 for (int i = 0; i < str.Length; ++i)
                     if (str[i] < ' ' || str[i] == '"' || str[i] == '\\')
                     {
@@ -95,8 +99,9 @@ namespace TinyJson
             {
                 stringBuilder.Append('[');
                 bool isFirst = true;
-                IList list = item as IList;
-                for (int i = 0; i < list.Count; i++)
+                IList? list = item as IList;
+                var count = list?.Count ?? 0;
+                for (int i = 0; i < count; i++)
                 {
                     if (isFirst)
                         isFirst = false;
@@ -118,9 +123,9 @@ namespace TinyJson
                 }
 
                 stringBuilder.Append('{');
-                IDictionary dict = item as IDictionary;
+                IDictionary? dict = item as IDictionary;
                 bool isFirst = true;
-                foreach (object key in dict.Keys)
+                foreach (object key in dict?.Keys)
                 {
                     if (isFirst)
                         isFirst = false;
@@ -139,12 +144,13 @@ namespace TinyJson
 
                 bool isFirst = true;
                 FieldInfo[] fieldInfos = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy);
-                for (int i = 0; i < fieldInfos.Length; i++)
+                var count = fieldInfos?.Length ?? 0;
+                for (int i = 0; i < count; i++)
                 {
                     if (fieldInfos[i].IsDefined(typeof(IgnoreDataMemberAttribute), true))
                         continue;
 
-                    object value = fieldInfos[i].GetValue(item);
+                    object value = fieldInfos[i]?.GetValue(item);
                     if (value != null)
                     {
                         if (isFirst)
@@ -158,12 +164,13 @@ namespace TinyJson
                     }
                 }
                 PropertyInfo[] propertyInfo = type.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy);
-                for (int i = 0; i < propertyInfo.Length; i++)
+                count = propertyInfo?.Length ?? 0;
+                for (int i = 0; i < count; i++)
                 {
                     if (!propertyInfo[i].CanRead || propertyInfo[i].IsDefined(typeof(IgnoreDataMemberAttribute), true))
                         continue;
 
-                    object value = propertyInfo[i].GetValue(item, null);
+                    object value = propertyInfo[i]?.GetValue(item, null);
                     if (value != null)
                     {
                         if (isFirst)
@@ -186,6 +193,9 @@ namespace TinyJson
             if (member.IsDefined(typeof(DataMemberAttribute), true))
             {
                 DataMemberAttribute dataMemberAttribute = (DataMemberAttribute)Attribute.GetCustomAttribute(member, typeof(DataMemberAttribute), true);
+                if (null == dataMemberAttribute)
+                    return member.Name; // Fallback to member name if attribute is not found
+
                 if (!string.IsNullOrEmpty(dataMemberAttribute.Name))
                     return dataMemberAttribute.Name;
             }
