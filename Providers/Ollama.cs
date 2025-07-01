@@ -1,14 +1,15 @@
 using System;
-using System.Collections.Generic;
-using System.Net.Http;
-using System.Text;
-using System.Threading.Tasks;
 using TinyJson;
+using System.Text;
+using System.Net.Http;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Linq; // Add using directive for LINQ
 
 [ProviderName("Ollama")]
 public class Ollama : IChatProvider
 {
-    private Config config = null;
+    private Config config = new Config(); // Initialize non-nullable field to avoid null reference
     private readonly HttpClient client = new HttpClient();
     public Ollama(Config cfg)
     {
@@ -16,7 +17,7 @@ public class Ollama : IChatProvider
         client.BaseAddress = new Uri(config.Host);
         client.DefaultRequestHeaders.Add("Accept", "application/json");
     }
-   
+
     public async Task<List<string>> GetAvailableModelsAsync()
     {
         using var client = new HttpClient();
@@ -43,11 +44,11 @@ public class Ollama : IChatProvider
         var requestBody = new
         {
             model = config.Model,
-            messages = memory.Messages.ConvertAll(msg => new
+            messages = memory.Messages.Select(msg => new // Replace ConvertAll with LINQ Select
             {
                 role = msg.Role.ToString().ToLower(),
                 content = msg.Content
-            }),
+            }).ToList(),
             stream = false,
             temperature = config.Temperature,
             max_tokens = config.MaxTokens,

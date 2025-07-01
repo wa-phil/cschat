@@ -5,16 +5,16 @@ using System.Threading.Tasks;
 
 public class Command
 {
-    public string Name { get; set; }
-    public string Description { get; set; }
-    public Func<Task> Action { get; set; }
+    public string Name { get; set; } = string.Empty; // Ensure non-nullable property is initialized
+    public string Description { get; set; } = string.Empty; // Ensure non-nullable property is initialized
+    public Func<Task> Action { get; set; } = () => Task.CompletedTask; // Ensure non-nullable property is initialized
 }
 
 public class CommandManager
 {
     private readonly List<Command> _commands;
 
-    public CommandManager(IEnumerable<Command> commands = null)
+    public CommandManager(IEnumerable<Command>? commands = null) // Allow nullable parameter
     {
         _commands = commands?.ToList() ?? new List<Command>();
     }
@@ -26,7 +26,7 @@ public class CommandManager
 
     public Command Find(string input)
     {
-        return _commands.FirstOrDefault(c => $"/{c.Name}".Equals(input, StringComparison.OrdinalIgnoreCase));
+        return _commands.FirstOrDefault(c => $"/{c.Name}".Equals(input, StringComparison.OrdinalIgnoreCase)) ?? new Command(); // Handle possible null reference return
     }
 
     public IEnumerable<Command> GetAll() => _commands;

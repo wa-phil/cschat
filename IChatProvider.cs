@@ -13,7 +13,7 @@ public enum Roles
 public class ChatMessage
 {
     public Roles Role { get; set; }
-    public string Content { get; set; }
+    public string Content { get; set; } = string.Empty; // Ensure non-nullable property is initialized
 }
 
 public class Memory
@@ -22,7 +22,7 @@ public class Memory
     protected List<ChatMessage> _messages = new List<ChatMessage>();
     public Memory(string systemPrompt) => AddSystemMessage(systemPrompt);
     
-    public List<ChatMessage> Messages
+    public IEnumerable<ChatMessage> Messages
     {
         get
         {

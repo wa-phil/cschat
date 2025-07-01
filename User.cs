@@ -5,7 +5,7 @@ using System.Collections.Generic;
 public class User
 {
     // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
-    public static string RenderMenu(List<string> choices, int selected = 0)
+    public static string? RenderMenu(List<string> choices, int selected = 0) // Allow nullable return type to handle null cases
     {
         // Always print enough newlines to ensure space for the menu
         int menuLines = choices.Count;
@@ -72,7 +72,7 @@ public class User
         }
     }
 
-    public static async Task<string> ReadInputWithFeaturesAsync(CommandManager commandManager)
+    public static async Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager) // Allow nullable return type
     {
         var buffer = new List<char>();
         var lines = new List<string>();

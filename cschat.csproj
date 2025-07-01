@@ -8,8 +8,65 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
+    <PackageReference Include="Azure.Identity" Version="1.14.1" />
     <PackageReference Include="Mono.Options" Version="6.12.0.148" />
     <PackageReference Include="TinyJson" Version="1.0.0" />
   </ItemGroup>
+
+<PropertyGroup>
+  <GeneratedDir>Generated</GeneratedDir>
+</PropertyGroup>
+
+<Target Name="GenerateBuildInfo" BeforeTargets="BeforeBuild">
+  <MakeDir Directories="$(GeneratedDir)" />
+
+  <!-- Step 1: get git tag and hash -->
+  <Exec Command="git describe --tags --abbrev=0" ConsoleToMSBuild="true">
+    <Output TaskParameter="ConsoleOutput" PropertyName="GitTagRaw" />
+  </Exec>
+  <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true">
+    <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitHash" />
+  </Exec>
+
+  <!-- Step 2: Fallbacks and cleaning -->
+  <PropertyGroup>
+    <GitTagRaw Condition="'$(GitTagRaw)' == ''">v0.0.0</GitTagRaw>
+    <GitCommitHash Condition="'$(GitCommitHash)' == ''">unknown</GitCommitHash>
+    <GitVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(GitTagRaw)', '^v', ''))</GitVersion>
+  </PropertyGroup>
+
+  <!-- Step 3: Read the template file -->
+  <ReadLinesFromFile File="BuildInfo.template.cs">
+    <Output TaskParameter="Lines" ItemName="TemplateLines" />
+  </ReadLinesFromFile>
+
+  <!-- Step 4: Replace placeholders one pass per line -->
+  <ItemGroup>
+    <SubstitutedLines Include="@(TemplateLines)" />
+    <SubstitutedLines Update="@(SubstitutedLines)">
+      <Text>$([System.Text.RegularExpressions.Regex]::Replace('%(Identity)', '__GIT_TAG__', '$(GitTagRaw)'))</Text>
+    </SubstitutedLines>
+    <SubstitutedLines Update="@(SubstitutedLines)">
+      <Text>$([System.Text.RegularExpressions.Regex]::Replace('%(Text)', '__GIT_VERSION__', '$(GitVersion)'))</Text>
+    </SubstitutedLines>
+    <SubstitutedLines Update="@(SubstitutedLines)">
+      <Text>$([System.Text.RegularExpressions.Regex]::Replace('%(Text)', '__GIT_COMMIT__', '$(GitCommitHash)'))</Text>
+    </SubstitutedLines>
+  </ItemGroup>
+
+  <!-- Step 5: Write final file -->
+  <WriteLinesToFile
+    File="$(GeneratedDir)\BuildInfo.cs"
+    Lines="@(SubstitutedLines->'%(Text)')"
+    Overwrite="true" />
+</Target>
+
+<ItemGroup>
+  <Compile Remove="Generated\**\*.cs" />
+  <Compile Remove="BuildInfo.template.cs" />
+  <Compile Include="$(GeneratedDir)\BuildInfo.cs" />
+</ItemGroup>
+
 
 </Project>

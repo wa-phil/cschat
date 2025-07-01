@@ -1,4 +1,5 @@
 ﻿using System;
+using TinyJson;
 using System.IO;
 using System.Linq;
 using Mono.Options;
@@ -23,10 +24,10 @@ static class Program
                 Attr = t.GetCustomAttribute<ProviderNameAttribute>()
             })
             .Where(x => x.Attr != null)
-            .ToDictionary(x => x.Attr.Name, x => x.Type, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(x => x.Attr?.Name ?? string.Empty, x => x.Type, StringComparer.OrdinalIgnoreCase);
     }
 
-    public static IChatProvider Provider = null;
+    public static IChatProvider? Provider = null; // Allow nullable field
 
     public static void SetProvider(string providerName)
     {
@@ -37,7 +38,7 @@ static class Program
         else if (Providers.Count > 0)
         {
             var first = Providers.First();
-            Provider = (IChatProvider)Activator.CreateInstance(first.Value, new object[] { config });
+            Provider = (IChatProvider?)Activator.CreateInstance(first.Value, new object[] { config });
         }
         else
         {
@@ -46,9 +47,9 @@ static class Program
         config.Provider = providerName;
     }
 
-    public static async Task<string> SelectModelAsync()
+    public static async Task<string?> SelectModelAsync() // Allow nullable return type
     {
-        var models = await Provider.GetAvailableModelsAsync();
+        var models = await Provider?.GetAvailableModelsAsync() ?? new List<string>(); // Handle possible null reference
         if (models == null || models.Count == 0)
         {
             Console.WriteLine("No models available.");
@@ -61,6 +62,7 @@ static class Program
 
     static async Task Main(string[] args)
     {
+        Console.WriteLine($"C#Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
         bool showHelp = false;
         var options = new OptionSet {
             { "h|host=", "Ollama server host (default: http://localhost:11434)", v => { if (v != null) config.Host = v; } },
@@ -75,6 +77,7 @@ static class Program
             options.WriteOptionDescriptions(Console.Out);
             return;
         }
+        Console.WriteLine($"Current configuration: {config.ToJson()}");
         
         SetProvider(config.Provider);
 
