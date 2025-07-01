@@ -10,8 +10,8 @@
   <ItemGroup>
     <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
     <PackageReference Include="Azure.Identity" Version="1.14.1" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.6" />
     <PackageReference Include="Mono.Options" Version="6.12.0.148" />
-    <PackageReference Include="TinyJson" Version="1.0.0" />
   </ItemGroup>
 
 <PropertyGroup>
@@ -56,10 +56,7 @@
   </ItemGroup>
 
   <!-- Step 5: Write final file -->
-  <WriteLinesToFile
-    File="$(GeneratedDir)\BuildInfo.cs"
-    Lines="@(SubstitutedLines->'%(Text)')"
-    Overwrite="true" />
+  <WriteLinesToFile File="$(GeneratedDir)\BuildInfo.cs" Lines="@(SubstitutedLines->'%(Text)')" Overwrite="true" />
 </Target>
 
 <ItemGroup>

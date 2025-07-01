@@ -1,7 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 
 public class Command
 {
@@ -175,7 +175,28 @@ public class CommandManager
                         Console.WriteLine("Invalid max tokens value. Must be between 1 and 32000.");
                     }
                 }
-            },  
+            },
+            new Command 
+            {
+                Name = "log-show", Description = "Show the contents of the log",
+                Action = async () => 
+                {
+                    await Task.CompletedTask; // Simulate asynchronous behavior
+                    var entries = Log.GetOutput().ToList();
+                    Console.WriteLine($"Log Entries [{entries.Count}]:");
+                    entries.ToList().ForEach(entry => Console.WriteLine(entry));
+                }
+            },
+            new Command
+            {
+                Name = "log-clear", Description = "Clear the log entries",
+                Action = async () => 
+                {
+                    await Task.CompletedTask; // Simulate asynchronous behavior
+                    Log.ClearOutput();
+                    Console.WriteLine("Log cleared.");
+                }
+            },
             new Command
             {
                 Name = "exit", Description = "Quit the application",
