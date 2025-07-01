@@ -52,6 +52,7 @@ public class CommandManager
                 Name = "clear", Description = "clear chat history",
                 Action = async () =>
                 {
+                    await Task.CompletedTask; // Simulate asynchronous behavior
                     Program.memory.Clear();
                     Program.memory.AddSystemMessage(Program.config.SystemPrompt);
                     Console.WriteLine("Chat history cleared.");
@@ -62,6 +63,7 @@ public class CommandManager
                 Name = "history", Description = "Show chat history",
                 Action = async () =>
                 {
+                    await Task.CompletedTask; // Simulate asynchronous behavior
                     Console.WriteLine("Chat History:");
                     foreach (var msg in Program.memory.Messages)
                     {
@@ -74,6 +76,7 @@ public class CommandManager
                 Name = "provider", Description = "Select the LLM Provider",
                 Action = async () =>
                 {
+                    await Task.CompletedTask; // Simulate asynchronous behavior
                     var providers = Program.Providers.Keys.ToList();
                     var selected = User.RenderMenu(providers, providers.IndexOf(Program.config.Provider));
                     if (!string.IsNullOrWhiteSpace(selected) && !selected.Equals(Program.config.Provider, StringComparison.OrdinalIgnoreCase))
@@ -89,6 +92,7 @@ public class CommandManager
                 Name = "model", Description = "List and select available models",
                 Action = async () =>
                 {
+                    await Task.CompletedTask; // Simulate asynchronous behavior
                     Console.WriteLine($"Current model: {Program.config.Model}");
                     var selected = await Program.SelectModelAsync();
                     if (selected != null)
@@ -104,6 +108,7 @@ public class CommandManager
                 Name = "host", Description = "Change Ollama host",
                 Action = async () =>
                 {
+                    await Task.CompletedTask; // Simulate asynchronous behavior
                     Console.Write("Enter new Ollama host: ");
                     var hostInput = Console.ReadLine();
                     if (!string.IsNullOrWhiteSpace(hostInput))
@@ -119,6 +124,7 @@ public class CommandManager
                 Name = "system", Description = "Change system prompt",
                 Action = async () =>
                 {
+                    await Task.CompletedTask; // Simulate asynchronous behavior
                     Console.WriteLine($"Current system prompt: {Program.config.SystemPrompt}");
                     Console.Write("Enter new system prompt (or press enter to keep current): ");
                     var promptInput = Console.ReadLine();
@@ -135,6 +141,7 @@ public class CommandManager
                 Name = "temperature", Description = "Set response temperature",
                 Action = async () =>
                 {
+                    await Task.CompletedTask; // Simulate asynchronous behavior
                     Console.Write($"Current temperature: {Program.config.Temperature}. Enter new value (0.0 to 1.0): ");
                     var tempInput = Console.ReadLine();
                     if (float.TryParse(tempInput, out var temp) && temp >= 0.0f && temp <= 1.0f)
@@ -154,6 +161,7 @@ public class CommandManager
                 Name = "max-tokens", Description = "Set maximum tokens for response",
                 Action = async () =>
                 {
+                    await Task.CompletedTask; // Simulate asynchronous behavior
                     Console.Write($"Current max tokens: {Program.config.MaxTokens}. Enter new value (1 to 10000): ");
                     var tokensInput = Console.ReadLine();
                     if (int.TryParse(tokensInput, out var tokens) && tokens >= 1 && tokens <= 32000)

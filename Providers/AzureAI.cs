@@ -27,6 +27,7 @@ public class AzureAI : IChatProvider
 
     public async Task<List<string>> GetAvailableModelsAsync()
     {
+        await Task.CompletedTask; // Simulate asynchronous behavior
         // There currently isn't a direct API to list models in Azure OpenAI, so we return a default model.
         // You can modify this to fetch models from a configuration or a known list.
         return new List<string>() { "esai-gpt4-32k" }; 

@@ -33,7 +33,7 @@ static class Program
     {
         if (Providers.TryGetValue(providerName, out var type))
         {
-            Provider = (IChatProvider)Activator.CreateInstance(type, new object[] { config });
+            Provider = (IChatProvider?)Activator.CreateInstance(type, new object[] { config });
         }
         else if (Providers.Count > 0)
         {
@@ -49,7 +49,13 @@ static class Program
 
     public static async Task<string?> SelectModelAsync() // Allow nullable return type
     {
-        var models = await Provider?.GetAvailableModelsAsync() ?? new List<string>(); // Handle possible null reference
+        if (Provider == null)
+        {
+            Console.WriteLine("Provider is not set.");
+            return null;
+        }
+
+        var models = await Provider.GetAvailableModelsAsync();
         if (models == null || models.Count == 0)
         {
             Console.WriteLine("No models available.");
@@ -65,10 +71,10 @@ static class Program
         Console.WriteLine($"C#Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
         bool showHelp = false;
         var options = new OptionSet {
-            { "h|host=", "Ollama server host (default: http://localhost:11434)", v => { if (v != null) config.Host = v; } },
+            { "h|host=", "Server host (default: http://localhost:11434)", v => { if (v != null) config.Host = v; } },
             { "m|model=", "Model name", v => { if (v != null) config.Model = v; } },
             { "s|system=", "System prompt", v => { if (v != null) config.SystemPrompt = v; } },
-            { "p|provider=", "Provider name", v => { if (v != null) SetProvider(v); } },
+            { "p|provider=", "Provider name (default: ollama)", v => { if (v != null) config.Provider = v; } },
             { "?|help", "Show help", v => showHelp = v != null }
         };
         options.Parse(args);
@@ -77,8 +83,7 @@ static class Program
             options.WriteOptionDescriptions(Console.Out);
             return;
         }
-        Console.WriteLine($"Current configuration: {config.ToJson()}");
-        
+
         SetProvider(config.Provider);
 
         if (string.IsNullOrWhiteSpace(config.Model))
@@ -99,9 +104,16 @@ static class Program
             var userInput = await User.ReadInputWithFeaturesAsync(commandManager);
             if (string.IsNullOrWhiteSpace(userInput)) continue;
             memory.AddUserMessage(userInput);
-            string response = await Provider.PostChatAsync(memory);
-            Console.WriteLine(response);
-            memory.AddAssistantMessage(response);
+            if (Provider != null) // Add null check for Provider
+            {
+                string response = await Provider.PostChatAsync(memory);
+                Console.WriteLine(response);
+                memory.AddAssistantMessage(response);
+            }
+            else
+            {
+                Console.WriteLine("Provider is not set.");
+            }
         }
     }
 }

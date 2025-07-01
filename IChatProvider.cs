@@ -21,6 +21,17 @@ public class Memory
     protected List<ChatMessage> _systemMessages = new List<ChatMessage>();
     protected List<ChatMessage> _messages = new List<ChatMessage>();
     public Memory(string systemPrompt) => AddSystemMessage(systemPrompt);
+
+    public Memory(IEnumerable<ChatMessage> messages)
+    {
+        foreach (var msg in messages)
+        {
+            if (msg.Role == Roles.System)
+                _systemMessages.Add(msg);
+            else
+                _messages.Add(msg);
+        }
+    }
     
     public IEnumerable<ChatMessage> Messages
     {
