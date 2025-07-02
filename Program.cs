@@ -74,7 +74,7 @@ static class Program
         Config.Save(config, ConfigFilePath);
 
         Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-        Console.WriteLine("Type your message and press Enter. Press '/' to bring up available commands, /? for help. (Shift+Enter for new line)");
+        Console.WriteLine("Type your message and press Enter. Press '/' to bring up available commands. (Shift+Enter for new line)");
         Console.WriteLine();
         while (true)
         {

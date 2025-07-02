@@ -270,8 +270,8 @@ public static class Engine
             ctx.Failed("No models available.", Error.ModelNotFound);
             return null;
         }
-        Console.WriteLine("Available models:");
-        var selected = User.RenderMenu(models, models.IndexOf(Program.config.Model));
+
+        var selected = User.RenderMenu("Available models:", models, models.IndexOf(Program.config.Model));
         ctx.Append(Log.Data.Model, selected ?? "<nothing>");
         ctx.Succeeded();
         return selected;

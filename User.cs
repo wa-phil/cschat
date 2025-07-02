@@ -5,9 +5,10 @@ using System.Collections.Generic;
 public class User
 {
     // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
-    public static string? RenderMenu(List<string> choices, int selected = 0) // Allow nullable return type to handle null cases
+    public static string? RenderMenu(string header, List<string> choices, int selected = 0) // Allow nullable return type to handle null cases
     {
         // Always print enough newlines to ensure space for the menu
+        Console.WriteLine(header);
         int menuLines = choices.Count;
         for (int i = 0; i < menuLines; i++)
         {
@@ -78,6 +79,7 @@ public class User
         var lines = new List<string>();
         int cursor = 0;
         ConsoleKeyInfo key;
+
         while (true)
         {
             key = Console.ReadKey(intercept: true);
@@ -105,26 +107,6 @@ public class User
                 }
                 continue;
             }
-            if (key.Key == ConsoleKey.Tab)
-            {
-                var current = new string(buffer.ToArray());
-                if (current.StartsWith("/"))
-                {
-                    var completions = commandManager.GetCompletions(current);
-                    var match = completions.FirstOrDefault();
-                    if (match != null)
-                    {
-                        // Complete the command
-                        for (int i = cursor; i < current.Length; i++)
-                            Console.Write("\b \b");
-                        buffer.Clear();
-                        buffer.AddRange(match);
-                        cursor = buffer.Count;
-                        Console.Write(match.Substring(current.Length));
-                    }
-                }
-                continue;
-            }
             if (key.KeyChar != '\0')
             {
                 buffer.Insert(cursor, key.KeyChar);
@@ -132,34 +114,21 @@ public class User
                 Console.Write(key.KeyChar);
                 if (cursor == 1 && key.KeyChar == '/')
                 {
-                    // Show available commands
-                    Console.WriteLine();
-                    Console.WriteLine("Available commands:");
-                    foreach (var cmd in commandManager.GetAll())
-                        Console.WriteLine($"  /{cmd.Name} - {cmd.Description}");
-                    Console.Write("> " + new string(buffer.ToArray()));
+                    var result = await commandManager.Action();
+                    if (result == Command.Result.Failed)
+                    {
+                        Console.WriteLine("Command failed.");
+                    }
+                    Console.Write("> ");
+                    buffer.Clear();
+                    cursor = 0;
+                    continue;
                 }
             }
         }
         lines.Add(new string(buffer.ToArray()));
         var input = string.Join("\n", lines).Trim();
-        if (string.IsNullOrWhiteSpace(input))
-            return null;
-        if (input.StartsWith("/"))
-        {
-            var cmdName = input.Split(' ')[0].Substring(1);
-            var cmd = commandManager.Find("/" + cmdName);
-            if (cmd != null)
-            {
-                await cmd.Action();
-            }
-            else
-            {
-                Console.WriteLine("Unknown command. Type /? for help.");
-            }
-            return null; // Hide command details from main loop
-        }
-        return input;
+        return string.IsNullOrWhiteSpace(input) ? null : input;
     }
 
     public static async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
