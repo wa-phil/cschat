@@ -2,6 +2,7 @@ using Azure;
 using System;
 using TinyJson;
 using System.IO;
+using System.Linq;
 using System.Text;
 using OpenAI.Chat;
 using Azure.Identity;
@@ -11,7 +12,7 @@ using System.Collections.Generic;
 
 
 [ProviderName("AzureAI")]
-public class AzureAI : IChatProvider //, IEmbeddingProvider // TODO: uncomment and implement to support RAG scenario.
+public class AzureAI : IChatProvider//, IEmbeddingProvider // todo: uncomment once embedding is working
 {
     private Config? config = null;
     private AzureOpenAIClient? azureClient = null;
@@ -68,21 +69,22 @@ public class AzureAI : IChatProvider //, IEmbeddingProvider // TODO: uncomment a
         return ret ?? string.Empty; // Handle possible null reference return
     }
 
-    // public async Task<float[]> GetEmbeddingAsync(string text)
-    // {
-    //     try
-    //     {
-    //         var client = azureClient.GetEmbeddingClient(config.Model);
-    //         client.ThrowIfNull("Embedding client is not initialized. Ensure the model supports embeddings.");
-    //         var response = await client.EmbedAsync(RequestContent.Create(text));
+    public async Task<float[]> GetEmbeddingAsync(string text) => await Log.MethodAsync(async ctx =>
+    {
+        try
+        {
+            // Get the embedding client from azureClient
+            var embeddingClient = azureClient.GetEmbeddingClient("text-embedding-3-large");
+            embeddingClient.ThrowIfNull("Embedding client could not be retrieved.");
 
-    //         var embedding = response.Value.Data[0].Embedding;
-    //         return embedding.ToArray();
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         Console.WriteLine($"Failed to get embedding from AzureAI: {ex.Message}");
-    //         return Array.Empty<float>();
-    //     }
-    // }
+            // Use the embedding client to get embeddings
+            var response = await embeddingClient.GenerateEmbeddingAsync(text);
+            return response.Value.ToFloats().ToArray(); ;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to get embedding from AzureAI: {ex.Message}");
+            return Array.Empty<float>();
+        }
+    });
 }
