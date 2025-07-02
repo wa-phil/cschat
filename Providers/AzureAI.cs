@@ -11,12 +11,12 @@ using System.Collections.Generic;
 
 
 [ProviderName("AzureAI")]
-public class AzureAI : IChatProvider
+public class AzureAI : IChatProvider //, IEmbeddingProvider // TODO: uncomment and implement to support RAG scenario.
 {
     private Config? config = null;
     private AzureOpenAIClient? azureClient = null;
     private ChatClient? chatClient = null;
-    
+
     public AzureAI(Config cfg)
     {
         this.config = cfg ?? throw new ArgumentNullException(nameof(cfg));
@@ -30,7 +30,7 @@ public class AzureAI : IChatProvider
         await Task.CompletedTask; // Simulate asynchronous behavior
         // There currently isn't a direct API to list models in Azure OpenAI, so we return a default model.
         // You can modify this to fetch models from a configuration or a known list.
-        return new List<string>() { "esai-gpt4-32k" }; 
+        return new List<string>() { "esai-gpt4-32k" };
     }
 
     public async Task<string> PostChatAsync(Memory memory)
@@ -66,5 +66,23 @@ public class AzureAI : IChatProvider
         }
         await Task.CompletedTask; // Add await to simulate asynchronous behavior
         return ret ?? string.Empty; // Handle possible null reference return
-    }    
+    }
+
+    // public async Task<float[]> GetEmbeddingAsync(string text)
+    // {
+    //     try
+    //     {
+    //         var client = azureClient.GetEmbeddingClient(config.Model);
+    //         client.ThrowIfNull("Embedding client is not initialized. Ensure the model supports embeddings.");
+    //         var response = await client.EmbedAsync(RequestContent.Create(text));
+
+    //         var embedding = response.Value.Data[0].Embedding;
+    //         return embedding.ToArray();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Console.WriteLine($"Failed to get embedding from AzureAI: {ex.Message}");
+    //         return Array.Empty<float>();
+    //     }
+    // }
 }

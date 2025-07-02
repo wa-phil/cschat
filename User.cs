@@ -161,4 +161,59 @@ public class User
         }
         return input;
     }
+
+    public static async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
+    {
+        await Task.CompletedTask; // Simulate asynchronous behavior
+        var buffer = new List<char>();
+        while (true)
+        {
+            var key = Console.ReadKey(intercept: true);
+
+            if (key.Key == ConsoleKey.Enter)
+            {
+                Console.WriteLine();
+                break;
+            }
+            else if (key.Key == ConsoleKey.Backspace && buffer.Count > 0)
+            {
+                buffer.RemoveAt(buffer.Count - 1);
+                Console.Write("\b \b");
+            }
+            else if (key.Key == ConsoleKey.Tab)
+            {
+                var current = new string(buffer.ToArray());
+                var prefix = Path.GetDirectoryName(current) ?? ".";
+                var partial = Path.GetFileName(current);
+                var matches = Directory
+                    .GetFileSystemEntries(prefix)
+                    .Where(f => Path.GetFileName(f).StartsWith(partial, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (matches.Count == 1)
+                {
+                    var completion = matches[0];
+                    for (int i = 0; i < partial.Length; i++) Console.Write("\b \b");
+                    buffer.RemoveRange(buffer.Count - partial.Length, partial.Length);
+                    buffer.AddRange(Path.GetFileName(completion));
+                    Console.Write(Path.GetFileName(completion));
+                }
+                else if (matches.Count > 1)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("Matches:");
+                    matches.ForEach(m => Console.WriteLine("  " + m));
+                    Console.Write("> " + new string(buffer.ToArray()));
+                }
+            }
+            else if (key.KeyChar != '\0')
+            {
+                buffer.Add(key.KeyChar);
+                Console.Write(key.KeyChar);
+            }
+        }
+
+        var result = new string(buffer.ToArray());
+        return string.IsNullOrWhiteSpace(result) ? null : Path.GetFullPath(result);
+    }
 }

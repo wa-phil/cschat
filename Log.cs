@@ -38,7 +38,7 @@ public static class Log
     {
         Method, Level, Timestamp, Message, Success, ErrorCode, IsRetry, Threw, Caught, PlugIn, Count, Source,
         Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, 
-        Provider, Model, Version, GitHash, ProviderSet,
+        Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query
     }
 
     public enum Level { Information, Error }

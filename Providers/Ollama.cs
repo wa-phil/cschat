@@ -7,7 +7,7 @@ using System.Collections.Generic;
 using System.Linq; // Add using directive for LINQ
 
 [ProviderName("Ollama")]
-public class Ollama : IChatProvider
+public class Ollama : IChatProvider, IEmbeddingProvider
 {
     private Config config = new Config(); // Initialize non-nullable field to avoid null reference
     private readonly HttpClient client = new HttpClient();
@@ -40,7 +40,7 @@ public class Ollama : IChatProvider
     }
 
     public async Task<string> PostChatAsync(Memory memory)
-    {        
+    {
         var requestBody = new
         {
             model = config.Model,
@@ -72,4 +72,36 @@ public class Ollama : IChatProvider
             throw;
         }
     }
+    
+    public async Task<float[]> GetEmbeddingAsync(string text)
+    {
+        var request = new
+        {
+            model = config.Model,
+            prompt = text
+        };
+
+        var content = new StringContent(request.ToJson(), Encoding.UTF8, "application/json");
+        try
+        {
+            var response = await client.PostAsync($"{config.Host}/api/embeddings", content);
+            if (!response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"Failed to get embedding: {response.StatusCode}");
+                return Array.Empty<float>();
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            dynamic parsed = json.FromJson<dynamic>();
+
+            // Adjust parsing based on Ollama response schema
+            return ((IEnumerable<object>)parsed["embedding"]).Select(Convert.ToSingle).ToArray();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception during embedding request: {ex.Message}");
+            return Array.Empty<float>();
+        }
+    }
+
 }

@@ -81,7 +81,7 @@ public class CommandManager
                     var selected = User.RenderMenu(providers, providers.IndexOf(Program.config.Provider));
                     if (!string.IsNullOrWhiteSpace(selected) && !selected.Equals(Program.config.Provider, StringComparison.OrdinalIgnoreCase))
                     {
-                        Program.SetProvider(selected);
+                        Engine.SetProvider(selected);
                         Config.Save(Program.config, Program.ConfigFilePath);
                         Console.WriteLine($"Switched to provider '{Program.config.Provider}'");
                     }
@@ -94,7 +94,7 @@ public class CommandManager
                 {
                     await Task.CompletedTask; // Simulate asynchronous behavior
                     Console.WriteLine($"Current model: {Program.config.Model}");
-                    var selected = await Program.SelectModelAsync();
+                    var selected = await Engine.SelectModelAsync();
                     if (selected != null)
                     {
                         Program.config.Model = selected;
@@ -176,10 +176,53 @@ public class CommandManager
                     }
                 }
             },
-            new Command 
+            new Command
+            {
+                Name = "rag-file",
+                Description = "Add a file to the RAG store",
+                Action = async () =>
+                {
+                    await Task.CompletedTask; // Simulate asynchronous behavior
+                    Console.Write("Enter file path: ");
+                    var input = await User.ReadPathWithAutocompleteAsync(isDirectory: false);
+                    if (!string.IsNullOrWhiteSpace(input))
+                    {
+                        Engine.AddFileToVectorStore(input);
+                        Console.WriteLine($"Added file '{input}' to RAG.");
+                    }
+                }
+            },
+            new Command
+            {
+                Name = "rag-directory",
+                Description = "Add a directory to the RAG store",
+                Action = async () =>
+                {
+                    await Task.CompletedTask; // Simulate asynchronous behavior
+                    Console.Write("Enter directory path: ");
+                    var input = await User.ReadPathWithAutocompleteAsync(isDirectory: true);
+                    if (!string.IsNullOrWhiteSpace(input))
+                    {
+                        Engine.AddDirectoryToVectorStore(input);
+                        Console.WriteLine($"Added directory '{input}' to RAG.");
+                    }
+                }
+            },
+            new Command
+            {
+                Name = "rag-clear",
+                Description = "Clear all RAG data",
+                Action = async () =>
+                {
+                    Engine.VectorStore.Clear();
+                    await Task.CompletedTask;
+                    Console.WriteLine("RAG store cleared.");
+                }
+            },
+            new Command
             {
                 Name = "log-show", Description = "Show the contents of the log",
-                Action = async () => 
+                Action = async () =>
                 {
                     await Task.CompletedTask; // Simulate asynchronous behavior
                     var entries = Log.GetOutput().ToList();
