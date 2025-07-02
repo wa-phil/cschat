@@ -62,7 +62,7 @@ public class AzureAI : IChatProvider
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error: {ex.Message}.\n Validate that you have access via: https://coreidentity.microsoft.com/manage/Entitlement/entitlement/wcdconsumer-ptx3");
+            Console.WriteLine($"Error: {ex.Message}.\n Validate that you have access to the Azure OpenAI service and that the model '{config.Model}' is available.");
         }
         await Task.CompletedTask; // Add await to simulate asynchronous behavior
         return ret ?? string.Empty; // Handle possible null reference return
