@@ -22,8 +22,8 @@
   <MakeDir Directories="$(GeneratedDir)" />
 
   <!-- Step 1: get git tag and hash -->
-  <Exec Command="git describe --tags --abbrev=0" ConsoleToMSBuild="true">
-    <Output TaskParameter="ConsoleOutput" PropertyName="GitTagRaw" />
+  <Exec Command="git describe --tags" ConsoleToMSBuild="true">
+    <Output TaskParameter="ConsoleOutput" PropertyName="GitDescribeRaw" />
   </Exec>
   <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true">
     <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitHash" />
@@ -31,10 +31,15 @@
 
   <!-- Step 2: Fallbacks and cleaning -->
   <PropertyGroup>
-    <GitTagRaw Condition="'$(GitTagRaw)' == ''">v0.0.0</GitTagRaw>
-    <GitCommitHash Condition="'$(GitCommitHash)' == ''">unknown</GitCommitHash>
-    <GitVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(GitTagRaw)', '^v', ''))</GitVersion>
+    <GitDescribeRaw Condition="'$(GitDescribeRaw)' == ''">v0.0.0</GitDescribeRaw>
+    <!-- strip leading v -->
+    <GitDescribeNoV>$([System.Text.RegularExpressions.Regex]::Replace('$(GitDescribeRaw)', '^v', ''))</GitDescribeNoV>
+    <!-- if it's like 0.1-4-g3a43371 → turn into 0.1.4 -->
+    <GitVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(GitDescribeNoV)', '^(\d+\.\d+)-(\d+)-g[0-9a-f]+$', '$1.$2'))</GitVersion>
+    <!-- fallback to plain tag if not matched -->
+    <GitVersion Condition="'$(GitVersion)' == ''">$(GitDescribeNoV)</GitVersion>
   </PropertyGroup>
+
 
   <!-- Step 3: Read the template file -->
   <ReadLinesFromFile File="BuildInfo.template.cs">
@@ -45,7 +50,7 @@
   <ItemGroup>
     <SubstitutedLines Include="@(TemplateLines)" />
     <SubstitutedLines Update="@(SubstitutedLines)">
-      <Text>$([System.Text.RegularExpressions.Regex]::Replace('%(Identity)', '__GIT_TAG__', '$(GitTagRaw)'))</Text>
+      <Text>$([System.Text.RegularExpressions.Regex]::Replace('%(Identity)', '__GIT_TAG__', '$(GitDescribeRaw)'))</Text>
     </SubstitutedLines>
     <SubstitutedLines Update="@(SubstitutedLines)">
       <Text>$([System.Text.RegularExpressions.Regex]::Replace('%(Text)', '__GIT_VERSION__', '$(GitVersion)'))</Text>

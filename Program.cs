@@ -46,7 +46,7 @@ static class Program
     static async Task Main(string[] args)
     {
         Log.Initialize();
-        Console.WriteLine($"C#Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
+        Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
         bool showHelp = false;
         var options = new OptionSet {
             { "h|host=", "Server host (default: http://localhost:11434)", v => { if (v != null) config.Host = v; } },
