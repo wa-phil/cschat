@@ -71,10 +71,6 @@ public class Ollama : IChatProvider, IEmbeddingProvider
             var respJson = await response.Content.ReadAsStringAsync();
             respJson.ThrowIfNull("Response from Ollama API is null.");
             dynamic? respObj = respJson!.FromJson<dynamic>();
-            // if (respObj != null && respObj!["choices"] != null && respObj!["choices"]![0] != null && respObj!["choices"]![0]!["message"] != null)
-            // {
-            //     return respObj!["choices"]![0]!["message"]!["content"]?.ToString() ?? string.Empty;
-            // }
             return respObj?["choices"]?[0]?["message"]?["content"]?.ToString() ?? string.Empty;
         }
         catch (Exception ex)
