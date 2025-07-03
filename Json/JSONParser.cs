@@ -1,383 +1,264 @@
 using System;
-using System.Text;
-using System.Reflection;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.Serialization;
+using System.Text;
+using System.Text.RegularExpressions;
 
-namespace TinyJson
+public static class JSONParser
 {
-    // Really simple JSON parser in ~300 lines
-    // - Attempts to parse JSON files with minimal GC allocation
-    // - Nice and simple "[1,2,3]".FromJson<List<int>>() API
-    // - Classes and structs can be parsed too!
-    //      class Foo { public int Value; }
-    //      "{\"Value\":10}".FromJson<Foo>()
-    // - Can parse JSON without type information into Dictionary<string,object> and List<object> e.g.
-    //      "[1,2,3]".FromJson<object>().GetType() == typeof(List<object>)
-    //      "{\"Value\":10}".FromJson<object>().GetType() == typeof(Dictionary<string,object>)
-    // - No JIT Emit support to support AOT compilation on iOS
-    // - Attempts are made to NOT throw an exception if the JSON is corrupted or invalid: returns null instead.
-    // - Only public fields and property setters on classes/structs will be written to
-    //
-    // Limitations:
-    // - No JIT Emit support to parse structures quickly
-    // - Limited to parsing <2GB JSON files (due to int.MaxValue)
-    // - Parsing of abstract classes or interfaces is NOT supported and will throw an exception.
-    public static class JSONParser
+    [ThreadStatic] static Stack<List<string>> splitArrayPool = null!;
+    [ThreadStatic] static StringBuilder stringBuilder = null!;
+    [ThreadStatic] static Dictionary<Type, Dictionary<string, FieldInfo>> fieldInfoCache = null!;
+    [ThreadStatic] static Dictionary<Type, Dictionary<string, PropertyInfo>> propertyInfoCache = null!;
+
+    public static T? FromJson<T>(this string json)
     {
-        [ThreadStatic] static Stack<List<string>> splitArrayPool;
-        [ThreadStatic] static StringBuilder stringBuilder;
-        [ThreadStatic] static Dictionary<Type, Dictionary<string, FieldInfo>> fieldInfoCache;
-        [ThreadStatic] static Dictionary<Type, Dictionary<string, PropertyInfo>> propertyInfoCache;
+        splitArrayPool ??= new Stack<List<string>>();
+        stringBuilder ??= new StringBuilder(2048);
+        fieldInfoCache ??= new Dictionary<Type, Dictionary<string, FieldInfo>>();
+        propertyInfoCache ??= new Dictionary<Type, Dictionary<string, PropertyInfo>>();
+        return (T?)ParseValue(typeof(T), json);
+    }
 
-        public static T FromJson<T>(this string json)
+    static object? ParseValue(Type type, string json)
+    {
+        json = json.Trim();
+        if (json == "null") return null;
+
+        if (type == typeof(string)) return Unescape(json.Substring(1, json.Length - 2));
+        if (type == typeof(int)) return int.TryParse(json, out var i) ? i : 0;
+        if (type == typeof(float)) return float.TryParse(json, out var f) ? f : 0f;
+        if (type == typeof(double)) return double.TryParse(json, out var d) ? d : 0.0;
+        if (type == typeof(bool)) return json == "true";
+        if (type == typeof(object)) return ParseDynamic(json);
+
+        if (type.IsArray)
         {
-            // Initialize, if needed, the ThreadStatic variables
-            if (propertyInfoCache == null) propertyInfoCache = new Dictionary<Type, Dictionary<string, PropertyInfo>>();
-            if (fieldInfoCache == null) fieldInfoCache = new Dictionary<Type, Dictionary<string, FieldInfo>>();
-            if (stringBuilder == null) stringBuilder = new StringBuilder();
-            if (splitArrayPool == null) splitArrayPool = new Stack<List<string>>();
-
-            //Remove all whitespace not within strings to make parsing simpler
-            stringBuilder.Length = 0;
-            for (int i = 0; i < json.Length; i++)
+            Type? elementType = type.GetElementType();
+            if (elementType == null) return null;
+            string content = json.Substring(1, json.Length - 2);
+            List<string> elems = Split(content);
+            Array array = Array.CreateInstance(elementType, elems.Count);
+            for (int i = 0; i < elems.Count; i++)
             {
-                char c = json[i];
-                if (c == '"')
-                {
-                    i = AppendUntilStringEnd(true, i, json);
-                    continue;
-                }
-                if (char.IsWhiteSpace(c))
-                    continue;
-
-                stringBuilder.Append(c);
+                object? val = ParseValue(elementType, elems[i]);
+                if (val != null) array.SetValue(val, i);
             }
-
-            //Parse the thing!
-            return (T)ParseValue(typeof(T), stringBuilder.ToString());
+            return array;
         }
 
-        static int AppendUntilStringEnd(bool appendEscapeCharacter, int startIdx, string json)
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
         {
-            stringBuilder.Append(json[startIdx]);
-            for (int i = startIdx + 1; i < json.Length; i++)
+            Type elementType = type.GetGenericArguments()[0];
+            string content = json.Substring(1, json.Length - 2);
+            List<string> elems = Split(content);
+            IList list = (IList)Activator.CreateInstance(type)!;
+            foreach (var elem in elems)
             {
-                if (json[i] == '\\')
-                {
-                    if (appendEscapeCharacter)
-                        stringBuilder.Append(json[i]);
-                    stringBuilder.Append(json[i + 1]);
-                    i++;//Skip next character as it is escaped
-                }
-                else if (json[i] == '"')
-                {
-                    stringBuilder.Append(json[i]);
-                    return i;
-                }
-                else
-                    stringBuilder.Append(json[i]);
+                object? val = ParseValue(elementType, elem);
+                if (val != null) list.Add(val);
             }
-            return json.Length - 1;
+            return list;
         }
 
-        //Splits { <value>:<value>, <value>:<value> } and [ <value>, <value> ] into a list of <value> strings
-        static List<string> Split(string json)
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>) && type.GetGenericArguments()[0] == typeof(string))
         {
-            List<string> splitArray = splitArrayPool.Count > 0 ? splitArrayPool.Pop() : new List<string>();
-            splitArray.Clear();
-            if (json.Length == 2)
-                return splitArray;
-            int parseDepth = 0;
-            stringBuilder.Length = 0;
-            for (int i = 1; i < json.Length - 1; i++)
+            Type valueType = type.GetGenericArguments()[1];
+            string content = json.Substring(1, json.Length - 2);
+            List<string> elems = Split(content);
+            IDictionary dict = (IDictionary)Activator.CreateInstance(type)!;
+            foreach (string pair in elems)
             {
-                switch (json[i])
+                int colonIndex = pair.IndexOf(':');
+                if (colonIndex == -1) continue;
+                string key = pair.Substring(0, colonIndex).Trim();
+                string valStr = pair.Substring(colonIndex + 1).Trim();
+                key = Unescape(key.Substring(1, key.Length - 2));
+                object? val = ParseValue(valueType, valStr);
+                dict[key] = val;
+            }
+            return dict;
+        }
+
+        if (json[0] == '{')
+        {
+            object obj = Activator.CreateInstance(type)!;
+            string content = json.Substring(1, json.Length - 2);
+            List<string> elems = Split(content);
+
+            if (!fieldInfoCache.TryGetValue(type, out var fields))
+            {
+                fields = new Dictionary<string, FieldInfo>();
+                foreach (var f in type.GetFields(BindingFlags.Instance | BindingFlags.Public))
                 {
-                    case '[':
-                    case '{':
-                        parseDepth++;
-                        break;
-                    case ']':
-                    case '}':
-                        parseDepth--;
-                        break;
-                    case '"':
-                        i = AppendUntilStringEnd(true, i, json);
+                    if (f.GetCustomAttribute<IgnoreDataMemberAttribute>() != null)
                         continue;
-                    case ',':
-                    case ':':
-                        if (parseDepth == 0)
+                    var name = f.GetCustomAttribute<DataMemberAttribute>()?.Name ?? f.Name;
+                    fields[name] = f;
+                }
+                fieldInfoCache[type] = fields;
+            }
+
+            if (!propertyInfoCache.TryGetValue(type, out var props))
+            {
+                props = new Dictionary<string, PropertyInfo>();
+                foreach (var p in type.GetProperties(BindingFlags.Instance | BindingFlags.Public))
+                {
+                    if (!p.CanWrite || p.GetCustomAttribute<IgnoreDataMemberAttribute>() != null)
+                        continue;
+                    var name = p.GetCustomAttribute<DataMemberAttribute>()?.Name ?? p.Name;
+                    props[name] = p;
+                }
+                propertyInfoCache[type] = props;
+            }
+
+            foreach (string pair in elems)
+            {
+                int colonIndex = pair.IndexOf(':');
+                if (colonIndex == -1) continue;
+                string key = pair.Substring(0, colonIndex).Trim();
+                string valStr = pair.Substring(colonIndex + 1).Trim();
+                key = Unescape(key.Substring(1, key.Length - 2));
+
+                if (fields.TryGetValue(key, out var field))
+                {
+                    object? val = ParseValue(field.FieldType, valStr);
+                    field.SetValue(obj, val);
+                }
+                else if (props.TryGetValue(key, out var prop))
+                {
+                    object? val = ParseValue(prop.PropertyType, valStr);
+                    prop.SetValue(obj, val);
+                }
+            }
+            return obj;
+        }
+
+        return null;
+    }
+
+    static object? ParseDynamic(string json)
+    {
+        json = json.Trim();
+        if (json == "null") return null;
+        if (json.StartsWith("\"")) return Unescape(json.Substring(1, json.Length - 2));
+        if (json == "true") return true;
+        if (json == "false") return false;
+        if (json.IndexOf('.') >= 0 && double.TryParse(json, out var dbl)) return dbl;
+        if (int.TryParse(json, out var i)) return i;
+
+        if (json.StartsWith("["))
+        {
+            var list = new List<object?>();
+            var elements = Split(json.Substring(1, json.Length - 2));
+            foreach (var elem in elements)
+                list.Add(ParseDynamic(elem));
+            return list;
+        }
+
+        if (json.StartsWith("{"))
+        {
+            var dict = new Dictionary<string, object?>();
+            var pairs = Split(json.Substring(1, json.Length - 2));
+            foreach (var pair in pairs)
+            {
+                int colonIndex = pair.IndexOf(':');
+                if (colonIndex == -1) continue;
+                string key = pair.Substring(0, colonIndex).Trim();
+                string valStr = pair.Substring(colonIndex + 1).Trim();
+                key = Unescape(key.Substring(1, key.Length - 2));
+                dict[key] = ParseDynamic(valStr);
+            }
+            return dict;
+        }
+
+        return json;
+    }
+
+    static string Unescape(string str)
+    {
+        StringBuilder sb = new();
+        for (int i = 0; i < str.Length; i++)
+        {
+            if (str[i] == '\\' && i + 1 < str.Length)
+            {
+                i++;
+                switch (str[i])
+                {
+                    case '"': sb.Append('"'); break;
+                    case '\\': sb.Append('\\'); break;
+                    case '/': sb.Append('/'); break;
+                    case 'b': sb.Append('\b'); break;
+                    case 'f': sb.Append('\f'); break;
+                    case 'n': sb.Append('\n'); break;
+                    case 'r': sb.Append('\r'); break;
+                    case 't': sb.Append('\t'); break;
+                    case 'u':
+                        if (i + 4 < str.Length)
                         {
-                            splitArray.Add(stringBuilder.ToString());
-                            stringBuilder.Length = 0;
-                            continue;
+                            string hex = str.Substring(i + 1, 4);
+                            if (ushort.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out ushort code))
+                            {
+                                sb.Append((char)code);
+                                i += 4;
+                            }
                         }
                         break;
+                    default: sb.Append(str[i]); break;
                 }
-
-                stringBuilder.Append(json[i]);
             }
-
-            splitArray.Add(stringBuilder.ToString());
-
-            return splitArray;
-        }
-
-        internal static object DecodeString(string json)
-        {
-            if (json.Length <= 2) { return string.Empty; }
-                
-            StringBuilder builder = new StringBuilder(json.Length);
-            for (int i = 1; i < json.Length - 1; ++i)
+            else
             {
-                if (json[i] == '\\' && i + 1 < json.Length - 1)
-                {
-                    int j = "\"\\nrtbf/".IndexOf(json[i + 1]);
-                    if (j >= 0)
+                sb.Append(str[i]);
+            }
+        }
+        return sb.ToString();
+    }
+
+    static List<string> Split(string json)
+    {
+        var result = (splitArrayPool.Count > 0) ? splitArrayPool.Pop() : new List<string>();
+        result.Clear();
+        int depth = 0;
+        int start = 0;
+        bool inQuotes = false;
+        bool escape = false;
+        for (int i = 0; i < json.Length; i++)
+        {
+            char c = json[i];
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+            if (c == '\\')
+            {
+                escape = true;
+                continue;
+            }
+            switch (c)
+            {
+                case '"':
+                    inQuotes = !inQuotes;
+                    break;
+                case '{': case '[':
+                    if (!inQuotes) depth++;
+                    break;
+                case '}': case ']':
+                    if (!inQuotes) depth--;
+                    break;
+                case ',':
+                    if (depth == 0 && !inQuotes)
                     {
-                        builder.Append("\"\\\n\r\t\b\f/"[j]);
-                        ++i;
-                        continue;
+                        result.Add(json.Substring(start, i - start));
+                        start = i + 1;
                     }
-                    if (json[i + 1] == 'u' && i + 5 < json.Length - 1)
-                    {
-                        UInt32 c = 0;
-                        if (UInt32.TryParse(json.Substring(i + 2, 4), System.Globalization.NumberStyles.AllowHexSpecifier, null, out c))
-                        {
-                            builder.Append((char)c);
-                            i += 5;
-                            continue;
-                        }
-                    }
-                }
-                builder.Append(json[i]);
+                    break;
             }
-            return builder.ToString();
         }
-
-        internal static object? ParseValue(Type type, string json)
-        {
-            if (type == typeof(string))
-            {
-                return DecodeString(json);
-            }
-            if (type.IsPrimitive)
-            {
-                var result = Convert.ChangeType(json, type, System.Globalization.CultureInfo.InvariantCulture);
-                return result;
-            }
-            if (type == typeof(decimal))
-            {
-                decimal result;
-                decimal.TryParse(json, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out result);
-                return result;
-            }
-            if (type == typeof(DateTime))
-            {
-                DateTime result;
-                DateTime.TryParse(json.Replace("\"",""), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out result);
-                return result;
-            }
-            if (json == "null")
-            {
-                return null;
-            }
-            if (type.IsEnum)
-            {
-                if (json[0] == '"')
-                    json = json.Substring(1, json.Length - 2);
-                try
-                {
-                    return Enum.Parse(type, json, false);
-                }
-                catch
-                {
-                    return 0;
-                }
-            }
-            if (type.IsArray)
-            {
-                Type arrayType = type.GetElementType();
-                if (json[0] != '[' || json[json.Length - 1] != ']')
-                    return null;
-
-                List<string> elems = Split(json);
-                Array newArray = Array.CreateInstance(arrayType, elems.Count);
-                for (int i = 0; i < elems.Count; i++)
-                    newArray.SetValue(ParseValue(arrayType, elems[i]), i);
-                splitArrayPool.Push(elems);
-                return newArray;
-            }
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
-            {
-                Type listType = type.GetGenericArguments()[0];
-                if (json[0] != '[' || json[json.Length - 1] != ']')
-                    return null;
-
-                List<string> elems = Split(json);
-                var list = (IList)type.GetConstructor(new Type[] { typeof(int) }).Invoke(new object[] { elems.Count });
-                for (int i = 0; i < elems.Count; i++)
-                    list.Add(ParseValue(listType, elems[i]));
-                splitArrayPool.Push(elems);
-                return list;
-            }
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>))
-            {
-                Type keyType, valueType;
-                {
-                    Type[] args = type.GetGenericArguments();
-                    keyType = args[0];
-                    valueType = args[1];
-                }
-
-                //Refuse to parse dictionary keys that aren't of type string
-                if (keyType != typeof(string)) { return null; }
-
-                //Must be a valid dictionary element
-                if (json[0] != '{' || json[json.Length - 1] != '}') { return null; }
-
-                //The list is split into key/value pairs only, this means the split must be divisible by 2 to be valid JSON
-                List<string> elems = Split(json);
-                if (elems.Count % 2 != 0) { return null; }
-
-                var dictionary = (IDictionary)type.GetConstructor(new Type[] { typeof(int) }).Invoke(new object[] { elems.Count / 2 });
-                for (int i = 0; i < elems.Count; i += 2)
-                {
-                    if (elems[i].Length <= 2)
-                        continue;
-                    string keyValue = elems[i].Substring(1, elems[i].Length - 2);
-                    object val = ParseValue(valueType, elems[i + 1]);
-                    dictionary[keyValue] = val;
-                }
-                return dictionary;
-            }
-            if (type == typeof(object))
-            {
-                return ParseAnonymousValue(json);
-            }
-            if (json[0] == '{' && json[json.Length - 1] == '}')
-            {
-                return ParseObject(type, json);
-            }
-
-            return null;
-        }
-
-        static object? ParseAnonymousValue(string json)
-        {
-            if (string.IsNullOrEmpty(json))
-                return null;
-            if (json[0] == '{' && json[json.Length - 1] == '}')
-            {
-                List<string> elems = Split(json);
-                if (elems.Count % 2 != 0)
-                    return null;
-                var dict = new Dictionary<string, object>(elems.Count / 2);
-                for (int i = 0; i < elems.Count; i += 2)
-                    dict[elems[i].Substring(1, elems[i].Length - 2)] = ParseAnonymousValue(elems[i + 1]);
-                return dict;
-            }
-            if (json[0] == '[' && json[json.Length - 1] == ']')
-            {
-                List<string> items = Split(json);
-                var finalList = new List<object>(items.Count);
-                for (int i = 0; i < items.Count; i++)
-                    finalList.Add(ParseAnonymousValue(items[i]));
-                return finalList;
-            }
-            if (json[0] == '"' && json[json.Length - 1] == '"')
-            {
-                return DecodeString(json);
-            }
-            if (char.IsDigit(json[0]) || json[0] == '-')
-            {
-                if (json.Contains("."))
-                {
-                    double result;
-                    double.TryParse(json, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out result);
-                    return result;
-                }
-                else
-                {
-                    int result;
-                    int.TryParse(json, out result);
-                    return result;
-                }
-            }
-            if (json == "true") { return true; }
-            if (json == "false") { return false; }
-            // handles json == "null" as well as invalid JSON
-            return null;
-        }
-
-        static Dictionary<string, T> CreateMemberNameDictionary<T>(T[] members) where T : MemberInfo
-        {
-            Dictionary<string, T> nameToMember = new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < members.Length; i++)
-            {
-                T member = members[i];
-                if (null == member || member.IsDefined(typeof(IgnoreDataMemberAttribute), true))
-                    continue;
-
-                string name = member.Name;
-                if (member.IsDefined(typeof(DataMemberAttribute), true))
-                {
-                    DataMemberAttribute dataMemberAttribute = (DataMemberAttribute)Attribute.GetCustomAttribute(member, typeof(DataMemberAttribute), true);
-                    if (!string.IsNullOrEmpty(dataMemberAttribute.Name))
-                        name = dataMemberAttribute.Name;
-                }
-
-                nameToMember.Add(name, member);
-            }
-
-            return nameToMember;
-        }
-
-        static object? ParseObject(Type type, string json)
-        {
-            if (null == propertyInfoCache || null == fieldInfoCache)
-            {
-                throw new InvalidOperationException("JSONParser requires ThreadStatic fieldInfoCache and propertyInfoCache to be initialized.");
-            }
-            // Create an uninitialized object instance of the type, but don't use formatter services
-            object instance = Activator.CreateInstance(type);
-
-            //The list is split into key/value pairs only, this means the split must be divisible by 2 to be valid JSON
-            List<string> elems = Split(json);
-            if (elems.Count % 2 != 0)
-                return instance;
-
-            Dictionary<string, FieldInfo>? nameToField = null;
-            Dictionary<string, PropertyInfo>? nameToProperty = null;
-            if (!fieldInfoCache.TryGetValue(type, out nameToField))
-            {
-                nameToField = CreateMemberNameDictionary(type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy));
-                fieldInfoCache.Add(type, nameToField);
-            }
-            if (!propertyInfoCache.TryGetValue(type, out nameToProperty))
-            {
-                nameToProperty = CreateMemberNameDictionary(type.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy));
-                propertyInfoCache.Add(type, nameToProperty);
-            }
-
-            for (int i = 0; i < elems.Count; i += 2)
-            {
-                if (elems[i].Length <= 2)
-                    continue;
-                string key = elems[i]?.Substring(1, elems[i].Length - 2) ?? string.Empty;
-                string value = elems[i + 1];
-
-                FieldInfo? fieldInfo = null;;
-                PropertyInfo? propertyInfo = null;
-                if (nameToField.TryGetValue(key, out fieldInfo))
-                    fieldInfo.SetValue(instance, ParseValue(fieldInfo.FieldType, value));
-                else if (nameToProperty.TryGetValue(key, out propertyInfo))
-                    propertyInfo.SetValue(instance, ParseValue(propertyInfo.PropertyType, value), null);
-            }
-
-            return instance;
-        }
+        result.Add(json.Substring(start));
+        return result;
     }
 }
