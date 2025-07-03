@@ -22,15 +22,18 @@ A simple, interactive C# console chat client for [Ollama](https://ollama.com/) a
 - Extensible provider and command abstraction for easy extension.
 - Maintains chat history in memory.
 - Configuration is loaded from or saved to `config.json` (auto-generated).
+- **Retrieval-Augmented Generation (RAG):** Ingest, search, and use external documents or knowledge in chat context. RAG data can be added, listed, and cleared via commands.
+- **Interactive menu system:** Press `Escape` to open a keyboard-navigable menu for commands, model/provider selection, and more. Supports filtering and quick selection.
 
 ## How it works
 - On startup, loads or creates a configuration file (`config.json`) for provider, host, model, and system prompt.
-- Prompts the user for input. If the input starts with `/`, it is treated as a command (e.g., `/model`, `/host`, `/provider`, `/clear`, `/history`, `/exit`).
-- Commands are managed via a `CommandManager` abstraction, making it easy to add or modify commands.
-- For normal input, sends the chat history and user message to the selected provider and displays the response.
-- Chat history is kept in memory and can be cleared with `/clear`.
+- Initializes providers, command system, and in-memory chat history.
+- **Menu system:** Press `Escape` at any prompt to open an interactive menu. Navigate with arrow keys, filter options by typing, and select with Enter. Menu allows access to commands, model/provider selection, and RAG actions.
+- **Commands:** Type `/` to enter a command directly, or use the menu. Commands include model/provider switching, history management, RAG ingestion/clearing, and more. Tab-completion is available for commands.
+- **RAG workflow:** Use commands or menu to add documents to the RAG store, search or clear RAG data, and have the model use retrieved context in responses.
+- For normal input, sends the chat history (and optionally RAG context) and user message to the selected provider and displays the response.
 - Multi-line input is supported by pressing Shift+Enter for a soft new line.
-- Tab-completion is available for commands: type `/` and press Tab to complete or see available commands.
+- Chat history is kept in memory and can be cleared with `/clear` or via the menu.
 
 ## Building
 
@@ -89,7 +92,7 @@ To add a new provider, implement `IChatProvider` and decorate with `[ProviderNam
 
 ---
 
-**Note:** This project is a simple example and does not persist chat history between runs. For advanced features, consider extending the codebase.
+**Note:** This project is a simple example and does not persist chat history or RAG data between runs. For advanced features, consider extending the codebase.
 
 ## History
 
@@ -101,3 +104,6 @@ To add a new provider, implement `IChatProvider` and decorate with `[ProviderNam
 - Refactored project structure for extensibility and maintainability.
 - Added minimal JSON parser/writer for config and API payloads.
 - Improved error handling and logging.
+- **Added Retrieval-Augmented Generation (RAG) support:** Users can ingest, search, and clear external documents for use in chat context.
+- **Major menu system upgrade:** Interactive, keyboard-navigable menu (invoked with Escape) for commands, model/provider selection, and RAG actions. Supports filtering and quick selection.
+- Improved user input handling and extensibility for new commands and providers.

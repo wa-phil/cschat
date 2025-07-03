@@ -1,7 +1,8 @@
 using Azure;
 using System;
-using TinyJson;
+
 using System.IO;
+using System.Linq;
 using System.Text;
 using OpenAI.Chat;
 using Azure.Identity;
@@ -11,12 +12,12 @@ using System.Collections.Generic;
 
 
 [ProviderName("AzureAI")]
-public class AzureAI : IChatProvider
+public class AzureAI : IChatProvider//, IEmbeddingProvider // todo: uncomment once embedding is working
 {
     private Config? config = null;
     private AzureOpenAIClient? azureClient = null;
     private ChatClient? chatClient = null;
-    
+
     public AzureAI(Config cfg)
     {
         this.config = cfg ?? throw new ArgumentNullException(nameof(cfg));
@@ -30,7 +31,7 @@ public class AzureAI : IChatProvider
         await Task.CompletedTask; // Simulate asynchronous behavior
         // There currently isn't a direct API to list models in Azure OpenAI, so we return a default model.
         // You can modify this to fetch models from a configuration or a known list.
-        return new List<string>() { "esai-gpt4-32k" }; 
+        return new List<string>() { "esai-gpt4-32k" };
     }
 
     public async Task<string> PostChatAsync(Memory memory)
@@ -48,10 +49,12 @@ public class AzureAI : IChatProvider
         try
         {
             // Stream the response from the model
-            var completionUpdates = chatClient!.CompleteChatStreaming(chatHistory);
+            if (chatClient == null)
+                throw new InvalidOperationException("chatClient is not initialized.");
+            var completionUpdates = chatClient.CompleteChatStreaming(chatHistory);
             StringBuilder sb = new StringBuilder();
 
-            foreach (var completionUpdate in completionUpdates) // Replace await foreach with regular foreach
+            foreach (var completionUpdate in completionUpdates)
             {
                 foreach (var contentPart in completionUpdate.ContentUpdate)
                 {
@@ -62,9 +65,26 @@ public class AzureAI : IChatProvider
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error: {ex.Message}.\n Validate that you have access to the Azure OpenAI service and that the model '{config.Model}' is available.");
+            Console.WriteLine($"Error: {ex.Message}.\n Validate that you have access to the Azure OpenAI service and that the model '{config?.Model}' is available.");
         }
-        await Task.CompletedTask; // Add await to simulate asynchronous behavior
-        return ret ?? string.Empty; // Handle possible null reference return
-    }    
+        await Task.CompletedTask;
+        return ret ?? string.Empty;
+    }
+
+    public async Task<float[]> GetEmbeddingAsync(string text) => await Log.MethodAsync(async ctx =>
+    {
+        try
+        {
+            var embeddingClient = azureClient?.GetEmbeddingClient("text-embedding-3-large");
+            embeddingClient.ThrowIfNull("Embedding client could not be retrieved.");
+
+            var response = await embeddingClient!.GenerateEmbeddingAsync(text);
+            return response.Value.ToFloats().ToArray();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to get embedding from AzureAI: {ex.Message}");
+            return Array.Empty<float>();
+        }
+    });
 }

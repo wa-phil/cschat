@@ -6,8 +6,9 @@ public enum Error : UInt32
 {
     Success = 0,
     Unknown,
-    ProviderNotConfigured, 
-    ModelNotFound
+    ProviderNotConfigured,
+    ModelNotFound,
+    DirectoryNotFound,
 }
 
 public class CsChatException : Exception

@@ -24,7 +24,6 @@
 // ================================================
 
 using System;
-using TinyJson;
 using System.IO;
 using System.Linq;
 using System.Diagnostics;
@@ -38,7 +37,7 @@ public static class Log
     {
         Method, Level, Timestamp, Message, Success, ErrorCode, IsRetry, Threw, Caught, PlugIn, Count, Source,
         Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, 
-        Provider, Model, Version, GitHash, ProviderSet,
+        Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query
     }
 
     public enum Level { Information, Error }
@@ -54,6 +53,7 @@ public static class Log
         {
             _items[Data.Level] = level;
             _items[Data.Success] = false;
+            _items[Data.GitHash] = BuildInfo.GitCommitHash;
         }
 
         public Context Append(Data key, object value)
@@ -246,11 +246,13 @@ public static class Log
                 {
                     Data.Timestamp,
                     Data.Level,
-                    Data.Method,
+                    Data.GitHash,
                     Data.Source,
+                    Data.Method,
                     Data.Success,
-                    Data.Message,
-                    Data.ErrorCode
+                    Data.ErrorCode,
+                    Data.IsRetry,
+                    Data.Message
                 };
 
                 // Emit priority fields in order

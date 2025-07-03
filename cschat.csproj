@@ -67,6 +67,7 @@
 <ItemGroup>
   <Compile Remove="Generated\**\*.cs" />
   <Compile Remove="BuildInfo.template.cs" />
+  <Compile Remove="unittests\**\*.cs" />
   <Compile Include="$(GeneratedDir)\BuildInfo.cs" />
 </ItemGroup>
 
