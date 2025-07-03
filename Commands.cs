@@ -16,24 +16,30 @@ public class Command
 
     private async Task<Result> DefaultAction()
     {
-        // render the menu of subcommands, the text passed in should be a concatenation of the subcommand names with their descriptions,
-        // formatted such that the descriptions are aligned with the command names
-        var selected = User.RenderMenu($"{Name} commands", SubCommands.Select(c => $"{c.Name} - {c.Description}").ToList());
-        if (string.IsNullOrEmpty(selected))
+        Result result = Result.Cancelled;
+
+        while (Result.Cancelled == result)
         {
-            return Result.Cancelled;
+            // render the menu of subcommands, the text passed in should be a concatenation of the subcommand names with their descriptions,
+            // formatted such that the descriptions are aligned with the command names
+            var selected = User.RenderMenu($"{Name} commands", SubCommands.Select(c => $"{c.Name} - {c.Description}").ToList());
+            if (string.IsNullOrEmpty(selected))
+            {
+                return Result.Cancelled;
+            }
+            // strip the description part to get just the command name
+            selected = selected.Split('-')[0].Trim();
+            // find the command by name or alias
+            var command = SubCommands.FirstOrDefault(c => c.Name.Equals(selected, StringComparison.OrdinalIgnoreCase));
+            if (command == null)
+            {
+                Console.WriteLine($"Command '{selected}' not found.");
+                return Result.Failed;
+            }
+            // Execute the command's action
+            result = await command.Action.Invoke();
         }
-        // strip the description part to get just the command name
-        selected = selected.Split('-')[0].Trim();
-        // find the command by name or alias
-        var command = SubCommands.FirstOrDefault(c => c.Name.Equals(selected, StringComparison.OrdinalIgnoreCase));
-        if (command == null)
-        {
-            Console.WriteLine($"Command '{selected}' not found.");
-            return Result.Failed;
-        }
-        // Execute the command's action
-        return await command.Action.Invoke();
+        return result;
     }
 
     public Command()
@@ -61,12 +67,12 @@ public class CommandManager : Command
         {
             new Command
             {
-                Name = "history", Description = "history-related commands",
+                Name = "chat", Description = "chat-related commands",
                 SubCommands = new List<Command>
                 {
                     new Command
                     {
-                        Name = "show",
+                        Name = "show history",
                         Description = "Show chat history",
                         Action = () =>
                         {
@@ -80,7 +86,7 @@ public class CommandManager : Command
                     },
                     new Command
                     {
-                        Name = "clear",
+                        Name = "clear history",
                         Description = "Clear chat history",
                         Action = () =>
                         {
@@ -256,37 +262,37 @@ public class CommandManager : Command
             },
             new Command
             {
-                Name = "log", Description = "Logging commands",
-                SubCommands = new List<Command>
-                {
-                    new Command
-                    {
-                        Name = "show", Description = "Show the contents of the log",
-                        Action = () =>
-                        {
-                            var entries = Log.GetOutput().ToList();
-                            Console.WriteLine($"Log Entries [{entries.Count}]:");
-                            entries.ToList().ForEach(entry => Console.WriteLine(entry));
-                            return Task.FromResult(Command.Result.Success);
-                        }
-                    },
-                    new Command
-                    {
-                        Name = "clear", Description = "Clear the log entries",
-                        Action = () =>
-                        {
-                            Log.ClearOutput();
-                            Console.WriteLine("Log cleared.");
-                            return Task.FromResult(Command.Result.Success);
-                        }
-                    }
-                }
-            },
-            new Command
-            {
                 Name = "system", Description = "System commands",
                 SubCommands = new List<Command>
                 {
+                    new Command
+                    {
+                        Name = "log", Description = "Logging commands",
+                        SubCommands = new List<Command>
+                        {
+                            new Command
+                            {
+                                Name = "show", Description = "Show the contents of the log",
+                                Action = () =>
+                                {
+                                    var entries = Log.GetOutput().ToList();
+                                    Console.WriteLine($"Log Entries [{entries.Count}]:");
+                                    entries.ToList().ForEach(entry => Console.WriteLine(entry));
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                            },
+                            new Command
+                            {
+                                Name = "clear", Description = "Clear the log entries",
+                                Action = () =>
+                                {
+                                    Log.ClearOutput();
+                                    Console.WriteLine("Log cleared.");
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                            }
+                        }
+                    },
                     new Command
                     {
                         Name = "exit", Description = "Quit the application",

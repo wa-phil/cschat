@@ -11,9 +11,10 @@ using Microsoft.Extensions.DependencyInjection;
 static class Program
 {
     public static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
-    public static Config config = Config.Load(ConfigFilePath);
-    public static Memory memory = new Memory(config.SystemPrompt); 
-    public static CommandManager commandManager = CommandManager.CreateDefaultCommands();
+    public static Config config = null!;
+    public static Memory memory = null!;
+    public static CommandManager commandManager = null!;
+    public static ServiceProvider? serviceProvider = null!;
     public static Dictionary<string, Type> Providers
     {
         get => Assembly.GetExecutingAssembly()
@@ -27,10 +28,11 @@ static class Program
             .ToDictionary(x => x.Attr?.Name ?? string.Empty, x => x.Type, StringComparer.OrdinalIgnoreCase);
     }
 
-    public static ServiceProvider? serviceProvider = null;
-
-    static Program()
+    static void InitProgram()
     {
+        config = Config.Load(ConfigFilePath);
+        Log.Initialize();
+
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddSingleton(config); // Register the config instance
         // Register all IChatProvider implementations
@@ -40,12 +42,15 @@ static class Program
         }
 
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
+        memory = new Memory(config.SystemPrompt);
+        commandManager = CommandManager.CreateDefaultCommands();
     }
 
     static async Task Main(string[] args)
     {
-        Log.Initialize();
         Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
+        InitProgram();
+
         bool showHelp = false;
         var options = new OptionSet {
             { "h|host=", "Server host (default: http://localhost:11434)", v => { if (v != null) config.Host = v; } },
@@ -73,7 +78,7 @@ static class Program
         Config.Save(config, ConfigFilePath);
 
         Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-        Console.WriteLine("Type your message and press Enter. Press '/' to bring up available commands. (Shift+Enter for new line)");
+        Console.WriteLine("Type your message and press Enter. Press the escape key for the menu. (Shift+Enter for new line)");
         Console.WriteLine();
         while (true)
         {
