@@ -22,12 +22,19 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         using var client = new HttpClient();
         try
         {
-            var resp = await client.GetStringAsync($"{config.Host}/api/tags");
-            dynamic parsed = resp.FromJson<dynamic>();
             var models = new List<string>();
-            foreach (var model in parsed["models"])
+            var resp = await client.GetStringAsync($"{config.Host}/api/tags");
+            resp.ThrowIfNull("Response from Ollama API is null.");
+            dynamic? parsed = resp!.FromJson<dynamic>();
+            if (parsed == null || parsed!["models"] == null)
             {
-                models.Add((string)model["name"]);
+                Console.WriteLine("No models found in response.");
+                return models;
+            }
+            foreach (var model in parsed!["models"]!)
+            {
+                if (model != null && model!["name"] != null)
+                    models.Add((string)model!["name"]!);
             }
             return models;
         }
@@ -43,7 +50,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         var requestBody = new
         {
             model = config.Model,
-            messages = memory.Messages.Select(msg => new // Replace ConvertAll with LINQ Select
+            messages = memory.Messages?.Select(msg => new
             {
                 role = msg.Role.ToString().ToLower(),
                 content = msg.Content
@@ -62,8 +69,13 @@ public class Ollama : IChatProvider, IEmbeddingProvider
             }
 
             var respJson = await response.Content.ReadAsStringAsync();
-            dynamic respObj = respJson.FromJson<dynamic>();
-            return respObj["choices"][0]["message"]["content"];
+            respJson.ThrowIfNull("Response from Ollama API is null.");
+            dynamic? respObj = respJson!.FromJson<dynamic>();
+            // if (respObj != null && respObj!["choices"] != null && respObj!["choices"]![0] != null && respObj!["choices"]![0]!["message"] != null)
+            // {
+            //     return respObj!["choices"]![0]!["message"]!["content"]?.ToString() ?? string.Empty;
+            // }
+            return respObj?["choices"]?[0]?["message"]?["content"]?.ToString() ?? string.Empty;
         }
         catch (Exception ex)
         {
@@ -89,12 +101,27 @@ public class Ollama : IChatProvider, IEmbeddingProvider
                 Console.WriteLine($"Failed to get embedding: {response.StatusCode}");
                 return Array.Empty<float>();
             }
-
             var json = await response.Content.ReadAsStringAsync();
-            dynamic parsed = json.FromJson<dynamic>();
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                Console.WriteLine("Received empty response from embedding API.");
+                return Array.Empty<float>();
+            }
+            dynamic? parsed = json!.FromJson<dynamic>();
+            if (null == parsed || null == parsed!["embedding"])
+            {
+                Console.WriteLine("No embedding found in response.");
+                return Array.Empty<float>();
+            }
+            var embedding = parsed!["embedding"] as IEnumerable<object>;
+            if (embedding == null)
+            {
+                Console.WriteLine("Embedding is null in response.");
+                return Array.Empty<float>();
+            }
 
-            // Adjust parsing based on Ollama response schema
-            return ((IEnumerable<object>)parsed["embedding"]).Select(Convert.ToSingle).ToArray();
+            return embedding.Select(Convert.ToSingle).ToArray();
+           
         }
         catch (Exception ex)
         {

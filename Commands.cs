@@ -219,7 +219,7 @@ public class CommandManager : Command
                             var input = await User.ReadPathWithAutocompleteAsync(isDirectory: false);
                             if (!string.IsNullOrWhiteSpace(input))
                             {
-                                Engine.AddFileToVectorStore(input);
+                                await Engine.AddFileToVectorStore(input);
                                 Console.WriteLine($"Added file '{input}' to RAG.");
                             }
                             return Command.Result.Success;
@@ -235,7 +235,7 @@ public class CommandManager : Command
                             var input = await User.ReadPathWithAutocompleteAsync(isDirectory: true);
                             if (!string.IsNullOrWhiteSpace(input))
                             {
-                                Engine.AddDirectoryToVectorStore(input);
+                                await Engine.AddDirectoryToVectorStore(input);
                                 Console.WriteLine($"Added directory '{input}' to RAG.");
                             }
                             return Command.Result.Success;

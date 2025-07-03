@@ -53,7 +53,7 @@ public static class Engine
         ctx.Append(Log.Data.Count, chunks.Count);
 
         // Use async-await pattern for better performance
-        await Task.WhenAll(chunks.Select(async chunk => embeddings.Add((chunk.Offset, chunk.Content, await embeddingProvider.GetEmbeddingAsync(chunk.Content)))));
+        await Task.WhenAll(chunks.Select(async chunk => embeddings.Add((chunk.Offset, chunk.Content, await embeddingProvider!.GetEmbeddingAsync(chunk.Content)))));
 
         Engine.VectorStore.Add(path, embeddings);
         ctx.Succeeded();
@@ -71,6 +71,8 @@ public static class Engine
 
     public static async Task<string> GetRagQueryAsync(string userMessage, Memory history) => await Log.MethodAsync(async ctx =>
     {
+        Provider.ThrowIfNull("Provider is not set. Please configure a provider before making requests.");
+
         var prompt = $"""
             Based on this user message:
             "{userMessage}"
@@ -84,7 +86,7 @@ public static class Engine
             new ChatMessage { Role = Roles.User, Content = prompt }
         });
 
-        var response = await Provider.PostChatAsync(query); // be sure to use the provider directly and don't go through the front door! :O
+        var response = await Provider!.PostChatAsync(query); // be sure to use the provider directly and don't go through the front door! :O
         ctx.Append(Log.Data.Result, response);
         var result = response.Trim() == "NO_RAG" ? string.Empty : response.Trim();
         ctx.Succeeded();
@@ -144,23 +146,26 @@ public static class Engine
         Provider.ThrowIfNull("Provider is not set. Please configure a provider before making requests.");
 
         if (null != VectorStore && !VectorStore.IsEmpty)
+        {
+            var embeddingProvider = Provider! as IEmbeddingProvider;
+            embeddingProvider.ThrowIfNull("Current configured provider does not support embeddings.");
+
+            var query = await GetRagQueryAsync(history.Messages.LastOrDefault()?.Content ?? string.Empty, history);
+            if (!string.IsNullOrEmpty(query))
             {
-                var query = await GetRagQueryAsync(history.Messages.LastOrDefault()?.Content ?? string.Empty, history);
-                if (!string.IsNullOrEmpty(query))
+                float[]? queryEmbedding = await embeddingProvider!.GetEmbeddingAsync(query);
+                if (queryEmbedding != null)
                 {
-                    var queryEmbedding = await (Provider as IEmbeddingProvider)?.GetEmbeddingAsync(query);
-                    if (queryEmbedding != null)
+                    var results = VectorStore.Search(queryEmbedding, 3);
+                    foreach (var result in results)
                     {
-                        var results = VectorStore.Search(queryEmbedding, 3);
-                        foreach (var result in results)
-                        {
-                            history.AddSystemMessage($"Context from file_path:\"{result.FilePath}\" offset:\"{result.Offset}\"\n```\n{result.Content}\n```\n");
-                        }
-                        history.AddSystemMessage($"When referring to the provided context in your answer, explicitly state from which file and offset you are referencing in the form 'as per file:[file_path] at offset:[offset], [your answer]'.");
+                        history.AddSystemMessage($"Context from file_path:\"{result.FilePath}\" offset:\"{result.Offset}\"\n```\n{result.Content}\n```\n");
                     }
+                    history.AddSystemMessage($"When referring to the provided context in your answer, explicitly state from which file and offset you are referencing in the form 'as per file:[file_path] at offset:[offset], [your answer]'.");
                 }
             }
+        }
 
-        return await Provider.PostChatAsync(history);
+        return await Provider!.PostChatAsync(history);
     }
 }

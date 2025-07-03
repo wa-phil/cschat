@@ -49,10 +49,12 @@ public class AzureAI : IChatProvider//, IEmbeddingProvider // todo: uncomment on
         try
         {
             // Stream the response from the model
-            var completionUpdates = chatClient!.CompleteChatStreaming(chatHistory);
+            if (chatClient == null)
+                throw new InvalidOperationException("chatClient is not initialized.");
+            var completionUpdates = chatClient.CompleteChatStreaming(chatHistory);
             StringBuilder sb = new StringBuilder();
 
-            foreach (var completionUpdate in completionUpdates) // Replace await foreach with regular foreach
+            foreach (var completionUpdate in completionUpdates)
             {
                 foreach (var contentPart in completionUpdate.ContentUpdate)
                 {
@@ -63,23 +65,21 @@ public class AzureAI : IChatProvider//, IEmbeddingProvider // todo: uncomment on
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error: {ex.Message}.\n Validate that you have access to the Azure OpenAI service and that the model '{config.Model}' is available.");
+            Console.WriteLine($"Error: {ex.Message}.\n Validate that you have access to the Azure OpenAI service and that the model '{config?.Model}' is available.");
         }
-        await Task.CompletedTask; // Add await to simulate asynchronous behavior
-        return ret ?? string.Empty; // Handle possible null reference return
+        await Task.CompletedTask;
+        return ret ?? string.Empty;
     }
 
     public async Task<float[]> GetEmbeddingAsync(string text) => await Log.MethodAsync(async ctx =>
     {
         try
         {
-            // Get the embedding client from azureClient
-            var embeddingClient = azureClient.GetEmbeddingClient("text-embedding-3-large");
+            var embeddingClient = azureClient?.GetEmbeddingClient("text-embedding-3-large");
             embeddingClient.ThrowIfNull("Embedding client could not be retrieved.");
 
-            // Use the embedding client to get embeddings
-            var response = await embeddingClient.GenerateEmbeddingAsync(text);
-            return response.Value.ToFloats().ToArray(); ;
+            var response = await embeddingClient!.GenerateEmbeddingAsync(text);
+            return response.Value.ToFloats().ToArray();
         }
         catch (Exception ex)
         {
