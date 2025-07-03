@@ -62,15 +62,30 @@ A simple, interactive C# console chat client for [Ollama](https://ollama.com/) a
 3. **Usage:**
    - Type your message and press Enter to send.
    - Use Shift+Enter for a new line within your message.
-   - Type `/` to see available commands, and use Tab for completion.
+   - Press ESC to see available commands, type to reduce options to select betwen.  Press a number for fast selection, or use cursor keys + enter to make a selection.  Press ESC to exit or go back to the previous menu.
    - Example commands:
-     - `/model` — List and select available models
-     - `/host` — Change server host
-     - `/provider` — Switch between Ollama and AzureAI
-     - `/clear` — Clear chat history
-     - `/history` — Show chat history
-     - `/exit` — Quit the application
-     - `/?` or `/help` — Show help
+```
+commands
+> [1] chat - chat-related commands     
+  [2] provider - Provider-related commands 
+  [3] rag - Retrieval-Augmented Generation commands 
+  [4] system - System commands  
+|>
+
+provider commands                     
+> [1] select - Select the LLM Provider 
+  [2] model - List and select available models 
+  [3] host - Change Ollama host      
+  [4] system - Change system prompt   
+  [5] temp - Set response temperature       
+  [6] max-tokens - Set maximum tokens for response
+|>  
+
+system commands                        
+> [1] log - Logging commands           
+  [2] exit - Quit the application           
+|>   
+```
 
 ## Project Structure
 - `Program.cs` — Main application logic, chat loop, and command handling
