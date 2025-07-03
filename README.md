@@ -17,7 +17,6 @@ A simple, interactive C# console chat client for [Ollama](https://ollama.com/) a
 ## Features
 - Connects to Ollama or Azure OpenAI servers and interacts with LLM models via chat.
 - Supports multi-line input (Shift+Enter for new line).
-- Tab-completion for commands (type `/` and press Tab).
 - Easily switch models, providers, and hosts at runtime.
 - Extensible provider and command abstraction for easy extension.
 - Maintains chat history in memory.
@@ -29,11 +28,10 @@ A simple, interactive C# console chat client for [Ollama](https://ollama.com/) a
 - On startup, loads or creates a configuration file (`config.json`) for provider, host, model, and system prompt.
 - Initializes providers, command system, and in-memory chat history.
 - **Menu system:** Press `Escape` at any prompt to open an interactive menu. Navigate with arrow keys, filter options by typing, and select with Enter. Menu allows access to commands, model/provider selection, and RAG actions.
-- **Commands:** Type `/` to enter a command directly, or use the menu. Commands include model/provider switching, history management, RAG ingestion/clearing, and more. Tab-completion is available for commands.
 - **RAG workflow:** Use commands or menu to add documents to the RAG store, search or clear RAG data, and have the model use retrieved context in responses.
 - For normal input, sends the chat history (and optionally RAG context) and user message to the selected provider and displays the response.
 - Multi-line input is supported by pressing Shift+Enter for a soft new line.
-- Chat history is kept in memory and can be cleared with `/clear` or via the menu.
+- Chat history is kept in memory and can be cleared with the `clear` command in the menu.
 
 ## Building
 
@@ -80,10 +78,10 @@ A simple, interactive C# console chat client for [Ollama](https://ollama.com/) a
 - `Providers/` — Provider implementations (Ollama, AzureAI)
 - `Json/` — Minimal JSON parser and writer
 - `Config.cs` — Configuration class and file handling
+- `Engine.cs` - Core chat engine
+- `Memory.cs` - Memory implementations
 - `Log.cs` — Logging utilities
 - `User.cs` — User input and menu utilities
-- `IChatProvider.cs` — Provider interface, chat message, and memory abstractions
-- `Errors.cs`, `Extensions.cs` — Error handling and extension methods
 - `config.json` — Configuration file (auto-generated)
 
 ## Extending
