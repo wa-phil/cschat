@@ -213,7 +213,7 @@ public static class Engine
             Based on this user message:
             "{userMessage}"
 
-            Generate a concise list of on or more keywords that are to be used to retrieve relevant document fragments from a semantic search-based knowledge base. 
+            Generate a concise list of one or more keywords that are to be used to retrieve relevant document fragments from a semantic search-based knowledge base. 
             If no external context is needed, respond only with: "NO_RAG"
         """;
 
