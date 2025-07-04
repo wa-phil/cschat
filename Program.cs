@@ -13,19 +13,30 @@ static class Program
     public static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
     public static Config config = null!;
     public static Memory memory = null!;
+    public static Dictionary<string, Type> Providers = null!; // Dictionary to hold provider types by name
+    public static Dictionary<string, Type> Chunkers = null!; // Dictionary to hold chunker types by name
     public static CommandManager commandManager = null!;
     public static ServiceProvider? serviceProvider = null!;
-    public static Dictionary<string, Type> Providers
+
+    static Dictionary<string, Type> DictionaryOfTypesToNamesForInterface<T>(ServiceCollection serviceCollection, IEnumerable<Type> types)
+        where T : class
     {
-        get => Assembly.GetExecutingAssembly()
-            .GetTypes()
-            .Where(t => typeof(IChatProvider).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract)
-            .Select(t => new {
+        var result = types
+            .Where(t => typeof(T).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract)
+            .Select(t => new
+            {
                 Type = t,
-                Attr = t.GetCustomAttribute<ProviderNameAttribute>()
+                Attr = t.GetCustomAttribute<IsConfigurable>()
             })
             .Where(x => x.Attr != null)
             .ToDictionary(x => x.Attr?.Name ?? string.Empty, x => x.Type, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in result.Values)
+        {
+            serviceCollection.AddTransient(item);
+        }
+        
+        return result;
     }
 
     static void InitProgram()
@@ -35,11 +46,12 @@ static class Program
 
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddSingleton(config); // Register the config instance
+        var assembly = Assembly.GetExecutingAssembly();
+        var types = assembly.GetTypes();
+
         // Register all IChatProvider implementations
-        foreach (var providerType in Providers.Values)
-        {
-            serviceCollection.AddTransient(providerType);
-        }
+        Providers = DictionaryOfTypesToNamesForInterface<IChatProvider>(serviceCollection, types);
+        Chunkers  = DictionaryOfTypesToNamesForInterface<ITextChunker>(serviceCollection, types);
 
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
         memory = new Memory(config.SystemPrompt);
@@ -67,6 +79,7 @@ static class Program
         }
 
         Engine.SetProvider(config.Provider);
+        Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
 
         if (string.IsNullOrWhiteSpace(config.Model))
         {

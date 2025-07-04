@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 
 
-[ProviderName("AzureAI")]
+[IsConfigurable("AzureAI")]
 public class AzureAI : IChatProvider//, IEmbeddingProvider // todo: uncomment once embedding is working
 {
     private Config? config = null;

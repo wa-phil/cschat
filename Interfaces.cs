@@ -14,10 +14,10 @@ public class ChatMessage
 }
 
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
-public class ProviderNameAttribute : Attribute
+public class IsConfigurable : Attribute
 {
     public string Name { get; }
-    public ProviderNameAttribute(string name)
+    public IsConfigurable(string name)
     {
         Name = name;
     }
@@ -36,8 +36,13 @@ public interface IEmbeddingProvider
 
 public interface IVectorStore
 {
-    void Add(string filePath, List<(int Offset, string Chunk, float[] Embedding)> entries);
+    void Add(List<(string Reference, string Chunk, float[] Embedding)> entries);
     void Clear();
-    List<(string FilePath, int Offset, string Content)> Search(float[] queryEmbedding, int topK = 3);
+    List<(string Reference, string Content)> Search(float[] queryEmbedding, int topK = 3);
     bool IsEmpty { get; }
+}
+
+public interface ITextChunker
+{
+    List<(string Reference, string Content)> ChunkText(string path, string text);
 }

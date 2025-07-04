@@ -9,6 +9,7 @@ public enum Error : UInt32
     ProviderNotConfigured,
     ModelNotFound,
     DirectoryNotFound,
+    ChunkerNotConfigured,
 }
 
 public class CsChatException : Exception

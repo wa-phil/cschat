@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq; // Add using directive for LINQ
 
-[ProviderName("Ollama")]
+[IsConfigurable("Ollama")]
 public class Ollama : IChatProvider, IEmbeddingProvider
 {
     private Config config = new Config(); // Initialize non-nullable field to avoid null reference

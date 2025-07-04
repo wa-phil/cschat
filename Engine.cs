@@ -1,171 +1,267 @@
 using System;
+using System.Text;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
-public static class Engine
+[IsConfigurable("BlockChunk")]
+public class BlockChunk : ITextChunker
 {
-    public static IVectorStore VectorStore = new InMemoryVectorStore();
-    public static IChatProvider? Provider = null; // Allow nullable field
+    int chunkSize = 500;
+    int overlap = 50;
 
-    public static List<string> supportedFileTypes = new List<string>
+    public BlockChunk(Config config)
     {
-        ".bash", ".bat",
-        ".c", ".cpp", ".cs", ".csproj", ".csv",
-        ".h", ".html",
-        ".ignore",
-        ".js", ".json",
-        ".log",
-        ".md",
-        ".py",
-        ".sh", ".sln",
-        ".ts", ".txt",
-        ".xml",
-        ".yml"
-    };
+        chunkSize = config.RagSettings.ChunkSize;
+        overlap = config.RagSettings.Overlap;
+    }
 
-    public static async Task AddDirectoryToVectorStore(string path) => await Log.MethodAsync(async ctx =>
+    public List<(string Reference, string Content)> ChunkText(string path, string text)
     {
-        ctx.Append(Log.Data.Path, path);
-        if (!Directory.Exists(path))
-        {
-            ctx.Failed($"Directory '{path}' does not exist.", Error.DirectoryNotFound);
-            return;
-        }
-
-        var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
-            .Where(f => supportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
-            .ToList();
-
-        await Task.WhenAll(files.Select(f => AddFileToVectorStore(f)));
-        ctx.Append(Log.Data.Count, files.Count);
-        ctx.Succeeded();
-    });
-
-    public static async Task AddFileToVectorStore(string path) => await Log.MethodAsync(async ctx =>
-    {
-        ctx.Append(Log.Data.FilePath, path);
-        IEmbeddingProvider? embeddingProvider = Engine.Provider as IEmbeddingProvider;
-        embeddingProvider.ThrowIfNull("Current configured provider does not support embeddings.");
-
-        var embeddings = new List<(int, string, float[])>();
-        var chunks = ChunkText(File.ReadAllText(path));
-        ctx.Append(Log.Data.Count, chunks.Count);
-
-        // Use async-await pattern for better performance
-        await Task.WhenAll(chunks.Select(async chunk => embeddings.Add((chunk.Offset, chunk.Content, await embeddingProvider!.GetEmbeddingAsync(chunk.Content)))));
-
-        Engine.VectorStore.Add(path, embeddings);
-        ctx.Succeeded();
-    });
-
-    public static List<(int Offset, string Content)> ChunkText(string text, int chunkSize = 500, int overlap = 50)
-    {
-        var chunks = new List<(int, string)>();
+        var chunks = new List<(string, string)>();
         for (int i = 0; i < text.Length; i += chunkSize - overlap)
         {
-            chunks.Add((i, text.Substring(i, Math.Min(chunkSize, text.Length - i))));
+            chunks.Add(($"{path}:@{i}", text.Substring(i, Math.Min(chunkSize, text.Length - i))));
         }
         return chunks;
     }
+}
 
-    public static async Task<string> GetRagQueryAsync(string userMessage, Memory history) => await Log.MethodAsync(async ctx =>
+[IsConfigurable("LineChunk")]
+public class LineChunk : ITextChunker
+{
+    int chunkSize = 500;
+    int overlap = 50;
+
+    public LineChunk(Config config)
     {
-        Provider.ThrowIfNull("Provider is not set. Please configure a provider before making requests.");
+        chunkSize = config.RagSettings.ChunkSize;
+        overlap = config.RagSettings.Overlap;
+    }
 
-        var prompt = $"""
-            Based on this user message:
-            "{userMessage}"
-
-            Generate a concise list of one or more keywords that are to be used to retrieve relevant document fragments from a semantic search-based knowledge base. 
-            If no external context is needed, respond only with: "NO_RAG"
-        """;
-
-        var query = new Memory(new[] {
-            new ChatMessage { Role = Roles.System, Content = "You are a query generator for knowledge retrieval." },
-            new ChatMessage { Role = Roles.User, Content = prompt }
-        });
-
-        var response = await Provider!.PostChatAsync(query); // be sure to use the provider directly and don't go through the front door! :O
-        ctx.Append(Log.Data.Result, response);
-        var result = response.Trim() == "NO_RAG" ? string.Empty : response.Trim();
-        ctx.Succeeded();
-        return result;
-    });
-
-    public static void SetProvider(string providerName) => Log.Method(ctx =>
+    public List<(string Reference, string Content)> ChunkText(string path, string text)
     {
-        Program.config.Provider = providerName;
-        ctx.Append(Log.Data.Provider, providerName);
-        Program.serviceProvider.ThrowIfNull("Service provider is not initialized.");
-        if (Program.Providers.TryGetValue(providerName, out var type))
+        var chunks = new List<(string, string)>();
+        var lines = text.Split(new[] { '\n' }, StringSplitOptions.None);
+        for (int i = 0; i < lines.Length; i += chunkSize - overlap)
         {
-            Provider = (IChatProvider?)Program.serviceProvider?.GetService(type);
+            var content = string.Join("\n", lines.Skip(i).Take(chunkSize));
+            if (string.IsNullOrWhiteSpace(content)) continue; // Skip empty chunks
+            chunks.Add(($"{path}:{i}", content));
         }
-        else if (Program.Providers.Count > 0)
-        {
-            var first = Program.Providers.First();
-            Provider = (IChatProvider?)Program.serviceProvider?.GetService(first.Value);
-            ctx.Append(Log.Data.Message, $"{providerName} not found, using default provider: {first.Key}");
-        }
-        else
-        {
-            Provider = null;
-            ctx.Failed($"No providers available. Please check your configuration or add a provider.", Error.ProviderNotConfigured);
-            return;
-        }
-        ctx.Append(Log.Data.ProviderSet, Provider != null);
-        ctx.Succeeded();
-    });
-
-    public static async Task<string?> SelectModelAsync() => await Log.MethodAsync(async ctx =>
-    {
-        if (Provider == null)
-        {
-            Console.WriteLine("Provider is not set.");
-            ctx.Failed("Provider is not set.", Error.ProviderNotConfigured);
-            return null;
-        }
-
-        var models = await Provider.GetAvailableModelsAsync();
-        if (models == null || models.Count == 0)
-        {
-            Console.WriteLine("No models available.", Error.ModelNotFound);
-            ctx.Failed("No models available.", Error.ModelNotFound);
-            return null;
-        }
-
-        var selected = User.RenderMenu("Available models:", models, models.IndexOf(Program.config.Model));
-        ctx.Append(Log.Data.Model, selected ?? "<nothing>");
-        ctx.Succeeded();
-        return selected;
-    });
-
-    public static async Task<string> PostChatAsync(Memory history)
-    {
-        Provider.ThrowIfNull("Provider is not set. Please configure a provider before making requests.");
-
-        if (null != VectorStore && !VectorStore.IsEmpty)
-        {
-            var embeddingProvider = Provider! as IEmbeddingProvider;
-            embeddingProvider.ThrowIfNull("Current configured provider does not support embeddings.");
-
-            var query = await GetRagQueryAsync(history.Messages.LastOrDefault()?.Content ?? string.Empty, history);
-            if (!string.IsNullOrEmpty(query))
-            {
-                float[]? queryEmbedding = await embeddingProvider!.GetEmbeddingAsync(query);
-                if (queryEmbedding != null)
-                {
-                    var results = VectorStore.Search(queryEmbedding, 3);
-                    foreach (var result in results)
-                    {
-                        history.AddSystemMessage($"Context from file_path:\"{result.FilePath}\" offset:\"{result.Offset}\"\n```\n{result.Content}\n```\n");
-                    }
-                    history.AddSystemMessage($"When referring to the provided context in your answer, explicitly state from which file and offset you are referencing in the form 'as per file:[file_path] at offset:[offset], [your answer]'.");
-                }
-            }
-        }
-
-        return await Provider!.PostChatAsync(history);
+        return chunks;
     }
 }
+
+public static class Engine
+    {
+        public static IVectorStore VectorStore = new InMemoryVectorStore();
+        public static IChatProvider? Provider = null;
+        public static ITextChunker? TextChunker = null;
+
+        public static List<string> supportedFileTypes = new List<string>
+        {
+            ".bash", ".bat",
+            ".c", ".cpp", ".cs", ".csproj", ".csv",
+            ".h", ".html",
+            ".ignore",
+            ".js",
+            ".log",
+            ".md",
+            ".py",
+            ".sh", ".sln",
+            ".ts", ".txt",
+            ".xml",
+            ".yml"
+        };
+
+        public static async Task AddDirectoryToVectorStore(string path) => await Log.MethodAsync(async ctx =>
+        {
+            ctx.Append(Log.Data.Path, path);
+            if (!Directory.Exists(path))
+            {
+                ctx.Failed($"Directory '{path}' does not exist.", Error.DirectoryNotFound);
+                return;
+            }
+
+            var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
+                .Where(f => supportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
+            await Task.WhenAll(files.Select(f => AddFileToVectorStore(f)));
+            Console.WriteLine($"Added {files.Count} files to vector store from directory '{path}'.");
+
+            // Aggregate the list of file names into a new line delimited string and add it to the vector store.
+            var knownFiles = files.Aggregate(new StringBuilder(), (sb, f) => sb.AppendLine(Path.GetFileName(f))).ToString().TrimEnd();
+            var embeddings = new List<(string Reference, string Chunk, float[] Embedding)>();
+            var chunks = TextChunker!.ChunkText("known files", knownFiles);
+
+            await Task.WhenAll(chunks.Select(async chunk =>
+                embeddings.Add((
+                    Reference: chunk.Reference,
+                    Chunk: chunk.Content,
+                    Embedding: await (Engine.Provider as IEmbeddingProvider)!.GetEmbeddingAsync(chunk.Content)
+                ))
+            ));
+            Engine.VectorStore.Add(embeddings);
+            Console.WriteLine($"Added directory index to vector store in {chunks.Count} chunks.");
+
+            ctx.Append(Log.Data.Count, files.Count);
+            ctx.Succeeded();
+        });
+
+        public static async Task AddFileToVectorStore(string path) => await Log.MethodAsync(async ctx =>
+        {
+            // start a timer to measure the time taken to add the file
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            ctx.Append(Log.Data.FilePath, path);
+            TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
+            IEmbeddingProvider? embeddingProvider = Engine.Provider as IEmbeddingProvider;
+            embeddingProvider.ThrowIfNull("Current configured provider does not support embeddings.");
+
+            var embeddings = new List<(string Reference, string Chunk, float[] Embedding)>();
+            var chunks = TextChunker!.ChunkText(path, File.ReadAllText(path));
+            ctx.Append(Log.Data.Count, chunks.Count);
+
+            await Task.WhenAll(chunks.Select(async chunk =>
+                embeddings.Add((
+                    Reference: chunk.Reference,
+                    Chunk: chunk.Content,
+                    Embedding: await embeddingProvider!.GetEmbeddingAsync(chunk.Content)
+                ))
+            ));
+
+            Engine.VectorStore.Add(embeddings);
+            stopwatch.Stop();
+            var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
+            Console.WriteLine($"{elapsedTime}ms required to add {embeddings.Count} chunks from file '{path}' to vector store.");
+            ctx.Succeeded();
+        });
+
+        public static async Task<string> GetRagQueryAsync(string userMessage, Memory history) => await Log.MethodAsync(async ctx =>
+        {
+            Provider.ThrowIfNull("Provider is not set. Please configure a provider before making requests.");
+
+            var prompt =
+$"""
+Based on this user message:
+"{userMessage}"
+
+{Program.config.RagSettings.QueryPrompt} 
+If no external context is needed, respond only with: "NO_RAG"
+""";
+
+            var query = new Memory(new[] {
+                        new ChatMessage { Role = Roles.System, Content = "You are a query generator for knowledge retrieval." },
+                        new ChatMessage { Role = Roles.User, Content = prompt }
+            });
+
+            var response = await Provider!.PostChatAsync(query); // be sure to use the provider directly and don't go through the front door! :O
+            ctx.Append(Log.Data.Result, response);
+            var result = response.Trim().Equals("NO_RAG", StringComparison.OrdinalIgnoreCase) ? string.Empty : response.Trim();
+            ctx.Succeeded();
+            return result;
+        });
+        
+        public static void SetTextChunker(string chunkerName) => Log.Method(ctx =>
+        {
+            Program.config.RagSettings.ChunkingStrategy = chunkerName;
+            ctx.Append(Log.Data.Name, chunkerName);
+            Program.serviceProvider.ThrowIfNull("Service provider is not initialized.");
+            if (Program.Chunkers.TryGetValue(chunkerName, out var type))
+            {
+                TextChunker = (ITextChunker?)Program.serviceProvider?.GetService(type);
+                ctx.Append(Log.Data.Message, $"Using chunker: {type.Name} as implementation for {chunkerName}");
+            }
+            else if (Program.Chunkers.Count > 0)
+            {
+                var first = Program.Chunkers.First();
+                TextChunker = (ITextChunker?)Program.serviceProvider?.GetService(first.Value);
+                ctx.Append(Log.Data.Message, $"{chunkerName} not found, using default chunker: {first.Key}");
+            }
+            else
+            {
+                TextChunker = null!;
+                ctx.Failed($"No chunkers available. Please check your configuration or add a chunker.", Error.ChunkerNotConfigured);
+                return;
+            }
+            ctx.Succeeded(TextChunker != null);
+        });
+
+        public static void SetProvider(string providerName) => Log.Method(ctx =>
+        {
+            Program.config.Provider = providerName;
+            ctx.Append(Log.Data.Provider, providerName);
+            Program.serviceProvider.ThrowIfNull("Service provider is not initialized.");
+            if (Program.Providers.TryGetValue(providerName, out var type))
+            {
+                Provider = (IChatProvider?)Program.serviceProvider?.GetService(type);
+            }
+            else if (Program.Providers.Count > 0)
+            {
+                var first = Program.Providers.First();
+                Provider = (IChatProvider?)Program.serviceProvider?.GetService(first.Value);
+                ctx.Append(Log.Data.Message, $"{providerName} not found, using default provider: {first.Key}");
+            }
+            else
+            {
+                Provider = null;
+                ctx.Failed($"No providers available. Please check your configuration or add a provider.", Error.ProviderNotConfigured);
+                return;
+            }
+            ctx.Append(Log.Data.ProviderSet, Provider != null);
+            ctx.Succeeded();
+        });
+
+        public static async Task<string?> SelectModelAsync() => await Log.MethodAsync(async ctx =>
+        {
+            if (Provider == null)
+            {
+                Console.WriteLine("Provider is not set.");
+                ctx.Failed("Provider is not set.", Error.ProviderNotConfigured);
+                return null;
+            }
+
+            var models = await Provider.GetAvailableModelsAsync();
+            if (models == null || models.Count == 0)
+            {
+                Console.WriteLine("No models available.", Error.ModelNotFound);
+                ctx.Failed("No models available.", Error.ModelNotFound);
+                return null;
+            }
+
+            var selected = User.RenderMenu("Available models:", models, models.IndexOf(Program.config.Model));
+            ctx.Append(Log.Data.Model, selected ?? "<nothing>");
+            ctx.Succeeded();
+            return selected;
+        });
+
+        public static async Task<string> PostChatAsync(Memory history)
+        {
+            Provider.ThrowIfNull("Provider is not set. Please configure a provider before making requests.");
+
+            if (null != VectorStore && !VectorStore.IsEmpty)
+            {
+                var embeddingProvider = Provider! as IEmbeddingProvider;
+                embeddingProvider.ThrowIfNull("Current configured provider does not support embeddings.");
+
+                var query = await GetRagQueryAsync(history.Messages.LastOrDefault()?.Content ?? string.Empty, history);
+                if (!string.IsNullOrEmpty(query))
+                {
+                    float[]? queryEmbedding = await embeddingProvider!.GetEmbeddingAsync(query);
+                    if (queryEmbedding != null)
+                    {
+                        var results = VectorStore.Search(queryEmbedding, 3);
+                        foreach (var result in results)
+                        {
+                            history.AddSystemMessage($"Context reference:\"{result.Reference}\" content:\n```\n{result.Content}\n```\n");
+                        }
+                        history.AddSystemMessage($"When referring to the provided context in your answer, explicitly state which content you are referencing in the form 'as per reference:[reference], [your answer]'.");
+                    }
+                }
+            }
+
+            return await Provider!.PostChatAsync(history);
+        }
+    }

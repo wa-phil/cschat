@@ -59,16 +59,16 @@ public class Memory
 /// </summary>
 public class InMemoryVectorStore : IVectorStore
 {
-    private readonly List<(string FilePath, int Offset, string Chunk, float[] Embedding)> _entries = new();
+    private readonly List<(string Reference, string Chunk, float[] Embedding)> _entries = new();
 
-    public void Add(string filePath, List<(int Offset, string Chunk, float[] Embedding)> entries) =>
-        entries.ForEach(e => _entries.Add((filePath, e.Offset, e.Chunk, e.Embedding)));
+    public void Add(List<(string Reference, string Chunk, float[] Embedding)> entries) =>
+        _entries.AddRange(entries);
 
     public void Clear() => _entries.Clear();
 
     public bool IsEmpty => _entries.Count == 0;
 
-    public List<(string FilePath, int Offset, string Content)> Search(float[] queryEmbedding, int topK = 3) =>
+    public List<(string Reference, string Content)> Search(float[] queryEmbedding, int topK = 3) =>
         Log.Method(ctx =>
     {
         if (queryEmbedding == null || queryEmbedding.Length == 0)
@@ -79,14 +79,13 @@ public class InMemoryVectorStore : IVectorStore
         var results = _entries
             .Select(entry => new
             {
-                entry.FilePath,
-                entry.Offset,
+                entry.Reference,
                 entry.Chunk,
                 Score = CosineSimilarity(queryEmbedding, entry.Embedding)
             })
             .OrderByDescending(e => e.Score)
             .Take(topK)
-            .Select(e => (e.FilePath, e.Offset, e.Chunk))
+            .Select(e => (e.Reference, e.Chunk))
             .ToList();
         ctx.Append(Log.Data.Count, results.Count);
         ctx.Succeeded();

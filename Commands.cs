@@ -257,6 +257,79 @@ public class CommandManager : Command
                             Console.WriteLine("RAG store cleared.");
                             return Task.FromResult(Command.Result.Success);
                         }
+                    },
+                    new Command
+                    {
+                        Name = "query", Description = "alter the prompt used to generate RAG queries",
+                        Action = () =>
+                        {
+                            Console.WriteLine($"Current RAG query prompt: {Program.config.RagSettings.QueryPrompt}");
+                            Console.Write("Enter new RAG query prompt (or press enter to keep current): ");
+                            var promptInput = Console.ReadLine();
+                            if (!string.IsNullOrWhiteSpace(promptInput))
+                            {
+                                Program.config.RagSettings.QueryPrompt = promptInput.Trim();
+                                Config.Save(Program.config, Program.ConfigFilePath);
+                                Console.WriteLine("RAG query prompt updated.");
+                            }
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                    },
+                    new Command
+                    {
+                        Name = "chunking method", Description = "Select the text chunker for RAG",
+                        Action = () =>
+                        {
+                            var chunkers = Program.Chunkers.Keys.ToList();
+                            var selected = User.RenderMenu("Select a text chunker:", chunkers, chunkers.IndexOf(Program.config.RagSettings.ChunkingStrategy));
+                            if (!string.IsNullOrWhiteSpace(selected) && !selected.Equals(Program.config.RagSettings.ChunkingStrategy, StringComparison.OrdinalIgnoreCase))
+                            {
+                                Program.config.RagSettings.ChunkingStrategy = selected;
+                                Config.Save(Program.config, Program.ConfigFilePath);
+                                Console.WriteLine($"Switched to chunker '{Program.config.RagSettings.ChunkingStrategy}'");
+                            }
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                    },
+                    new Command
+                    {
+                        Name = "chunksize", Description = "Set the chunk size for RAG",
+                        Action = () =>
+                        {
+                            Console.Write($"Current chunk size: {Program.config.RagSettings.ChunkSize}. Enter new value (1 to 10000): ");
+                            var sizeInput = Console.ReadLine();
+                            if (int.TryParse(sizeInput, out var size) && size >= 1 && size <= 10000)
+                            {
+                                Program.config.RagSettings.ChunkSize = size;
+                                Config.Save(Program.config, Program.ConfigFilePath);
+                                Console.WriteLine($"Chunk size set to {size}");
+                            }
+                            else
+                            {
+                                Console.WriteLine("Invalid chunk size value. Must be between 1 and 10000.");
+                            }
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                    },
+                    new Command
+                    {
+                        Name = "overlap", Description = "Set the overlap size for RAG chunks",
+                        Action = () =>
+                        {
+                            Console.Write($"Current overlap size: {Program.config.RagSettings.Overlap}. Enter new value (0 to 100): ");
+                            var overlapInput = Console.ReadLine();
+                            if (int.TryParse(overlapInput, out var overlap) && overlap >= 0 && overlap <= 100)
+                            {
+                                Program.config.RagSettings.Overlap = overlap;
+                                Config.Save(Program.config, Program.ConfigFilePath);
+                                Console.WriteLine($"Overlap size set to {overlap}");
+                            }
+                            else
+                            {
+                                Console.WriteLine("Invalid overlap size value. Must be between 0 and 100.");
+                            }
+                            return Task.FromResult(Command.Result.Success);
+                        }
                     }
                 }
             },

@@ -1,6 +1,14 @@
 using System;
 using System.IO;
 
+public class RagSettings
+{
+    public string ChunkingStrategy { get; set; } = "LineChunk";
+    public int ChunkSize { get; set; } = 100;
+    public int Overlap { get; set; } = 5;
+    public string QueryPrompt { get; set; } = "Generate a concise natural language query that captures the user's intent for retrieval.";
+}
+
 public class Config
 {
     public string Provider { get; set; } = "Ollama";
@@ -9,6 +17,8 @@ public class Config
     public int MaxTokens { get; set; } = 4000;
     public float Temperature { get; set; } = 0.7f;
     public string SystemPrompt { get; set; } = "You are a helpful assistant.";
+
+    public RagSettings RagSettings { get; set; } = new RagSettings();
 
     public static Config Load(string configFilePath)
     {
@@ -27,5 +37,5 @@ public class Config
         Console.WriteLine($"Saving configuration to {configFilePath}");
         var json = config.ToJson();
         File.WriteAllText(configFilePath, json);
-    }    
+    }
 }
