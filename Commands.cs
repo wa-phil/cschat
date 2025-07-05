@@ -462,6 +462,26 @@ public class CommandManager : Command
                                     }
                                     return Task.FromResult(Command.Result.Success);
                                 }
+                            },
+                            new Command
+                            {
+                                Name = "embedding threshold", Description = "Set the minimum similarity score for RAG results",
+                                Action = () =>
+                                {
+                                    Console.Write($"Current embedding threshold: {Program.config.RagSettings.EmbeddingThreshold}. Enter new value (0.0 to 1.0): ");
+                                    var thresholdInput = Console.ReadLine();
+                                    if (float.TryParse(thresholdInput, out var threshold) && threshold >= 0.0f && threshold <= 1.0f)
+                                    {
+                                        Program.config.RagSettings.EmbeddingThreshold = threshold;
+                                        Config.Save(Program.config, Program.ConfigFilePath);
+                                        Console.WriteLine($"Embedding threshold set to {threshold}");
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine("Invalid embedding threshold value. Must be between 0.0 and 1.0.");
+                                    }
+                                    return Task.FromResult(Command.Result.Success);
+                                }
                             }
                         }
                     },

@@ -10,6 +10,7 @@ public class RagSettings
     public bool NormalizeEmbeddings { get; set; } = true;
     public int TopK { get; set; } = 3; // as in k-nearest neighbors
     public string EmbeddingModel { get; set; } = "nomic-embed-text"; //"text-embedding-3-small"; // Default embedding model
+    public float EmbeddingThreshold { get; set; } = 0.65f; // Minimum similarity score to consider a document relevant
 }
 
 public class Config
