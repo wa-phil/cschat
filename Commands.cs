@@ -247,6 +247,22 @@ public class CommandManager : Command
                             return Command.Result.Success;
                         }
                     },
+                    new Command 
+                    {
+                        Name = "status", Description = "Show RAG store status",
+                        Action = () =>
+                        {
+                            if (Engine.VectorStore.IsEmpty)
+                            {
+                                Console.WriteLine("RAG store is empty.");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"RAG store contains {Engine.VectorStore.Count} entries.");
+                            }
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                    },
                     new Command
                     {
                         Name = "clear",
@@ -260,77 +276,195 @@ public class CommandManager : Command
                     },
                     new Command
                     {
-                        Name = "query", Description = "alter the prompt used to generate RAG queries",
-                        Action = () =>
+                        Name = "search", Description = "Search RAG store",
+                        Action = async () =>
                         {
-                            Console.WriteLine($"Current RAG query prompt: {Program.config.RagSettings.QueryPrompt}");
-                            Console.Write("Enter new RAG query prompt (or press enter to keep current): ");
-                            var promptInput = Console.ReadLine();
-                            if (!string.IsNullOrWhiteSpace(promptInput))
+                            if (Engine.VectorStore.IsEmpty)
                             {
-                                Program.config.RagSettings.QueryPrompt = promptInput.Trim();
-                                Config.Save(Program.config, Program.ConfigFilePath);
-                                Console.WriteLine("RAG query prompt updated.");
+                                Console.WriteLine("RAG store is empty. Please add files or directories first.");
+                                return Command.Result.Failed;
                             }
-                            return Task.FromResult(Command.Result.Success);
+
+                            Console.Write("Enter search query: ");
+                            var query = Console.ReadLine();
+                            if (!string.IsNullOrWhiteSpace(query))
+                            {
+                                var embeddingProvider = Engine.Provider as IEmbeddingProvider;
+                                if (embeddingProvider == null)
+                                {
+                                    Console.WriteLine("Current provider does not support embeddings.");
+                                    return Command.Result.Failed;
+                                }
+                                float[] queryEmbedding = await embeddingProvider.GetEmbeddingAsync(query);
+                                if (queryEmbedding.Length == 0)
+                                {
+                                    Console.WriteLine("Failed to get embedding for test query.");
+                                    return Command.Result.Failed;
+                                }
+
+                                var results = await Engine.SearchVectorDB(query);
+                                if (results.Any())
+                                {
+                                    Console.WriteLine("Search Results:");
+                                    foreach (var result in results)
+                                    {
+                                        Console.WriteLine($"[{result.Score:F4}] {result.Reference}");
+                                    }
+
+                                    var scores = results.Select(x => x.Score).ToList();
+                                    float mean = scores.Average();
+                                    float stddev = (float)Math.Sqrt(scores.Average(x => Math.Pow(x - mean, 2)));
+
+                                    Console.WriteLine($"\nEmbedding dimensions: {queryEmbedding.Length}");
+                                    Console.WriteLine($"Total entries: {Engine.VectorStore.Count}");
+                                    Console.WriteLine($"Average similarity score: {mean:F4}");
+                                    Console.WriteLine($"Standard deviation: {stddev:F4}");
+                                }
+                                else
+                                {
+                                    Console.WriteLine("No results found.");
+                                }
+                            }
+                            return Command.Result.Success;
                         }
                     },
-                    new Command
-                    {
-                        Name = "chunking method", Description = "Select the text chunker for RAG",
-                        Action = () =>
+                    new Command {
+                        Name = "query", Description = "Generate a RAG query",
+                        Action = async () =>
                         {
-                            var chunkers = Program.Chunkers.Keys.ToList();
-                            var selected = User.RenderMenu("Select a text chunker:", chunkers, chunkers.IndexOf(Program.config.RagSettings.ChunkingStrategy));
-                            if (!string.IsNullOrWhiteSpace(selected) && !selected.Equals(Program.config.RagSettings.ChunkingStrategy, StringComparison.OrdinalIgnoreCase))
+                            if (Engine.VectorStore.IsEmpty)
                             {
-                                Program.config.RagSettings.ChunkingStrategy = selected;
-                                Config.Save(Program.config, Program.ConfigFilePath);
-                                Console.WriteLine($"Switched to chunker '{Program.config.RagSettings.ChunkingStrategy}'");
+                                Console.WriteLine("RAG store is empty. Please add files or directories first.");
+                                return Command.Result.Failed;
                             }
-                            return Task.FromResult(Command.Result.Success);
+
+                            Console.Write("Enter query: ");
+                            var query = Console.ReadLine();
+                            if (!string.IsNullOrWhiteSpace(query))
+                            {
+                                var response = await Engine.GetRagQueryAsync(query);
+                                Console.WriteLine($"RAG Query Response: \"{response}\"");
+                            }
+                            return Command.Result.Success;
                         }
                     },
-                    new Command
-                    {
-                        Name = "chunksize", Description = "Set the chunk size for RAG",
-                        Action = () =>
+                    new Command{
+                        Name = "config", Description = "Configure RAG settings",
+                        SubCommands = new List<Command>
                         {
-                            Console.Write($"Current chunk size: {Program.config.RagSettings.ChunkSize}. Enter new value (1 to 10000): ");
-                            var sizeInput = Console.ReadLine();
-                            if (int.TryParse(sizeInput, out var size) && size >= 1 && size <= 10000)
+                            new Command
                             {
-                                Program.config.RagSettings.ChunkSize = size;
-                                Config.Save(Program.config, Program.ConfigFilePath);
-                                Console.WriteLine($"Chunk size set to {size}");
-                            }
-                            else
+                                Name = "embedding model", Description = "Set the embedding model for RAG",
+                                Action = () =>
+                                {
+                                    Console.WriteLine($"Current embedding model: {Program.config.RagSettings.EmbeddingModel}");
+                                    Console.Write("Enter new embedding model (or press enter to keep current): ");
+                                    var modelInput = Console.ReadLine();
+                                    if (!string.IsNullOrWhiteSpace(modelInput))
+                                    {
+                                        Program.config.RagSettings.EmbeddingModel = modelInput.Trim();
+                                        Config.Save(Program.config, Program.ConfigFilePath);
+                                        Console.WriteLine("Embedding model updated.");
+                                    }
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                            },
+                            new Command
                             {
-                                Console.WriteLine("Invalid chunk size value. Must be between 1 and 10000.");
+                                Name = "query", Description = "alter the prompt used to generate RAG queries",
+                                Action = () =>
+                                {
+                                    Console.WriteLine($"Current RAG query prompt: {Program.config.RagSettings.QueryPrompt}");
+                                    Console.Write("Enter new RAG query prompt (or press enter to keep current): ");
+                                    var promptInput = Console.ReadLine();
+                                    if (!string.IsNullOrWhiteSpace(promptInput))
+                                    {
+                                        Program.config.RagSettings.QueryPrompt = promptInput.Trim();
+                                        Config.Save(Program.config, Program.ConfigFilePath);
+                                        Console.WriteLine("RAG query prompt updated.");
+                                    }
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                            },
+                            new Command
+                            {
+                                Name = "chunking method", Description = "Select the text chunker for RAG",
+                                Action = () =>
+                                {
+                                    var chunkers = Program.Chunkers.Keys.ToList();
+                                    var selected = User.RenderMenu("Select a text chunker:", chunkers, chunkers.IndexOf(Program.config.RagSettings.ChunkingStrategy));
+                                    if (!string.IsNullOrWhiteSpace(selected) && !selected.Equals(Program.config.RagSettings.ChunkingStrategy, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        Program.config.RagSettings.ChunkingStrategy = selected;
+                                        Config.Save(Program.config, Program.ConfigFilePath);
+                                        Console.WriteLine($"Switched to chunker '{Program.config.RagSettings.ChunkingStrategy}'");
+                                    }
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                            },
+                            new Command
+                            {
+                                Name = "chunksize", Description = "Set the chunk size for RAG",
+                                Action = () =>
+                                {
+                                    Console.Write($"Current chunk size: {Program.config.RagSettings.ChunkSize}. Enter new value (1 to 10000): ");
+                                    var sizeInput = Console.ReadLine();
+                                    if (int.TryParse(sizeInput, out var size) && size >= 1 && size <= 10000)
+                                    {
+                                        Program.config.RagSettings.ChunkSize = size;
+                                        Config.Save(Program.config, Program.ConfigFilePath);
+                                        Console.WriteLine($"Chunk size set to {size}");
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine("Invalid chunk size value. Must be between 1 and 10000.");
+                                    }
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                            },
+                            new Command
+                            {
+                                Name = "overlap", Description = "Set the overlap size for RAG chunks",
+                                Action = () =>
+                                {
+                                    Console.Write($"Current overlap size: {Program.config.RagSettings.Overlap}. Enter new value (0 to 100): ");
+                                    var overlapInput = Console.ReadLine();
+                                    if (int.TryParse(overlapInput, out var overlap) && overlap >= 0 && overlap <= 100)
+                                    {
+                                        Program.config.RagSettings.Overlap = overlap;
+                                        Config.Save(Program.config, Program.ConfigFilePath);
+                                        Console.WriteLine($"Overlap size set to {overlap}");
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine("Invalid overlap size value. Must be between 0 and 100.");
+                                    }
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                            },
+                            new Command
+                            {
+                                Name = "TopK", Description = "Set the number of top results to return from RAG queries",
+                                Action = () =>
+                                {
+                                    const int maxK = 10;
+                                    Console.Write($"Current TopK value: {Program.config.RagSettings.TopK}. Enter new value (1 to {maxK}): ");
+                                    var topKInput = Console.ReadLine();
+                                    if (int.TryParse(topKInput, out var topK) && topK >= 1 && topK <= maxK)
+                                    {
+                                        Program.config.RagSettings.TopK = topK;
+                                        Config.Save(Program.config, Program.ConfigFilePath);
+                                        Console.WriteLine($"TopK set to {topK}");
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine("Invalid TopK value. Must be between 1 and {maxK}.");
+                                    }
+                                    return Task.FromResult(Command.Result.Success);
+                                }
                             }
-                            return Task.FromResult(Command.Result.Success);
                         }
                     },
-                    new Command
-                    {
-                        Name = "overlap", Description = "Set the overlap size for RAG chunks",
-                        Action = () =>
-                        {
-                            Console.Write($"Current overlap size: {Program.config.RagSettings.Overlap}. Enter new value (0 to 100): ");
-                            var overlapInput = Console.ReadLine();
-                            if (int.TryParse(overlapInput, out var overlap) && overlap >= 0 && overlap <= 100)
-                            {
-                                Program.config.RagSettings.Overlap = overlap;
-                                Config.Save(Program.config, Program.ConfigFilePath);
-                                Console.WriteLine($"Overlap size set to {overlap}");
-                            }
-                            else
-                            {
-                                Console.WriteLine("Invalid overlap size value. Must be between 0 and 100.");
-                            }
-                            return Task.FromResult(Command.Result.Success);
-                        }
-                    }
                 }
             },
             new Command
@@ -361,6 +495,44 @@ public class CommandManager : Command
                                 {
                                     Log.ClearOutput();
                                     Console.WriteLine("Log cleared.");
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                            }
+                        }
+                    },
+                    new Command {
+                        Name = "config", Description = "Configuration commands",
+                        SubCommands = new List<Command>
+                        {
+                            new Command
+                            {
+                                Name = "show", Description = "Show current system configuration",
+                                Action = () =>
+                                {
+                                    Console.WriteLine("Current Configuration:");
+                                    Console.WriteLine(Program.config.ToJson());
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                            },
+                            new Command
+                            {
+                                Name = "save", Description = "Save the current configuration",
+                                Action = () =>
+                                {
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine("Configuration saved.");
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                            },
+                            new Command
+                            {
+                                Name = "factory reset", Description = "Delete the current configuration and reset everything to defaults",
+                                Action = () =>
+                                {
+                                    File.Delete(Program.ConfigFilePath);
+                                    Program.config = new Config(); // Reset to default config
+                                    Program.InitProgram();
+                                    Console.WriteLine("Configuration reset to default.");
                                     return Task.FromResult(Command.Result.Success);
                                 }
                             }

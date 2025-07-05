@@ -39,7 +39,7 @@ static class Program
         return result;
     }
 
-    static void InitProgram()
+    public static void InitProgram()
     {
         config = Config.Load(ConfigFilePath);
         Log.Initialize();
@@ -55,13 +55,13 @@ static class Program
 
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
         memory = new Memory(config.SystemPrompt);
-        commandManager = CommandManager.CreateDefaultCommands();
     }
 
     static async Task Main(string[] args)
     {
         Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
         InitProgram();
+        commandManager = CommandManager.CreateDefaultCommands();
 
         bool showHelp = false;
         var options = new OptionSet {

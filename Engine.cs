@@ -139,17 +139,19 @@ public static class Engine
             ctx.Succeeded();
         });
 
-        public static async Task<string> GetRagQueryAsync(string userMessage, Memory history) => await Log.MethodAsync(async ctx =>
+        public static async Task<string> GetRagQueryAsync(string userMessage) => await Log.MethodAsync(async ctx =>
         {
             Provider.ThrowIfNull("Provider is not set. Please configure a provider before making requests.");
-
+            ctx.Append(Log.Data.Query, userMessage);
             var prompt =
 $"""
 Based on this user message:
 "{userMessage}"
 
-{Program.config.RagSettings.QueryPrompt} 
-If no external context is needed, respond only with: "NO_RAG"
+Extract a concise list of keywords that would help retrieve relevant information from a knowledge base. 
+Avoid answering the question. Instead, focus on what terms are most useful for searching. 
+
+If no external information is needed, respond only with: NO_RAG
 """;
 
             var query = new Memory(new[] {
@@ -157,11 +159,22 @@ If no external context is needed, respond only with: "NO_RAG"
                         new ChatMessage { Role = Roles.User, Content = prompt }
             });
 
-            var response = await Provider!.PostChatAsync(query); // be sure to use the provider directly and don't go through the front door! :O
+            var response = await Provider!.PostChatAsync(query);
             ctx.Append(Log.Data.Result, response);
-            var result = response.Trim().Equals("NO_RAG", StringComparison.OrdinalIgnoreCase) ? string.Empty : response.Trim();
-            ctx.Succeeded();
-            return result;
+
+            string cleaned = response.Trim();
+
+            if (cleaned.StartsWith("NO_RAG", StringComparison.OrdinalIgnoreCase))
+            {
+                // If the model says NO_RAG *and nothing else*, honor it.
+                if (cleaned.Equals("NO_RAG", StringComparison.OrdinalIgnoreCase))
+                    return string.Empty;
+
+                // Otherwise, remove the NO_RAG prefix and extract the rest
+                var withoutTag = cleaned.Substring("NO_RAG".Length).TrimStart('-', '\n', ':', ' ');
+                return withoutTag.Length > 0 ? withoutTag : string.Empty;
+            }
+            return cleaned;
         });
         
         public static void SetTextChunker(string chunkerName) => Log.Method(ctx =>
@@ -236,29 +249,34 @@ If no external context is needed, respond only with: "NO_RAG"
             ctx.Succeeded();
             return selected;
         });
+        
+        public static async Task<List<SearchResult>> SearchVectorDB(string userMessage)
+        {
+            var empty = new List<SearchResult>();
+            if (string.IsNullOrEmpty(userMessage) || null == VectorStore || VectorStore.IsEmpty) { return empty; }
+
+            var embeddingProvider = Provider as IEmbeddingProvider;
+            if (embeddingProvider == null) { return empty; }
+
+            var query = await GetRagQueryAsync(userMessage);
+            if (string.IsNullOrEmpty(query)) { return empty; }
+            
+            float[]? queryEmbedding = await embeddingProvider!.GetEmbeddingAsync(query);
+            if (queryEmbedding == null) { return empty; }
+            
+            return VectorStore.Search(queryEmbedding, Program.config.RagSettings.TopK);            
+        }
 
         public static async Task<string> PostChatAsync(Memory history)
         {
             Provider.ThrowIfNull("Provider is not set. Please configure a provider before making requests.");
 
-            if (null != VectorStore && !VectorStore.IsEmpty)
+            var SearchResults = await SearchVectorDB(history.Messages.LastOrDefault()?.Content ?? string.Empty);
+            if (SearchResults != null && SearchResults.Count > 0)
             {
-                var embeddingProvider = Provider! as IEmbeddingProvider;
-                embeddingProvider.ThrowIfNull("Current configured provider does not support embeddings.");
-
-                var query = await GetRagQueryAsync(history.Messages.LastOrDefault()?.Content ?? string.Empty, history);
-                if (!string.IsNullOrEmpty(query))
+                foreach (var result in SearchResults)
                 {
-                    float[]? queryEmbedding = await embeddingProvider!.GetEmbeddingAsync(query);
-                    if (queryEmbedding != null)
-                    {
-                        var results = VectorStore.Search(queryEmbedding, 3);
-                        foreach (var result in results)
-                        {
-                            history.AddSystemMessage($"Context reference:\"{result.Reference}\" content:\n```\n{result.Content}\n```\n");
-                        }
-                        history.AddSystemMessage($"When referring to the provided context in your answer, explicitly state which content you are referencing in the form 'as per reference:[reference], [your answer]'.");
-                    }
+                    history.AddContext(result.Reference, result.Content);
                 }
             }
 

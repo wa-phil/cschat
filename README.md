@@ -8,6 +8,7 @@ A simple, interactive C# console chat client for [Ollama](https://ollama.com/) a
   - [Ollama Documentation](https://github.com/ollama/ollama/blob/main/docs/README.md)
   - [Ollama Quickstart](https://ollama.com/docs/)
   - To configure for Ollama, set `Provider` to `Ollama` and `Host` to your Ollama server URL (default: `http://localhost:11434`) in `config.json`.
+  - Recommend you download the nomic-embed-text:latest model if you intend to use RAG and at least one of llama3.2, deepseek-r1, or gemma3 models for general use.
 
 - **Azure OpenAI**
   - [Azure OpenAI Documentation](https://learn.microsoft.com/en-us/azure/ai-services/openai/)

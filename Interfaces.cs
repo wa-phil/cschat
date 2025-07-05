@@ -34,12 +34,20 @@ public interface IEmbeddingProvider
     Task<float[]> GetEmbeddingAsync(string text);
 }
 
+public record SearchResult
+{
+    public float Score;
+    required public string Reference;
+    required public string Content;
+}
+
 public interface IVectorStore
 {
     void Add(List<(string Reference, string Chunk, float[] Embedding)> entries);
     void Clear();
-    List<(string Reference, string Content)> Search(float[] queryEmbedding, int topK = 3);
+    List<SearchResult> Search(float[] queryEmbedding, int topK = 3);
     bool IsEmpty { get; }
+    int Count { get; }
 }
 
 public interface ITextChunker

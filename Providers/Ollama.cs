@@ -84,7 +84,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
     {
         var request = new
         {
-            model = config.Model,
+            model = Program.config.RagSettings.EmbeddingModel,
             prompt = text
         };
 

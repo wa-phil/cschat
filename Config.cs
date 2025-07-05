@@ -6,7 +6,10 @@ public class RagSettings
     public string ChunkingStrategy { get; set; } = "LineChunk";
     public int ChunkSize { get; set; } = 100;
     public int Overlap { get; set; } = 5;
-    public string QueryPrompt { get; set; } = "Generate a concise natural language query that captures the user's intent for retrieval.";
+    public string QueryPrompt { get; set; } = "Extract a concise list of keywords that would appear in relevant documents to answer this question.";
+    public bool NormalizeEmbeddings { get; set; } = true;
+    public int TopK { get; set; } = 3; // as in k-nearest neighbors
+    public string EmbeddingModel { get; set; } = "nomic-embed-text"; //"text-embedding-3-small"; // Default embedding model
 }
 
 public class Config
@@ -16,7 +19,7 @@ public class Config
     public string Host { get; set; } = "http://localhost:11434";
     public int MaxTokens { get; set; } = 4000;
     public float Temperature { get; set; } = 0.7f;
-    public string SystemPrompt { get; set; } = "You are a helpful assistant.";
+    public string SystemPrompt { get; set; } = "You are a helpful assistant.  When answering questions, if you do not know the answer, tell the user as much. Always strive to be honest and truthful.";
 
     public RagSettings RagSettings { get; set; } = new RagSettings();
 

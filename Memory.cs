@@ -7,6 +7,7 @@ public class Memory
 {
     protected ChatMessage _systemMessage = new ChatMessage { Role = Roles.System, Content = string.Empty };
     protected List<ChatMessage> _messages = new List<ChatMessage>();
+    protected List<(string Reference, string Chunk)> _context = new List<(string Reference, string Chunk)>();
     public Memory(string systemPrompt) => AddSystemMessage(systemPrompt);
 
     public Memory(IEnumerable<ChatMessage> messages)
@@ -25,10 +26,7 @@ public class Memory
         get
         {
             var result = new List<ChatMessage>();
-            if (_systemMessage.Content.Length > 0)
-            {
-                result.Add(_systemMessage);
-            }
+            result.Add(GetSystemMessage());
             result.AddRange(_messages);
             return result;
         }
@@ -40,15 +38,29 @@ public class Memory
         _messages.Clear();
     }
 
+    public void AddContext(string reference, string chunk) => _context.Add((reference, chunk));
+    public void ClearContext() => _context.Clear();
+
     public void AddUserMessage(string content) => _messages.Add(new ChatMessage { Role = Roles.User, Content = content });
     public void AddAssistantMessage(string content) => _messages.Add(new ChatMessage { Role = Roles.Assistant, Content = content });
     public void AddSystemMessage(string content) =>
         _systemMessage.Content = _systemMessage.Content.Length > 0
             ? $"{_systemMessage.Content}\n{content}"
             : content;
-            
-    public void SetSystemMessage(string content) => 
+
+    public void SetSystemMessage(string content) =>
         _systemMessage = new ChatMessage { Role = Roles.System, Content = content };
+
+    public ChatMessage GetSystemMessage()
+    {
+        var result = new ChatMessage { Role = Roles.System, Content = _systemMessage.Content };
+        if (_context.Count > 0)
+        {
+            result.Content += "\nWhat follows is content to help answer your next question.\n"+string.Join("\n", _context.Select(c => $"--- BEGIN CONTEXT: {c.Reference} ---\n{c.Chunk}\n--- END CONTEXT ---"));
+        }
+        result.Content += "\nWhen referring to the provided context in your answer, explicitly state which content you are referencing in the form 'as per [reference], [your answer]'.";
+        return result;
+    }
 }
 
 /// <summary>
@@ -62,13 +74,14 @@ public class InMemoryVectorStore : IVectorStore
     private readonly List<(string Reference, string Chunk, float[] Embedding)> _entries = new();
 
     public void Add(List<(string Reference, string Chunk, float[] Embedding)> entries) =>
-        _entries.AddRange(entries);
+        _entries.AddRange(entries.Select(e => (e.Reference, e.Chunk, Normalize(e.Embedding))));
 
     public void Clear() => _entries.Clear();
 
     public bool IsEmpty => _entries.Count == 0;
+    public int Count => _entries.Count;
 
-    public List<(string Reference, string Content)> Search(float[] queryEmbedding, int topK = 3) =>
+    public List<SearchResult> Search(float[] queryEmbedding, int topK = 3) =>
         Log.Method(ctx =>
     {
         if (queryEmbedding == null || queryEmbedding.Length == 0)
@@ -76,21 +89,32 @@ public class InMemoryVectorStore : IVectorStore
             return new();
         }
 
+        var normalizedQuery = Normalize(queryEmbedding);
+
         var results = _entries
-            .Select(entry => new
+            .Select(entry => new SearchResult
             {
-                entry.Reference,
-                entry.Chunk,
-                Score = CosineSimilarity(queryEmbedding, entry.Embedding)
+                Score = CosineSimilarity(normalizedQuery, entry.Embedding),
+                Reference = entry.Reference ?? string.Empty,
+                Content = entry.Chunk ?? string.Empty
             })
             .OrderByDescending(e => e.Score)
             .Take(topK)
-            .Select(e => (e.Reference, e.Chunk))
             .ToList();
+
+        var topScores = results.Select(item => item.Score).ToList();
+        ctx.Append(Log.Data.Scores, topScores);
         ctx.Append(Log.Data.Count, results.Count);
         ctx.Succeeded();
         return results;
     });
+
+    private static float[] Normalize(float[] vector)
+    {
+        float norm = (float)Math.Sqrt(vector.Sum(v => v * v));
+        if (norm < 1e-8) return vector; // avoid divide-by-zero
+        return vector.Select(v => v / norm).ToArray();
+    }    
 
     private static float CosineSimilarity(float[] a, float[] b)
     {
