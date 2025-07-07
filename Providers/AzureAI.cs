@@ -12,7 +12,7 @@ using System.Collections.Generic;
 
 
 [IsConfigurable("AzureAI")]
-public class AzureAI : IChatProvider//, IEmbeddingProvider // todo: uncomment once embedding is working
+public class AzureAI : IChatProvider, IEmbeddingProvider
 {
     private Config? config = null;
     private AzureOpenAIClient? azureClient = null;
