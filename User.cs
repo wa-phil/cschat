@@ -7,6 +7,20 @@ public class User
     // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
     public static string? RenderMenu(string header, List<string> choices, int selected = 0) // Allow nullable return type to handle null cases
     {
+        // Check if we have enough console space
+        int requiredLines = choices.Count + 3; // menu items + header + input line + buffer
+        int availableLines = Console.BufferHeight - Console.CursorTop;
+        
+        if (requiredLines > availableLines)
+        {
+            // If we don't have enough space, scroll or clear the console
+            if (Console.CursorTop > 0)
+            {
+                Console.Clear();
+                Console.SetCursorPosition(0, 0);
+            }
+        }
+        
         // Always print enough newlines to ensure space for the menu
         Console.WriteLine(header);
         int menuLines = choices.Count;
@@ -17,15 +31,21 @@ public class User
         int menuTop = Console.CursorTop - menuLines;
 
         string filter = "";
-        int inputTop = menuTop + choices.Count + 1;
+        int inputTop = Math.Min(menuTop + choices.Count + 1, Console.BufferHeight - 2);
         List<string> filteredChoices = new List<string>(choices);
         int filteredSelected = selected;
 
         void DrawMenu()
         {
+            // Ensure we don't exceed console buffer bounds
+            int maxRow = Console.BufferHeight - 1;
+            
             for (int i = 0; i < filteredChoices.Count; i++)
             {
-                Console.SetCursorPosition(0, menuTop + i);
+                int rowPosition = menuTop + i;
+                if (rowPosition >= maxRow) break; // Skip if we would exceed buffer
+                
+                Console.SetCursorPosition(0, rowPosition);
                 string line;
                 if (i == filteredSelected)
                 {
@@ -51,13 +71,22 @@ public class User
             // Clear any leftover menu lines
             for (int i = filteredChoices.Count; i < menuLines; i++)
             {
-                Console.SetCursorPosition(0, menuTop + i);
+                int rowPosition = menuTop + i;
+                if (rowPosition >= maxRow) break; // Skip if we would exceed buffer
+                
+                Console.SetCursorPosition(0, rowPosition);
                 Console.Write(new string(' ', Console.WindowWidth - 1));
             }
-            // Draw input header
-            Console.SetCursorPosition(0, inputTop);
-            Console.Write($"|> {filter}".PadRight(Console.WindowWidth - 1));
-            Console.SetCursorPosition(3 + filter.Length, inputTop);
+            // Draw input header only if it fits in the buffer
+            if (inputTop < maxRow)
+            {
+                Console.SetCursorPosition(0, inputTop);
+                Console.Write($"|> {filter}".PadRight(Console.WindowWidth - 1));
+                if (3 + filter.Length < Console.WindowWidth && inputTop < maxRow)
+                {
+                    Console.SetCursorPosition(3 + filter.Length, inputTop);
+                }
+            }
         }
 
         DrawMenu();
@@ -77,7 +106,9 @@ public class User
             }
             else if (key.Key == ConsoleKey.Enter)
             {
-                Console.SetCursorPosition(0, inputTop + 1);
+                // Safe cursor positioning for exit
+                int exitRow = Math.Min(inputTop + 1, Console.BufferHeight - 1);
+                Console.SetCursorPosition(0, exitRow);
                 if (filteredChoices.Count > 0)
                     return filteredChoices[filteredSelected];
                 else
@@ -85,14 +116,18 @@ public class User
             }
             else if (key.Key == ConsoleKey.Escape)
             {
-                Console.SetCursorPosition(0, inputTop + 1);
+                // Safe cursor positioning for exit
+                int exitRow = Math.Min(inputTop + 1, Console.BufferHeight - 1);
+                Console.SetCursorPosition(0, exitRow);
                 Console.WriteLine("Selection cancelled.");
                 return null;
             }
             else if (filteredChoices.Count <= 9 && key.KeyChar >= '1' && key.KeyChar <= (char)('0' + filteredChoices.Count))
             {
                 int idx = key.KeyChar - '1';
-                Console.SetCursorPosition(0, inputTop + 1);
+                // Safe cursor positioning for exit
+                int exitRow = Math.Min(inputTop + 1, Console.BufferHeight - 1);
+                Console.SetCursorPosition(0, exitRow);
                 return filteredChoices[idx];
             }
             else if (key.Key == ConsoleKey.Backspace)
