@@ -58,8 +58,8 @@ public class Memory
         if (_context.Count > 0)
         {
             result.Content += "\nWhat follows is content to help answer your next question.\n"+string.Join("\n", _context.Select(c => $"--- BEGIN CONTEXT: {c.Reference} ---\n{c.Chunk}\n--- END CONTEXT ---"));
+            result.Content += "\nWhen referring to the provided context in your answer, explicitly state which content you are referencing in the form 'as per [reference], [your answer]'.";
         }
-        result.Content += "\nWhen referring to the provided context in your answer, explicitly state which content you are referencing in the form 'as per [reference], [your answer]'.";
         return result;
     }
 }

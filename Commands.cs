@@ -489,6 +489,25 @@ public class CommandManager : Command
             },
             new Command
             {
+                Name = "tools", Description = "Tool commands",
+                SubCommands = ToolRegistry.GetRegisteredTools().Select(tool => 
+                    new Command
+                    {
+                        Name = tool.Name,
+                        Description = tool.Description,
+                        Action = async () =>
+                        {
+                            Console.Write($"Using tool: {tool.Name}.\n{tool.Usage}\n Enter input: ");
+                            // Tools may not require input, so we should handle empty input gracefully
+                            var input = Console.ReadLine();
+                            var result = await ToolRegistry.InvokeToolAsync(tool.Name, input ?? string.Empty) ?? string.Empty;
+                            Console.WriteLine($"Tool result: {result}");
+                            return Command.Result.Success;
+                        }
+                    }).ToList()
+            },
+            new Command
+            {
                 Name = "system", Description = "System commands",
                 SubCommands = new List<Command>
                 {
@@ -557,13 +576,13 @@ public class CommandManager : Command
                                 }
                             }
                         }
-                    },
-                    new Command
-                    {
-                        Name = "exit", Description = "Quit the application",
-                        Action = () => { Environment.Exit(0); return Task.FromResult(Command.Result.Success); }
-                    }                 
+                    }
                 }
+            },
+            new Command
+            {
+                Name = "exit", Description = "Quit the application",
+                Action = () => { Environment.Exit(0); return Task.FromResult(Command.Result.Success); }
             }
         });
 

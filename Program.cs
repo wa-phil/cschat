@@ -15,6 +15,7 @@ static class Program
     public static Memory memory = null!;
     public static Dictionary<string, Type> Providers = null!; // Dictionary to hold provider types by name
     public static Dictionary<string, Type> Chunkers = null!; // Dictionary to hold chunker types by name
+    public static Dictionary<string, Type> Tools = null!; // Dictionary to hold tool types by name
     public static CommandManager commandManager = null!;
     public static ServiceProvider? serviceProvider = null!;
 
@@ -52,9 +53,13 @@ static class Program
         // Register all IChatProvider implementations
         Providers = DictionaryOfTypesToNamesForInterface<IChatProvider>(serviceCollection, types);
         Chunkers  = DictionaryOfTypesToNamesForInterface<ITextChunker>(serviceCollection, types);
+        Tools     = DictionaryOfTypesToNamesForInterface<ITool>(serviceCollection, types);
 
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
         memory = new Memory(config.SystemPrompt);
+        ToolRegistry.Initialize();
+        
+        // Provider and chunker initialization deferred until after config is loaded.
     }
 
     static async Task Main(string[] args)

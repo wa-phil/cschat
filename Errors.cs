@@ -10,6 +10,9 @@ public enum Error : UInt32
     ModelNotFound,
     DirectoryNotFound,
     ChunkerNotConfigured,
+    ToolNotFound,
+    ToolNotAvailable,
+    FailedToParseResponse,
 }
 
 public class CsChatException : Exception

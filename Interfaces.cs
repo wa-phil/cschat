@@ -54,3 +54,10 @@ public interface ITextChunker
 {
     List<(string Reference, string Content)> ChunkText(string path, string text);
 }
+
+public interface ITool
+{
+    string Description { get; }
+    string Usage { get; } // Example: "Add(a, b)"
+    Task<string> InvokeAsync(string input); // Expects input in a structured string format, like JSON or CSV
+}

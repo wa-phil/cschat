@@ -35,9 +35,10 @@ public static class Log
 {
     public enum Data : UInt32
     {
-        Method, Level, Timestamp, Message, Success, ErrorCode, IsRetry, Threw, Caught, PlugIn, Count, Source,
-        Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, 
-        Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores
+        Method, Level, Timestamp, Message, Success, ErrorCode, IsRetry, Threw, Caught, Exception, PlugIn, Count, Source,
+        Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, Response,
+        Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered,
+        ToolName, ToolInput, ParsedInput,
     }
 
     public enum Level { Information, Error }
@@ -84,7 +85,7 @@ public static class Log
         {
             _items[Data.Level] = Level.Error;
             _items[Data.Message] = message;
-            _items[Data.ErrorCode] = $"0x{errorCode:X8}";
+            _items[Data.ErrorCode] = $"0x{(UInt32)errorCode:X8}";
             Succeeded(false);
         }
 
