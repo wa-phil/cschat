@@ -262,11 +262,11 @@ If no tool is appropriate, respond with: NO_TOOL
         }
 
         if (response.StartsWith("NO_TOOL", StringComparison.OrdinalIgnoreCase))
-            {
-                ctx.Append(Log.Data.Message, "No tool suggestion made by the model.");
-                ctx.Succeeded();
-                return null;
-            }
+        {
+            ctx.Append(Log.Data.Message, "No tool suggestion made by the model.");
+            ctx.Succeeded();
+            return null;
+        }
 
         try
         {
@@ -292,7 +292,7 @@ If no tool is appropriate, respond with: NO_TOOL
     public static async Task<string> PostChatAsync(Memory history)
     {
         Provider.ThrowIfNull("Provider is not set.");
-
+        
         var lastUserInput = history.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
 
         // === Check if tool is applicable ===
@@ -334,5 +334,4 @@ If no tool is appropriate, respond with: NO_TOOL
 
         return await Provider!.PostChatAsync(history);
     }
-
 }

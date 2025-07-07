@@ -94,7 +94,7 @@ public class CalculatorTool : ITool
 [IsConfigurable("CurrentDateTime")]
 public class CurrentDateTimeTool : ITool
 {
-    public string Description => "Returns the current date and time.";
+    public string Description => "Returns the current local date and time in UTC format.";
     public string Usage => "Input: None.";
 
     public Task<string> InvokeAsync(string _)
