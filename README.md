@@ -24,12 +24,23 @@ A simple, interactive C# console chat client for [Ollama](https://ollama.com/) a
 - Configuration is loaded from or saved to `config.json` (auto-generated).
 - **Retrieval-Augmented Generation (RAG):** Ingest, search, and use external documents or knowledge in chat context. RAG data can be added, listed, and cleared via commands.
 - **Interactive menu system:** Press `Escape` to open a keyboard-navigable menu for commands, model/provider selection, and more. Supports filtering and quick selection.
+- **Tool system:** Register and invoke custom tools via the `tools` command or through model-suggested tool use. Tools can be used to extend the assistant with new capabilities (e.g., calculations, lookups, etc.).
+
+## Tool System
+
+The tool system allows you to register and invoke custom tools from within the chat client. Tools are modular functions that can be called directly by the user or automatically by the model when appropriate.
+
+- **Listing tools:** Use the `tools` command in the menu to see available tools and their descriptions.
+- **Invoking tools:** Select a tool from the menu to use a tool. You will be prompted for any required input.
+- **Model tool use:** The model may suggest and invoke tools automatically if it determines a tool is relevant to your query. The result will be used to inform the model's response.
+- **Implementing tools:** To add a new tool, implement the `ITool` interface and mark it with the IsConfigurable attribute. Each tool provides a name, description, usage string, and an async invocation method.
 
 ## How it works
 - On startup, loads or creates a configuration file (`config.json`) for provider, host, model, and system prompt.
 - Initializes providers, command system, and in-memory chat history.
 - **Menu system:** Press `Escape` at any prompt to open an interactive menu. Navigate with arrow keys, filter options by typing, and select with Enter. Menu allows access to commands, model/provider selection, and RAG actions.
 - **RAG workflow:** Use commands or menu to add documents to the RAG store, search or clear RAG data, and have the model use retrieved context in responses.
+- **Tool workflow:** When a user query matches a tool's purpose, the model may suggest invoking a tool. The tool is run, and its result is used to answer the user's question. Tools can also be invoked directly via the menu's `tools` command.
 - For normal input, sends the chat history (and optionally RAG context) and user message to the selected provider and displays the response.
 - Multi-line input is supported by pressing Shift+Enter for a soft new line.
 - Chat history is kept in memory and can be cleared with the `clear` command in the menu.
@@ -70,8 +81,14 @@ commands
 > [1] chat - chat-related commands     
   [2] provider - Provider-related commands 
   [3] rag - Retrieval-Augmented Generation commands 
-  [4] system - System commands  
-|>
+  [4] tools - Tool commands
+  [5] system - System commands
+  [6] exit - Quit the application
+
+tools commands
+> [1] Calculator - Evaluates basic math expressions.
+  [2] CurrentDateTime - Returns the current date and time.
+|> 
 
 provider commands                     
 > [1] select - Select the LLM Provider 
@@ -89,20 +106,22 @@ system commands
 ```
 
 ## Project Structure
-- `Program.cs` — Main application logic, chat loop, and command handling
 - `Commands.cs` — Command and CommandManager abstractions
-- `Providers/` — Provider implementations (Ollama, AzureAI)
-- `Json/` — Minimal JSON parser and writer
 - `Config.cs` — Configuration class and file handling
-- `Engine.cs` - Core chat engine
-- `Memory.cs` - Memory implementations
-- `Log.cs` — Logging utilities
-- `User.cs` — User input and menu utilities
 - `config.json` — Configuration file (auto-generated)
+- `Engine.cs` - Core chat engine
+- `Json/` — Minimal JSON parser and writer
+- `Log.cs` — Logging utilities
+- `Memory.cs` - Memory implementations
+- `Program.cs` — Main application logic, chat loop, and command handling
+- `Providers/` — Provider implementations (Ollama, AzureAI)
+- `Tools.cs` - ToolRegistry and various simple tools
+- `User.cs` — User input and menu utilities
 
 ## Extending
 To add a new command, add a new `Command` to the array passed to `CommandManager` in `Program.cs`.
 To add a new provider, implement `IChatProvider` and decorate with `[ProviderName("YourProvider")]`.
+To add a new tool, implement the `ITool` interface and and mark it with the IsConfigurable attribute to register it with the `ToolRegistry`. Tools should provide a name, description, usage, and an async invocation method.
 
 ---
 
@@ -121,3 +140,4 @@ To add a new provider, implement `IChatProvider` and decorate with `[ProviderNam
 - **Added Retrieval-Augmented Generation (RAG) support:** Users can ingest, search, and clear external documents for use in chat context.
 - **Major menu system upgrade:** Interactive, keyboard-navigable menu (invoked with Escape) for commands, model/provider selection, and RAG actions. Supports filtering and quick selection.
 - Improved user input handling and extensibility for new commands and providers.
+- **Introduced tools:** Register and invoke custom tools via `tools` command or model-suggested tool use. Extend assistant capabilities with new tools.

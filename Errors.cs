@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 public enum Error : UInt32
 {
-    Success = 0,
+    Success = 0x8c5c0000, // c5c is the HRESULT facility for CSChat
     Unknown,
     ProviderNotConfigured,
     ModelNotFound,

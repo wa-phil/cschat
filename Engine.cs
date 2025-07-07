@@ -255,12 +255,18 @@ If no tool is appropriate, respond with: NO_TOOL
         ctx.Append(Log.Data.Query, userMessage);
         ctx.Append(Log.Data.Response, response);
 
-        if (response.StartsWith("NO_TOOL", StringComparison.OrdinalIgnoreCase))
+        if (response.StartsWith("```"))
         {
-            ctx.Append(Log.Data.Message, "No tool suggestion made by the model.");
-            ctx.Succeeded();
-            return null;
+            response = response.Substring(3).TrimEnd('`', '\n', ' ');
+            ctx.Append(Log.Data.Message, "Stripping code block.");
         }
+
+        if (response.StartsWith("NO_TOOL", StringComparison.OrdinalIgnoreCase))
+            {
+                ctx.Append(Log.Data.Message, "No tool suggestion made by the model.");
+                ctx.Succeeded();
+                return null;
+            }
 
         try
         {

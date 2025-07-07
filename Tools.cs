@@ -9,10 +9,10 @@ using System.Runtime.Serialization;
 public class ToolSuggestion
 {
     [DataMember(Name = "tool")]
-    public string Tool { get; set;}
+    public string Tool { get; set;} = string.Empty;
 
     [DataMember(Name = "input")]
-    public string Input { get; set;}
+    public string Input { get; set;} = string.Empty;
 }
 
 public static class ToolRegistry
