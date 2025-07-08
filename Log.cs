@@ -196,7 +196,6 @@ public static class Log
             try
             {
                 var result = await func(ctx);
-                ctx.Succeeded();
                 return result;
             }
             catch (Exception e) when (attempts++ < retryCount && (shouldRetry?.Invoke(e) ?? false))
