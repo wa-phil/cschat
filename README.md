@@ -14,6 +14,9 @@ A simple, interactive C# console chat client for [Ollama](https://ollama.com/) a
   - [Azure OpenAI Documentation](https://learn.microsoft.com/en-us/azure/ai-services/openai/)
   - [Azure OpenAI Quickstart](https://learn.microsoft.com/en-us/azure/ai-services/openai/quickstart)
   - To configure for AzureAI, set `Provider` to `AzureAI`, `Host` to your Azure OpenAI endpoint, and `Model` to your deployed model name in `config.json`.
+  - Make sure to run the following after making certain that you've got the correct permissions to access the deployment in question
+    - winget install Microsoft.AzureCLI
+    - az login
 
 ## Features
 - Connects to Ollama or Azure OpenAI servers and interacts with LLM models via chat.
