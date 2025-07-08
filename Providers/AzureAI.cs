@@ -15,13 +15,18 @@ using Microsoft.Extensions.Logging;
 // Custom EventSourceListener that bridges Azure SDK events to our Log class
 public class AzureLogEventListener : EventListener
 {
-    protected override void OnEventSourceCreated(EventSource eventSource)
+    protected override void OnEventSourceCreated(EventSource eventSource) => Log.Method(ctx =>
     {
-        if (eventSource.Name.StartsWith("Azure-"))
+        ctx.Append(Log.Data.Name, eventSource.Name);
+        bool enabled = false;
+        if (Program.config.AzureAuthVerboseLoggingEnabled && eventSource.Name.StartsWith("Azure-"))
         {
             EnableEvents(eventSource, EventLevel.Verbose);
+            enabled = true;
         }
-    }
+        ctx.Append(Log.Data.Enabled, enabled);
+        ctx.Succeeded();
+    });
 
     protected override void OnEventWritten(EventWrittenEventArgs eventData)
     {
@@ -38,7 +43,6 @@ public class AzureLogEventListener : EventListener
                 var payload = string.Join(", ", eventData.Payload);
                 ctx.Append(Log.Data.Message, $"[{eventData.EventName}] {eventData.Message} - Payload: {payload}");
             }
-            
             ctx.Succeeded(eventData.Level != EventLevel.Error);
         }
     }
@@ -67,7 +71,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
             ctx.Append(Log.Data.Message, "Azure event source listener initialized");
         }
 
-        // Enable Azure Core diagnostics logging
+        // Enable Azure Core diagnostics logging based on configuration
         using (AzureEventSourceListener.CreateConsoleLogger(EventLevel.Verbose))
         {
             // Configure credential options with verbose logging

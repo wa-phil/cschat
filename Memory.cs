@@ -58,9 +58,49 @@ public class Memory
         if (_context.Count > 0)
         {
             result.Content += "\nWhat follows is content to help answer your next question.\n"+string.Join("\n", _context.Select(c => $"--- BEGIN CONTEXT: {c.Reference} ---\n{c.Chunk}\n--- END CONTEXT ---"));
+            result.Content += "\nWhen referring to the provided context in your answer, explicitly state which content you are referencing in the form 'as per [reference], [your answer]'.";
         }
-        result.Content += "\nWhen referring to the provided context in your answer, explicitly state which content you are referencing in the form 'as per [reference], [your answer]'.";
         return result;
+    }
+
+    public void Save(string filePath)
+    {
+        var data = new MemoryData
+        {
+            SystemMessage = _systemMessage,
+            Messages = _messages,
+            Context = _context
+        };
+
+        var json = data.ToJson();
+        System.IO.File.WriteAllText(filePath, json);
+    }
+
+    public void Load(string filePath)
+    {
+        if (!System.IO.File.Exists(filePath))
+        {
+            throw new FileNotFoundException($"File not found: {filePath}");
+        }
+
+        var json = System.IO.File.ReadAllText(filePath);
+        var data = json.FromJson<MemoryData>();
+
+        if (data == null)
+        {
+            throw new InvalidOperationException("Failed to deserialize memory data.");
+        }
+
+        _systemMessage = data.SystemMessage ?? new ChatMessage { Role = Roles.System, Content = string.Empty };
+        _messages = data.Messages ?? new List<ChatMessage>();
+        _context = data.Context ?? new List<(string Reference, string Chunk)>();
+    }
+
+    private class MemoryData
+    {
+        public ChatMessage? SystemMessage { get; set; }
+        public List<ChatMessage>? Messages { get; set; }
+        public List<(string Reference, string Chunk)>? Context { get; set; }
     }
 }
 
