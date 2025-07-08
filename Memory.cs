@@ -62,6 +62,46 @@ public class Memory
         }
         return result;
     }
+
+    public void Save(string filePath)
+    {
+        var data = new MemoryData
+        {
+            SystemMessage = _systemMessage,
+            Messages = _messages,
+            Context = _context
+        };
+
+        var json = data.ToJson();
+        System.IO.File.WriteAllText(filePath, json);
+    }
+
+    public void Load(string filePath)
+    {
+        if (!System.IO.File.Exists(filePath))
+        {
+            throw new FileNotFoundException($"File not found: {filePath}");
+        }
+
+        var json = System.IO.File.ReadAllText(filePath);
+        var data = json.FromJson<MemoryData>();
+
+        if (data == null)
+        {
+            throw new InvalidOperationException("Failed to deserialize memory data.");
+        }
+
+        _systemMessage = data.SystemMessage ?? new ChatMessage { Role = Roles.System, Content = string.Empty };
+        _messages = data.Messages ?? new List<ChatMessage>();
+        _context = data.Context ?? new List<(string Reference, string Chunk)>();
+    }
+
+    private class MemoryData
+    {
+        public ChatMessage? SystemMessage { get; set; }
+        public List<ChatMessage>? Messages { get; set; }
+        public List<(string Reference, string Chunk)>? Context { get; set; }
+    }
 }
 
 /// <summary>

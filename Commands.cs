@@ -72,7 +72,7 @@ public class CommandManager : Command
                 {
                     new Command
                     {
-                        Name = "show history",
+                        Name = "show",
                         Description = "Show chat history",
                         Action = () =>
                         {
@@ -86,7 +86,7 @@ public class CommandManager : Command
                     },
                     new Command
                     {
-                        Name = "clear history",
+                        Name = "clear",
                         Description = "Clear chat history",
                         Action = () =>
                         {
@@ -95,7 +95,51 @@ public class CommandManager : Command
                             Console.WriteLine("Chat history cleared.");
                             return Task.FromResult(Command.Result.Success);
                         }
-                    }                    
+                    },
+                    new Command
+                    {
+                        Name = "load", Description = "Load chat history from a file",
+                        Action = () =>
+                        {
+                            Console.Write("Enter file path to load chat history: ");
+                            var filePath = Console.ReadLine();
+                            if (!string.IsNullOrWhiteSpace(filePath))
+                            {
+                                try
+                                {
+                                    Program.memory.Load(filePath);
+                                    Console.WriteLine($"Chat history loaded from '{filePath}'.");
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"Failed to load chat history: {ex.Message}");
+                                }
+                            }
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                    },
+                    new Command
+                    {
+                        Name = "save", Description = "Save chat history to a file",
+                        Action = () =>
+                        {
+                            Console.Write("Enter file path to save chat history: ");
+                            var filePath = Console.ReadLine();
+                            if (!string.IsNullOrWhiteSpace(filePath))
+                            {
+                                try
+                                {
+                                    Program.memory.Save(filePath);
+                                    Console.WriteLine($"Chat history saved to '{filePath}'.");
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"Failed to save chat history: {ex.Message}");
+                                }
+                            }
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                    }
                 }
             },
             new Command
@@ -205,6 +249,30 @@ public class CommandManager : Command
                             {
                                 Console.WriteLine("Invalid max tokens value. Must be between 1 and 32000.");
                             }
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                    },
+                    new Command
+                    {
+                        Name = "azure auth logging enabled",
+                        Description = "Enable or disable verbose Azure logging",
+                        Action = () =>
+                        {
+                            var options = new List<string> { "true", "false" };
+                            var currentSetting = Program.config.AzureAuthVerboseLoggingEnabled ? "true" : "false";
+                            var selected = User.RenderMenu("Enable Azure Authentication verbose logging:", options, options.IndexOf(currentSetting));
+
+                            if (!string.IsNullOrWhiteSpace(selected) && bool.TryParse(selected, out var result))
+                            {
+                                Program.config.AzureAuthVerboseLoggingEnabled = result;
+                                Console.WriteLine($"Azure Auth verbose logging set to {result}.");
+                                Config.Save(Program.config, Program.ConfigFilePath);
+                            }
+                            else
+                            {
+                                Console.WriteLine("Invalid selection.");
+                            }
+
                             return Task.FromResult(Command.Result.Success);
                         }
                     }
@@ -534,6 +602,29 @@ public class CommandManager : Command
                                 {
                                     Log.ClearOutput();
                                     Console.WriteLine("Log cleared.");
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                            },
+                            new Command
+                            {
+                                Name = "save", Description = "Save the contents of the log to a file",
+                                Action = () =>
+                                {
+                                    Console.Write("Enter file path to save the log: ");
+                                    var filePath = Console.ReadLine();
+                                    if (!string.IsNullOrWhiteSpace(filePath))
+                                    {
+                                        try
+                                        {
+                                            var logEntries = Log.GetOutput();
+                                            System.IO.File.WriteAllLines(filePath, logEntries);
+                                            Console.WriteLine($"Log saved to '{filePath}'.");
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Console.WriteLine($"Failed to save log: {ex.Message}");
+                                        }
+                                    }
                                     return Task.FromResult(Command.Result.Success);
                                 }
                             }

@@ -23,6 +23,7 @@ public class Config
     public string SystemPrompt { get; set; } = "You are a helpful assistant.  When answering questions, if you do not know the answer, tell the user as much. Always strive to be honest and truthful.";
 
     public RagSettings RagSettings { get; set; } = new RagSettings();
+    public bool AzureAuthVerboseLoggingEnabled { get; set; } = false;
 
     public static Config Load(string configFilePath)
     {
