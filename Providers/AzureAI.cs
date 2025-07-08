@@ -1,6 +1,5 @@
 using Azure;
 using System;
-
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -8,34 +7,100 @@ using OpenAI.Chat;
 using Azure.Identity;
 using Azure.AI.OpenAI;
 using System.Threading.Tasks;
+using Azure.Core.Diagnostics;
+using System.Diagnostics.Tracing;
 using System.Collections.Generic;
+using Microsoft.Extensions.Logging;
 
+// Custom EventSourceListener that bridges Azure SDK events to our Log class
+public class AzureLogEventListener : EventListener
+{
+    protected override void OnEventSourceCreated(EventSource eventSource)
+    {
+        if (eventSource.Name.StartsWith("Azure-"))
+        {
+            EnableEvents(eventSource, EventLevel.Verbose);
+        }
+    }
+
+    protected override void OnEventWritten(EventWrittenEventArgs eventData)
+    {
+        if (eventData.EventSource.Name.StartsWith("Azure-"))
+        {
+            var level = eventData.Level == EventLevel.Error ? Log.Level.Error : Log.Level.Information;
+
+            using var ctx = new Log.Context(level);
+            ctx.Append(Log.Data.Level, level);
+            ctx.Append(Log.Data.Source, $"Azure.{eventData.EventSource.Name}");
+            ctx.Append(Log.Data.Message, $"[{eventData.EventName}] {eventData.Message}");
+            if (eventData.Payload != null && eventData.Payload.Count > 0)
+            {
+                var payload = string.Join(", ", eventData.Payload);
+                ctx.Append(Log.Data.Message, $"[{eventData.EventName}] {eventData.Message} - Payload: {payload}");
+            }
+            
+            ctx.Succeeded(eventData.Level != EventLevel.Error);
+        }
+    }
+}
 
 [IsConfigurable("AzureAI")]
 public class AzureAI : IChatProvider, IEmbeddingProvider
 {
-    private Config? config = null;
-    private AzureOpenAIClient? azureClient = null;
-    private ChatClient? chatClient = null;
+    private Config config = null!;
+    private AzureOpenAIClient azureClient = null!;
+    private ChatClient chatClient = null!;
+    private static AzureLogEventListener? _eventSourceListener;
 
-    public AzureAI(Config cfg)
+    public AzureAI(Config cfg) => Log.Method(ctx =>
     {
         this.config = cfg ?? throw new ArgumentNullException(nameof(cfg));
 
-        azureClient = new AzureOpenAIClient(new Uri(config.Host), new DefaultAzureCredential());
-        chatClient = azureClient.GetChatClient(config.Model);
-    }
+        ctx.Append(Log.Data.Provider, "AzureAI");
+        ctx.Append(Log.Data.Model, config.Model);
+        ctx.Append(Log.Data.Message, $"Initializing Azure OpenAI client for {config.Host}");
+        
+        // Create and configure our custom event listener to capture Azure SDK events
+        if (_eventSourceListener == null)
+        {
+            _eventSourceListener = new AzureLogEventListener();
+            ctx.Append(Log.Data.Message, "Azure event source listener initialized");
+        }
 
-    public async Task<List<string>> GetAvailableModelsAsync()
+        // Enable Azure Core diagnostics logging
+        using (AzureEventSourceListener.CreateConsoleLogger(EventLevel.Verbose))
+        {
+            // Configure credential options with verbose logging
+            var credentialOptions = new DefaultAzureCredentialOptions
+            {
+                ExcludeEnvironmentCredential = false,
+                ExcludeAzureCliCredential = false,
+                ExcludeAzurePowerShellCredential = false,
+                ExcludeVisualStudioCredential = false,
+                ExcludeManagedIdentityCredential = false,
+                //ExcludeVisualStudioCodeCredential = false, // apparently is deprecated.
+                ExcludeInteractiveBrowserCredential = false, // Disable interactive for headless scenarios
+            };
+
+            ctx.Append(Log.Data.Message, "Creating Azure OpenAI client with DefaultAzureCredential");
+            azureClient = new AzureOpenAIClient(new Uri(config.Host), new DefaultAzureCredential(credentialOptions));
+            chatClient = azureClient.GetChatClient(config.Model);
+            ctx.Append(Log.Data.Message, "Azure OpenAI client initialized successfully");
+        }
+        
+        ctx.Succeeded();
+    });
+
+    public Task<List<string>> GetAvailableModelsAsync()
     {
-        await Task.CompletedTask; // Simulate asynchronous behavior
         // There currently isn't a direct API to list models in Azure OpenAI, so we return a default model.
         // You can modify this to fetch models from a configuration or a known list.
-        return new List<string>() { "esai-gpt4-32k" };
+        return Task.FromResult(new List<string>() { "esai-gpt4-32k" });
     }
 
-    public async Task<string> PostChatAsync(Memory memory)
+    public async Task<string> PostChatAsync(Memory memory) => await Log.MethodAsync(async ctx =>
     {
+        await Task.CompletedTask; // Ensure we don't block the thread unnecessarily
         var chatHistory = memory.Messages.Select<ChatMessage, OpenAI.Chat.ChatMessage>(msg =>
             msg.Role switch
             {
@@ -45,13 +110,14 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
                 _ => throw new ArgumentException("Unknown role in chat message")
             }).ToList(); // Explicitly specify type arguments
 
-        string? ret = null;
+        ctx.Append(Log.Data.Model, config.Model ?? "unknown");
+        chatClient.ThrowIfNull("chatClient is not initialized.");
+        ctx.Append(Log.Data.Count, chatHistory.Count);
+
         try
         {
-            // Stream the response from the model
-            if (chatClient == null)
-                throw new InvalidOperationException("chatClient is not initialized.");
-            var completionUpdates = chatClient.CompleteChatStreaming(chatHistory);
+            // Stream the response from the model            
+            var completionUpdates = chatClient!.CompleteChatStreaming(chatHistory);
             StringBuilder sb = new StringBuilder();
 
             foreach (var completionUpdate in completionUpdates)
@@ -61,28 +127,35 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
                     sb.Append(contentPart.Text);
                 }
             }
-            ret = sb.ToString();
+            
+            var result = sb.ToString();
+            ctx.Append(Log.Data.Result, $"Response length: {result.Length} characters");
+            ctx.Succeeded();
+            return result;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error: {ex.Message}.\n Validate that you have access to the Azure OpenAI service and that the model '{config?.Model}' is available.");
+            ctx.Failed($"Azure OpenAI request failed", ex);
+            Console.WriteLine($"Error: {ex.Message}.\n Validate that you have access to the Azure OpenAI service and that the model '{config.Model}' is available.");
+            return string.Empty;
         }
-        await Task.CompletedTask;
-        return ret ?? string.Empty;
-    }
+    });
 
     public async Task<float[]> GetEmbeddingAsync(string text) => await Log.MethodAsync(async ctx =>
     {
         try
         {
-            var embeddingClient = azureClient?.GetEmbeddingClient("text-embedding-3-large");
+            var embeddingClient = azureClient?.GetEmbeddingClient(Program.config.RagSettings.EmbeddingModel);
             embeddingClient.ThrowIfNull("Embedding client could not be retrieved.");
-
+            ctx.Append(Log.Data.Model, Program.config.RagSettings.EmbeddingModel);
+            
             var response = await embeddingClient!.GenerateEmbeddingAsync(text);
+            ctx.Succeeded();
             return response.Value.ToFloats().ToArray();
         }
         catch (Exception ex)
         {
+            ctx.Failed($"Failed to get embedding from Azure OpenAI", ex);
             Console.WriteLine($"Failed to get embedding from AzureAI: {ex.Message}");
             return Array.Empty<float>();
         }

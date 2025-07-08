@@ -136,7 +136,7 @@ public static class Engine
         stopwatch.Stop();
         var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
         Console.WriteLine($"{elapsedTime}ms required to add {embeddings.Count} chunks from file '{path}' to vector store.");
-        ctx.Succeeded();
+        ctx.Succeeded(embeddings.Count > 0);
     });
 
     public static async Task<string> GetRagQueryAsync(string userMessage) => await Log.MethodAsync(async ctx =>
