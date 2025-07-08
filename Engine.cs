@@ -258,7 +258,13 @@ If no tool is appropriate, respond with: NO_TOOL
         if (response.StartsWith("```"))
         {
             response = response.Substring(3).TrimEnd('`', '\n', ' ');
-            ctx.Append(Log.Data.Message, "Stripping code block.");
+            ctx.Append(Log.Data.Result, "Stripping code block.");
+        }
+        
+        if (response.StartsWith("json", StringComparison.OrdinalIgnoreCase))
+        {
+            response = response.Substring(4).TrimStart(':', ' ', '\n');
+            ctx.Append(Log.Data.Result, "Stripping JSON prefix.");
         }
 
         if (response.StartsWith("NO_TOOL", StringComparison.OrdinalIgnoreCase))
