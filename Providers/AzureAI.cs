@@ -6,6 +6,7 @@ using System.Text;
 using OpenAI.Chat;
 using Azure.Identity;
 using Azure.AI.OpenAI;
+using OpenAI.Embeddings;
 using System.Threading.Tasks;
 using Azure.Core.Diagnostics;
 using System.Diagnostics.Tracing;
@@ -54,6 +55,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
     private Config config = null!;
     private AzureOpenAIClient azureClient = null!;
     private ChatClient chatClient = null!;
+    private EmbeddingClient embeddingClient = null!;
     private static AzureLogEventListener? _eventSourceListener;
 
     public AzureAI(Config cfg) => Log.Method(ctx =>
@@ -89,6 +91,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
             ctx.Append(Log.Data.Message, "Creating Azure OpenAI client with DefaultAzureCredential");
             azureClient = new AzureOpenAIClient(new Uri(config.Host), new DefaultAzureCredential(credentialOptions));
             chatClient = azureClient.GetChatClient(config.Model);
+            embeddingClient = azureClient.GetEmbeddingClient(config.RagSettings.EmbeddingModel);
             ctx.Append(Log.Data.Message, "Azure OpenAI client initialized successfully");
         }
         
@@ -145,14 +148,15 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
         }
     });
 
-    public async Task<float[]> GetEmbeddingAsync(string text) => await Log.MethodAsync(async ctx =>
+    public async Task<float[]> GetEmbeddingAsync(string text) => await Log.MethodAsync(
+        retryCount: 2,
+        shouldRetry: e => e is TimeoutException,
+        func: async ctx =>
     {
+        embeddingClient.ThrowIfNull("Embedding client could not be retrieved.");
         try
         {
-            var embeddingClient = azureClient?.GetEmbeddingClient(Program.config.RagSettings.EmbeddingModel);
-            embeddingClient.ThrowIfNull("Embedding client could not be retrieved.");
             ctx.Append(Log.Data.Model, Program.config.RagSettings.EmbeddingModel);
-            
             var response = await embeddingClient!.GenerateEmbeddingAsync(text);
             ctx.Succeeded();
             return response.Value.ToFloats().ToArray();
