@@ -122,7 +122,7 @@ public class InMemoryVectorStore : IVectorStore
     public bool IsEmpty => _entries.Count == 0;
     public int Count => _entries.Count;
 
-    public List<SearchResult> Search(float[] queryEmbedding, int topK = 3, float threshold = 0.5f) =>
+    public List<SearchResult> Search(float[] queryEmbedding, int topK = 3) =>
         Log.Method(ctx =>
     {
         if (queryEmbedding == null || queryEmbedding.Length == 0)
@@ -139,7 +139,6 @@ public class InMemoryVectorStore : IVectorStore
                 Reference = entry.Reference ?? string.Empty,
                 Content = entry.Chunk ?? string.Empty
             })
-            .Where(e => e.Score >= threshold)
             .OrderByDescending(e => e.Score)
             .Take(topK)
             .ToList();

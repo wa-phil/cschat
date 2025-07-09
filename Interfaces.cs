@@ -45,7 +45,7 @@ public interface IVectorStore
 {
     void Add(List<(string Reference, string Chunk, float[] Embedding)> entries);
     void Clear();
-    List<SearchResult> Search(float[] queryEmbedding, int topK = 3, float threshold = 0.55f);
+    List<SearchResult> Search(float[] queryEmbedding, int topK = 3);
     bool IsEmpty { get; }
     int Count { get; }
 }

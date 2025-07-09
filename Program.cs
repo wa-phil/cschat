@@ -74,6 +74,7 @@ static class Program
             { "m|model=", "Model name", v => { if (v != null) config.Model = v; } },
             { "s|system=", "System prompt", v => { if (v != null) config.SystemPrompt = v; } },
             { "p|provider=", "Provider name (default: ollama)", v => { if (v != null) config.Provider = v; } },
+            { "e|embedding_model=", "Embedding model for RAG (default: nomic-embed-text)", v => { if (v != null) config.RagSettings.EmbeddingModel = v; } },
             { "?|help", "Show help", v => showHelp = v != null }
         };
         options.Parse(args);

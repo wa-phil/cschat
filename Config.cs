@@ -9,8 +9,7 @@ public class RagSettings
     public string QueryPrompt { get; set; } = "Extract a concise list of keywords that would appear in relevant documents to answer this question.";
     public bool NormalizeEmbeddings { get; set; } = true;
     public int TopK { get; set; } = 3; // as in k-nearest neighbors
-    public string EmbeddingModel { get; set; } = "nomic-embed-text"; //"text-embedding-3-small"; // Default embedding model
-    public float EmbeddingThreshold { get; set; } = 0.65f; // Minimum similarity score to consider a document relevant
+    public string EmbeddingModel { get; set; } = "nomic-embed-text"; // Default embedding model
 }
 
 public class Config

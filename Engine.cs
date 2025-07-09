@@ -199,8 +199,8 @@ If no external information is needed, respond only with: NO_RAG
             return withoutTag.Length > 0 ? withoutTag : string.Empty;
         }
         return cleaned;
-    });    
-    
+    });
+
     public static async Task<List<SearchResult>> SearchVectorDB(string userMessage)
     {
         var empty = new List<SearchResult>();
@@ -211,11 +211,13 @@ If no external information is needed, respond only with: NO_RAG
 
         var query = await GetRagQueryAsync(userMessage);
         if (string.IsNullOrEmpty(query)) { return empty; }
-        
+
         float[]? queryEmbedding = await embeddingProvider!.GetEmbeddingAsync(query);
         if (queryEmbedding == null) { return empty; }
-        
-        return VectorStore.Search(queryEmbedding, Program.config.RagSettings.TopK, Program.config.RagSettings.EmbeddingThreshold);            
+
+        var items = VectorStore.Search(queryEmbedding, Program.config.RagSettings.TopK);
+        var average = items.Average(i => i.Score);
+        return items.Where(i => i.Score >= average).ToList();
     }
 
     public static async Task<ToolSuggestion?> GetToolSuggestionAsync(string userMessage) => await Log.MethodAsync(async ctx =>
