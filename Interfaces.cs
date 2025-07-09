@@ -55,9 +55,11 @@ public interface ITextChunker
     List<(string Reference, string Content)> ChunkText(string path, string text);
 }
 
+public record ToolResult (bool Summarize, string ResponseText, Memory Memory);
+
 public interface ITool
 {
     string Description { get; }
     string Usage { get; } // Example: "Add(a, b)"
-    Task<string> InvokeAsync(string input); // Expects input in a structured string format, like JSON or CSV
+    Task<ToolResult> InvokeAsync(string input, Memory memory); // Returns response text, and optionally modifies memory for context
 }

@@ -81,7 +81,8 @@ public partial class CommandManager : Command
                             Console.Write($"Using tool: {tool.Name}.\n{tool.Usage}\n Enter input: ");
                             // Tools may not require input, so we should handle empty input gracefully
                             var input = Console.ReadLine();
-                            var result = await ToolRegistry.InvokeToolAsync(tool.Name, input ?? string.Empty) ?? string.Empty;
+                            var tempMemory = new Memory(string.Empty); // Create temporary memory for command execution
+                            var result = await ToolRegistry.InvokeToolAsync(tool.Name, input ?? string.Empty, tempMemory, input ?? string.Empty) ?? string.Empty;
                             Console.WriteLine($"Tool result: {result}");
                             return Command.Result.Success;
                         }

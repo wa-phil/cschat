@@ -8,7 +8,7 @@ public class Memory
     protected ChatMessage _systemMessage = new ChatMessage { Role = Roles.System, Content = string.Empty };
     protected List<ChatMessage> _messages = new List<ChatMessage>();
     protected List<(string Reference, string Chunk)> _context = new List<(string Reference, string Chunk)>();
-    public Memory(string systemPrompt) => AddSystemMessage(systemPrompt);
+    public Memory(string? systemPrompt = null) => AddSystemMessage(systemPrompt ?? Program.config.SystemPrompt);
 
     public Memory(IEnumerable<ChatMessage> messages)
     {

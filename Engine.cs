@@ -163,63 +163,6 @@ public static class Engine
         return selected;
     });
 
-    public static async Task<string> GetRagQueryAsync(string userMessage) => await Log.MethodAsync(async ctx =>
-    {
-        Provider.ThrowIfNull("Provider is not set. Please configure a provider before making requests.");
-        ctx.Append(Log.Data.Query, userMessage);
-        var prompt =
-$"""
-Based on this user message:
-"{userMessage}"
-
-Extract a concise list of keywords that would help retrieve relevant information from a knowledge base. 
-Avoid answering the question. Instead, focus on what terms are most useful for searching. 
-
-If no external information is needed, respond only with: NO_RAG
-""";
-
-        var query = new Memory(new[] {
-                    new ChatMessage { Role = Roles.System, Content = "You are a query generator for knowledge retrieval." },
-                    new ChatMessage { Role = Roles.User, Content = prompt }
-        });
-
-        var response = await Provider!.PostChatAsync(query);
-        ctx.Append(Log.Data.Result, response);
-
-        string cleaned = response.Trim();
-
-        if (cleaned.StartsWith("NO_RAG", StringComparison.OrdinalIgnoreCase))
-        {
-            // If the model says NO_RAG *and nothing else*, honor it.
-            if (cleaned.Equals("NO_RAG", StringComparison.OrdinalIgnoreCase))
-                return string.Empty;
-
-            // Otherwise, remove the NO_RAG prefix and extract the rest
-            var withoutTag = cleaned.Substring("NO_RAG".Length).TrimStart('-', '\n', ':', ' ');
-            return withoutTag.Length > 0 ? withoutTag : string.Empty;
-        }
-        return cleaned;
-    });
-
-    public static async Task<List<SearchResult>> SearchVectorDB(string userMessage)
-    {
-        var empty = new List<SearchResult>();
-        if (string.IsNullOrEmpty(userMessage) || null == VectorStore || VectorStore.IsEmpty) { return empty; }
-
-        var embeddingProvider = Provider as IEmbeddingProvider;
-        if (embeddingProvider == null) { return empty; }
-
-        var query = await GetRagQueryAsync(userMessage);
-        if (string.IsNullOrEmpty(query)) { return empty; }
-
-        float[]? queryEmbedding = await embeddingProvider!.GetEmbeddingAsync(query);
-        if (queryEmbedding == null) { return empty; }
-
-        var items = VectorStore.Search(queryEmbedding, Program.config.RagSettings.TopK);
-        var average = items.Average(i => i.Score);
-        return items.Where(i => i.Score >= average).ToList();
-    }
-
     public static async Task<ToolSuggestion?> GetToolSuggestionAsync(string userMessage) => await Log.MethodAsync(async ctx =>
     {
         Provider.ThrowIfNull("Provider is not set.");
@@ -307,36 +250,10 @@ If no tool is appropriate, respond with: NO_TOOL
         var suggestion = await GetToolSuggestionAsync(lastUserInput);
         if (null != suggestion)
         {
-            var toolOutput = await ToolRegistry.InvokeToolAsync(suggestion.Tool, suggestion.Input ?? string.Empty);
-            if (!string.IsNullOrEmpty(toolOutput))
+            var toolResponse = await ToolRegistry.InvokeToolAsync(suggestion.Tool, suggestion.Input ?? string.Empty, history, lastUserInput);
+            if (!string.IsNullOrEmpty(toolResponse))
             {
-                var toolMemory = new Memory(new[]
-                {
-                    new ChatMessage { Role = Roles.System, Content= "Use the result of the invoked tool to answer the user's original question in natural language."},
-                    new ChatMessage { Role = Roles.User,
-                    Content = $"""
-                    The user asked a question that required invoking a tool to help answer it.
-
-                    {lastUserInput}
-
-                    A tool, {suggestion.Tool}, was invoked to help answer the user's question, the result of which was: {toolOutput}.
-
-                    Explain the answer succinctly.  You do not need to reference the tool or its output directly, just use it's result to inform your response.
-                """}
-                });
-
-                return await Provider!.PostChatAsync(toolMemory);
-            }
-        }
-
-        // === Continue with RAG ===
-        var SearchResults = await SearchVectorDB(lastUserInput);
-        if (SearchResults != null && SearchResults.Count > 0)
-        {
-            history.ClearContext();
-            foreach (var result in SearchResults)
-            {
-                history.AddContext(result.Reference, result.Content);
+                return toolResponse;
             }
         }
 
