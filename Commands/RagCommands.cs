@@ -80,7 +80,7 @@ public partial class CommandManager
                         }
 
                         Console.Write("Enter search query: ");
-                        var query = Console.ReadLine();
+                        var query = User.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(query))
                         {
                             var embeddingProvider = Engine.Provider as IEmbeddingProvider;
@@ -136,7 +136,7 @@ public partial class CommandManager
                         }
 
                         Console.Write("Enter query: ");
-                        var query = Console.ReadLine();
+                        var query = User.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(query))
                         {
                             // Use the RagSearchTool to generate the RAG query

@@ -43,7 +43,7 @@ public partial class CommandManager
                     Action = () =>
                     {
                         Console.Write("Enter file path to load chat history: ");
-                        var filePath = Console.ReadLine();
+                        var filePath = User.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(filePath))
                         {
                             try
@@ -65,7 +65,7 @@ public partial class CommandManager
                     Action = () =>
                     {
                         Console.Write("Enter file path to save chat history: ");
-                        var filePath = Console.ReadLine();
+                        var filePath = User.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(filePath))
                         {
                             try

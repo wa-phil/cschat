@@ -19,7 +19,7 @@ public partial class CommandManager
                     {
                         Console.WriteLine($"Current embedding model: {Program.config.RagSettings.EmbeddingModel}");
                         Console.Write("Enter new embedding model (or press enter to keep current): ");
-                        var modelInput = Console.ReadLine();
+                        var modelInput = User.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(modelInput))
                         {
                             Program.config.RagSettings.EmbeddingModel = modelInput.Trim();
@@ -36,7 +36,7 @@ public partial class CommandManager
                     {
                         Console.WriteLine($"Current RAG query prompt: {Program.config.RagSettings.QueryPrompt}");
                         Console.Write("Enter new RAG query prompt (or press enter to keep current): ");
-                        var promptInput = Console.ReadLine();
+                        var promptInput = User.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(promptInput))
                         {
                             Program.config.RagSettings.QueryPrompt = promptInput.Trim();
@@ -68,7 +68,7 @@ public partial class CommandManager
                     Action = () =>
                     {
                         Console.Write($"Current chunk size: {Program.config.RagSettings.ChunkSize}. Enter new value (1 to 10000): ");
-                        var sizeInput = Console.ReadLine();
+                        var sizeInput = User.ReadLineWithHistory();
                         if (int.TryParse(sizeInput, out var size) && size >= 1 && size <= 10000)
                         {
                             Program.config.RagSettings.ChunkSize = size;
@@ -88,7 +88,7 @@ public partial class CommandManager
                     Action = () =>
                     {
                         Console.Write($"Current overlap size: {Program.config.RagSettings.Overlap}. Enter new value (0 to 100): ");
-                        var overlapInput = Console.ReadLine();
+                        var overlapInput = User.ReadLineWithHistory();
                         if (int.TryParse(overlapInput, out var overlap) && overlap >= 0 && overlap <= 100)
                         {
                             Program.config.RagSettings.Overlap = overlap;
@@ -109,7 +109,7 @@ public partial class CommandManager
                     {
                         const int maxK = 10;
                         Console.Write($"Current TopK value: {Program.config.RagSettings.TopK}. Enter new value (1 to {maxK}): ");
-                        var topKInput = Console.ReadLine();
+                        var topKInput = User.ReadLineWithHistory();
                         if (int.TryParse(topKInput, out var topK) && topK >= 1 && topK <= maxK)
                         {
                             Program.config.RagSettings.TopK = topK;

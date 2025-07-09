@@ -44,7 +44,7 @@ public partial class CommandManager
                             Action = () =>
                             {
                                 Console.Write("Enter file path to save the log: ");
-                                var filePath = Console.ReadLine();
+                                var filePath = User.ReadLineWithHistory();
                                 if (!string.IsNullOrWhiteSpace(filePath))
                                 {
                                     try

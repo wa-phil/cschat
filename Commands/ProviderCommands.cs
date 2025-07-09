@@ -49,7 +49,7 @@ public partial class CommandManager
                     Action = () =>
                     {
                         Console.Write("Enter new Ollama host: ");
-                        var hostInput = Console.ReadLine();
+                        var hostInput = User.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(hostInput))
                         {
                             Program.config.Host = hostInput.Trim();
@@ -66,7 +66,7 @@ public partial class CommandManager
                     {
                         Console.WriteLine($"Current system prompt: {Program.config.SystemPrompt}");
                         Console.Write("Enter new system prompt (or press enter to keep current): ");
-                        var promptInput = Console.ReadLine();
+                        var promptInput = User.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(promptInput))
                         {
                             Program.config.SystemPrompt = promptInput.Trim();
@@ -82,7 +82,7 @@ public partial class CommandManager
                     Action = () =>
                     {
                         Console.Write($"Current temperature: {Program.config.Temperature}. Enter new value (0.0 to 1.0): ");
-                        var tempInput = Console.ReadLine();
+                        var tempInput = User.ReadLineWithHistory();
                         if (float.TryParse(tempInput, out var temp) && temp >= 0.0f && temp <= 1.0f)
                         {
                             Program.config.Temperature = temp;
@@ -102,7 +102,7 @@ public partial class CommandManager
                     Action = () =>
                     {
                         Console.Write($"Current max tokens: {Program.config.MaxTokens}. Enter new value (1 to 10000): ");
-                        var tokensInput = Console.ReadLine();
+                        var tokensInput = User.ReadLineWithHistory();
                         if (int.TryParse(tokensInput, out var tokens) && tokens >= 1 && tokens <= 32000)
                         {
                             Program.config.MaxTokens = tokens;
