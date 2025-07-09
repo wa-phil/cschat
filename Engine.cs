@@ -163,83 +163,6 @@ public static class Engine
         return selected;
     });
 
-    public static async Task<ToolSuggestion?> GetToolSuggestionAsync(string userMessage) => await Log.MethodAsync(async ctx =>
-    {
-        Provider.ThrowIfNull("Provider is not set.");
-        
-        // Keep in sync with ToolSuggestion definition.
-        var expectedResponseFormat = "{\n   \"tool\":\"<tool_name>\",\n   \"input\":\"<input_string>\"\n}";
-        var toolDescriptions = ToolRegistry.GetRegisteredTools()
-            .Select(t => $"Name: {t.Name}\nDescription: {t.Description}\nUsage: {t.Usage}")
-            .ToList();
-
-        var prompt = $"""
-The following tools are available:
-```{string.Join("\n", toolDescriptions)}
-```
-
-Given the following user request:
-
-"{userMessage}"
-
-If one of these tools is appropriate to use, respond in the following JSON format:
-
-{expectedResponseFormat}
-
-If no tool is appropriate, respond with: NO_TOOL
-""";
-
-        var memory = new Memory(new[]
-        {
-            new ChatMessage { Role = Roles.System, Content = "You are a tool router. Only suggest tools from the list above." },
-            new ChatMessage { Role = Roles.User, Content = prompt }
-        });
-
-        var response = await Provider!.PostChatAsync(memory);
-        response = response.Trim();
-        ctx.Append(Log.Data.Query, userMessage);
-        ctx.Append(Log.Data.Response, response);
-
-        if (response.StartsWith("```"))
-        {
-            response = response.Substring(3).TrimEnd('`', '\n', ' ');
-            ctx.Append(Log.Data.Result, "Stripping code block.");
-        }
-        
-        if (response.StartsWith("json", StringComparison.OrdinalIgnoreCase))
-        {
-            response = response.Substring(4).TrimStart(':', ' ', '\n');
-            ctx.Append(Log.Data.Result, "Stripping JSON prefix.");
-        }
-
-        if (response.StartsWith("NO_TOOL", StringComparison.OrdinalIgnoreCase))
-        {
-            ctx.Append(Log.Data.Message, "No tool suggestion made by the model.");
-            ctx.Succeeded();
-            return null;
-        }
-
-        try
-        {
-            var parsed = response.FromJson<ToolSuggestion>();
-            if (parsed != null && parsed.Tool != null && ToolRegistry.GetRegisteredTools().Any(t => t.Name.Equals(parsed.Tool, StringComparison.OrdinalIgnoreCase)))
-            {
-                ctx.Append(Log.Data.ToolName, parsed.Tool);
-                ctx.Append(Log.Data.ToolInput, parsed.Input);
-                ctx.Succeeded();
-                return parsed;
-            }
-            ctx.Failed("Response does not match expected format or tool not registered.", Error.ToolNotAvailable);
-        }
-        catch (Exception ex)
-        {
-            ctx.Append(Log.Data.Exception, ex.Message);
-            ctx.Failed("Failed to parse response.", Error.FailedToParseResponse);
-        }
-
-        return null;
-    });
-
     public static async Task<string> PostChatAsync(Memory history)
     {
         Provider.ThrowIfNull("Provider is not set.");
@@ -247,7 +170,7 @@ If no tool is appropriate, respond with: NO_TOOL
         var lastUserInput = history.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
 
         // === Check if tool is applicable ===
-        var suggestion = await GetToolSuggestionAsync(lastUserInput);
+        var suggestion = await ToolRegistry.GetToolSuggestionAsync(lastUserInput);
         if (null != suggestion)
         {
             var toolResponse = await ToolRegistry.InvokeToolAsync(suggestion.Tool, suggestion.Input ?? string.Empty, history, lastUserInput);
@@ -257,6 +180,6 @@ If no tool is appropriate, respond with: NO_TOOL
             }
         }
 
-        return await Provider!.PostChatAsync(history);
+        return await Provider!.PostChatAsync(history, Program.config.Temperature);
     }
 }

@@ -45,7 +45,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         }
     }
 
-    public async Task<string> PostChatAsync(Memory memory)
+    public async Task<string> PostChatAsync(Memory memory, float temperature)
     {
         var requestBody = new
         {
@@ -56,7 +56,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
                 content = msg.Content
             }).ToList(),
             stream = false,
-            temperature = config.Temperature,
+            temperature = temperature,
             max_tokens = config.MaxTokens,
         };
         var content = new StringContent(requestBody.ToJson(), Encoding.UTF8, "application/json");

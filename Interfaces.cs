@@ -26,7 +26,7 @@ public class IsConfigurable : Attribute
 public interface IChatProvider
 {
     Task<List<string>> GetAvailableModelsAsync();
-    Task<string> PostChatAsync(Memory history);
+    Task<string> PostChatAsync(Memory history, float temperature);
 }
 
 public interface IEmbeddingProvider
