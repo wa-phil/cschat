@@ -368,13 +368,14 @@ public class User
     {
         string timestamp = message.CreatedAt.ToString("HH:mm:ss");
         string roleIndicator;
-        ConsoleColor roleColor;
+        ConsoleColor roleColor, textColor = Console.ForegroundColor;
         
         switch (message.Role)
         {
             case Roles.System:
                 roleIndicator = "[SYSTEM]";
-                roleColor = ConsoleColor.DarkGray;
+                roleColor = ConsoleColor.DarkBlue;
+                textColor = ConsoleColor.DarkGray; // System messages in gray
                 break;
             case Roles.User:
                 roleIndicator = "[USER]";
@@ -399,11 +400,12 @@ public class User
         // Render role indicator in role-specific color
         Console.ForegroundColor = roleColor;
         Console.Write(roleIndicator);
-        Console.ResetColor();
         Console.Write(" ");
-        
+
         // Render content
+        Console.ForegroundColor = textColor; // Reset to original text color
         Console.WriteLine(message.Content);
+        Console.ResetColor();
     }
     
     public static void RenderChatHistory(IEnumerable<ChatMessage> messages)

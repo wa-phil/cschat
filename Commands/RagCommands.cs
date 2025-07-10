@@ -125,28 +125,6 @@ public partial class CommandManager
                         return Command.Result.Success;
                     }
                 },
-                new Command {
-                    Name = "query", Description = "Generate a RAG query",
-                    Action = async () =>
-                    {
-                        if (Engine.VectorStore.IsEmpty)
-                        {
-                            Console.WriteLine("RAG store is empty. Please add files or directories first.");
-                            return Command.Result.Failed;
-                        }
-
-                        Console.Write("Enter query: ");
-                        var query = User.ReadLineWithHistory();
-                        if (!string.IsNullOrWhiteSpace(query))
-                        {
-                            // Use the RagSearchTool to generate the RAG query
-                            var ragTool = new RagSearchTool();
-                            var response = await ragTool.GetRagQueryAsync(query);
-                            Console.WriteLine($"RAG Query Response: \"{response}\"");
-                        }
-                        return Command.Result.Success;
-                    }
-                },
                 CreateRagConfigCommands()
             }
         };

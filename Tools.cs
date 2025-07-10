@@ -204,7 +204,7 @@ public class CurrentDateTimeTool : ITool
 public class RagSearchTool : ITool
 {
     public string Description => "Searches the knowledge base for relevant information and adds it as context.";
-    public string Usage => "Input: user message, search query or terms, and/or relevant context to use to retrieve information.";
+    public string Usage => "Input: search query or terms, and any other relevant context to use to retrieve information, all as a comma delimited string.";
 
     public async Task<ToolResult> InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
     {
@@ -239,62 +239,12 @@ public class RagSearchTool : ITool
         var embeddingProvider = Engine.Provider as IEmbeddingProvider;
         if (embeddingProvider == null) { return empty; }
 
-        var query = await GetRagQueryAsync(userMessage);
-        if (string.IsNullOrEmpty(query)) { return empty; }
+        float[]? query = await embeddingProvider!.GetEmbeddingAsync(userMessage);
+        if (query == null) { return empty; }
 
-        float[]? queryEmbedding = await embeddingProvider!.GetEmbeddingAsync(query);
-        if (queryEmbedding == null) { return empty; }
-
-        var items = Engine.VectorStore.Search(queryEmbedding, Program.config.RagSettings.TopK);
+        var items = Engine.VectorStore.Search(query, Program.config.RagSettings.TopK);
         // filter out below average results
         var average = items.Average(i => i.Score);
         return items.Where(i => i.Score >= average).ToList();
     }
-
-    // Expose the original GetRagQueryAsync functionality
-    public async Task<string> GetRagQueryAsync(string userMessage) => await Log.MethodAsync(async ctx =>
-    {
-        Engine.Provider.ThrowIfNull("Provider is not set. Please configure a provider before making requests.");
-        ctx.Append(Log.Data.Query, userMessage);
-        var prompt =
-$"""
-Based on this user message:
-"{userMessage}"
-
-Extract a concise list of keywords that would help retrieve relevant information from a knowledge base. 
-Avoid answering the question. Instead, focus on what terms are most useful for searching. 
-
-If no external information is needed, respond only with: NO_RAG
-""";
-
-        var query = new Memory(new[] {
-                    new ChatMessage { Role = Roles.System, Content = "You are a query generator for knowledge retrieval." },
-                    new ChatMessage { Role = Roles.User, Content = prompt }
-        });
-
-        var response = await Engine.Provider!.PostChatAsync(query, 0.0f);
-        ctx.Append(Log.Data.Result, response);
-
-        string cleaned = response.Trim();
-
-        if (cleaned.StartsWith("NO_RAG", StringComparison.OrdinalIgnoreCase))
-        {
-            ctx.Append(Log.Data.Message, "NO_RAG detected, processing accordingly.");
-            // If the model says NO_RAG *and nothing else*, honor it.
-            if (cleaned.Equals("NO_RAG", StringComparison.OrdinalIgnoreCase))
-            {
-                ctx.Succeeded();
-                return string.Empty;
-            }
-
-            // Otherwise, remove the NO_RAG prefix and extract the rest
-            var withoutTag = cleaned.Substring("NO_RAG".Length).TrimStart('-', '\n', ':', ' ');
-            ctx.Append(Log.Data.Message, $"Dirty result, extracted without NO_RAG tag: '{withoutTag}'");
-            ctx.Succeeded();
-            return withoutTag.Length > 0 ? withoutTag : string.Empty;
-        }
-        ctx.Append(Log.Data.Message, "Returning cleaned response.");
-        ctx.Succeeded();
-        return cleaned;
-    });
 }

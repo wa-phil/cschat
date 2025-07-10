@@ -42,8 +42,8 @@ public static class Engine
         await Task.WhenAll(files.Select(f => AddFileToVectorStore(f)));
         Console.WriteLine($"Added {files.Count} files to vector store from directory '{path}'.");
 
-        // Aggregate the list of file names into a new line delimited string and add it to the vector store.
-        var knownFiles = files.Aggregate(new StringBuilder(), (sb, f) => sb.AppendLine(Path.GetFileName(f))).ToString().TrimEnd();
+        // Aggregate the list of relative file names into a new line delimited string and add it to the vector store.
+        var knownFiles = files.Aggregate(new StringBuilder(), (sb, f) => sb.AppendLine(Path.GetRelativePath(Directory.GetCurrentDirectory(), f))).ToString().TrimEnd();
         var embeddings = new List<(string Reference, string Chunk, float[] Embedding)>();
         var chunks = TextChunker!.ChunkText("known files", knownFiles);
 
