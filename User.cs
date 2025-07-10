@@ -179,7 +179,10 @@ public class User
             }
             if (key.Key == ConsoleKey.Enter)
             {
-                Console.WriteLine();
+                // erase the contents of the current line, and do not advance to the next line
+                Console.SetCursorPosition(0, Console.CursorTop);
+                Console.Write(new string(' ', Console.WindowWidth - 1));
+                Console.SetCursorPosition(0, Console.CursorTop);
                 break;
             }
             if (key.Key == ConsoleKey.Backspace)
@@ -358,5 +361,65 @@ public class User
         }
         
         return string.IsNullOrWhiteSpace(input) ? null : input;
+    }
+
+    // Shared infrastructure for rendering chat messages with timestamps and role indicators
+    public static void RenderChatMessage(ChatMessage message)
+    {
+        string timestamp = message.CreatedAt.ToString("HH:mm:ss");
+        string roleIndicator;
+        ConsoleColor roleColor;
+        
+        switch (message.Role)
+        {
+            case Roles.System:
+                roleIndicator = "[SYSTEM]";
+                roleColor = ConsoleColor.DarkGray;
+                break;
+            case Roles.User:
+                roleIndicator = "[USER]";
+                roleColor = ConsoleColor.Cyan;
+                break;
+            case Roles.Assistant:
+                roleIndicator = "[ASSISTANT]";
+                roleColor = ConsoleColor.Green;
+                break;
+            default:
+                roleIndicator = "[UNKNOWN]";
+                roleColor = ConsoleColor.Red;
+                break;
+        }
+        
+        // For new messages in the main loop, show all messages with timestamp and role formatting
+        // Render timestamp in gray
+        Console.ForegroundColor = ConsoleColor.Gray;
+        Console.Write(timestamp);
+        Console.Write(" ");
+        
+        // Render role indicator in role-specific color
+        Console.ForegroundColor = roleColor;
+        Console.Write(roleIndicator);
+        Console.ResetColor();
+        Console.Write(" ");
+        
+        // Render content
+        Console.WriteLine(message.Content);
+    }
+    
+    public static void RenderChatHistory(IEnumerable<ChatMessage> messages)
+    {
+        Console.WriteLine("Chat History:");
+        Console.WriteLine(new string('-', 50));
+        
+        foreach (var message in messages)
+        {
+            // Skip empty system messages in history view
+            if (message.Role == Roles.System && string.IsNullOrWhiteSpace(message.Content))
+                continue;
+                
+            RenderChatMessage(message);
+        }
+        
+        Console.WriteLine(new string('-', 50));
     }
 }

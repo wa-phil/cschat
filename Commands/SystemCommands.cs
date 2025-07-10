@@ -63,6 +63,15 @@ public partial class CommandManager
                         }
                     }
                 },
+                new Command
+                {
+                    Name = "clear", Description = "Clear the console screen",
+                    Action = () =>
+                    {
+                        Console.Clear();
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
                 new Command {
                     Name = "config", Description = "Configuration commands",
                     SubCommands = new List<Command>

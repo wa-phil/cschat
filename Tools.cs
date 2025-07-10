@@ -171,18 +171,20 @@ public class CalculatorTool : ITool
     public string Description => "Evaluates basic math expressions.";
     public string Usage => "Input: arithmetic expression as string (e.g. '2 + 3 * 4')";
 
-    public Task<ToolResult> InvokeAsync(string input, Memory memory)
+    public Task<ToolResult> InvokeAsync(string input, Memory memory) => Log.Method(ctx =>
     {
         try
         {
             var result = new System.Data.DataTable().Compute(input, null);
-            return Task.FromResult(new ToolResult (Summarize : true, ResponseText : result?.ToString() ?? string.Empty, new Memory() ));
+            ctx.Succeeded();
+            return Task.FromResult(new ToolResult(Summarize: true, ResponseText: result?.ToString() ?? string.Empty, new Memory()));
         }
         catch (Exception ex)
         {
-            return Task.FromResult(new ToolResult (Summarize : false, ResponseText : $"ERROR: {ex.Message}", new Memory() ));
+            ctx.Failed($"Error evaluating expression '{input}'", ex);
+            return Task.FromResult(new ToolResult(Summarize: false, ResponseText: string.Empty, new Memory()));
         }
-    }
+    });
 }
 
 [IsConfigurable("CurrentDateTime")]
@@ -191,10 +193,11 @@ public class CurrentDateTimeTool : ITool
     public string Description => "Returns the current local date and time in UTC format.";
     public string Usage => "Input: None.";
 
-    public Task<ToolResult> InvokeAsync(string input, Memory memory)
+    public Task<ToolResult> InvokeAsync(string input, Memory memory) => Log.Method(ctx =>
     {
-        return Task.FromResult(new ToolResult (Summarize : true, ResponseText : DateTime.Now.ToString("u"), new Memory()));
-    }
+        ctx.Succeeded();
+        return Task.FromResult(new ToolResult(Summarize: true, ResponseText: DateTime.Now.ToString("u"), new Memory()));
+    });
 }
 
 [IsConfigurable("SearchKnowledgeBase")]
@@ -203,24 +206,30 @@ public class RagSearchTool : ITool
     public string Description => "Searches the knowledge base for relevant information and adds it as context.";
     public string Usage => "Input: user message, search query or terms, and/or relevant context to use to retrieve information.";
 
-    public async Task<ToolResult> InvokeAsync(string input, Memory memory)
+    public async Task<ToolResult> InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
     {
         // Try to add context to memory first
+        var references = new List<string>();
         var results = await SearchVectorDB(input);
         if (results != null && results.Count > 0)
         {
             memory.ClearContext();
             foreach (var result in results)
-            {
+            {         
+                references.Add(result.Reference);
                 memory.AddContext(result.Reference, result.Content);
             }
-            // Return empty string to indicate context was added, no direct response needed
-            return new ToolResult (Summarize : false, ResponseText : string.Empty, memory);
+            // Context was added, no summary response required, returning modified memory back to caller.
+            ctx.Append(Log.Data.Result, references.ToArray());
+            ctx.Succeeded();
+            return new ToolResult(Summarize: false, ResponseText: string.Empty, memory);
         }
 
         // If no results found, return a message
-        return new ToolResult(Summarize: false, ResponseText: "No relevant information found in the knowledge base.", memory);
-    }
+        ctx.Append(Log.Data.Message, "No relevant information found in the knowledge base.");
+        ctx.Succeeded();
+        return new ToolResult(Summarize: false, ResponseText: string.Empty, memory);
+    });
 
     public async Task<List<SearchResult>> SearchVectorDB(string userMessage)
     {
@@ -289,4 +298,3 @@ If no external information is needed, respond only with: NO_RAG
         return cleaned;
     });
 }
-

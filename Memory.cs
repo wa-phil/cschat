@@ -8,10 +8,17 @@ public class Memory
     protected ChatMessage _systemMessage = new ChatMessage { Role = Roles.System, Content = string.Empty };
     protected List<ChatMessage> _messages = new List<ChatMessage>();
     protected List<(string Reference, string Chunk)> _context = new List<(string Reference, string Chunk)>();
-    public Memory(string? systemPrompt = null) => AddSystemMessage(systemPrompt ?? Program.config.SystemPrompt);
+    private DateTime _conversationStartTime = DateTime.Now;
+    
+    public Memory(string? systemPrompt = null) 
+    {
+        _conversationStartTime = DateTime.Now;
+        AddSystemMessage(systemPrompt ?? Program.config.SystemPrompt);
+    }
 
     public Memory(IEnumerable<ChatMessage> messages)
     {
+        _conversationStartTime = DateTime.Now;
         foreach (var msg in messages)
         {
             if (msg.Role == Roles.System)
@@ -37,6 +44,7 @@ public class Memory
         _systemMessage.Content = string.Empty;
         _context.Clear();
         _messages.Clear();
+        _conversationStartTime = DateTime.Now;
     }
 
     public void AddContext(string reference, string chunk) => _context.Add((reference, chunk));
@@ -44,13 +52,24 @@ public class Memory
 
     public void AddUserMessage(string content) => _messages.Add(new ChatMessage { Role = Roles.User, Content = content });
     public void AddAssistantMessage(string content) => _messages.Add(new ChatMessage { Role = Roles.Assistant, Content = content });
-    public void AddSystemMessage(string content) =>
+    public void AddSystemMessage(string content)
+    {
         _systemMessage.Content = _systemMessage.Content.Length > 0
             ? $"{_systemMessage.Content}\n{content}"
             : content;
+        // Ensure system message has the conversation start time, not current time
+        _systemMessage.CreatedAt = _conversationStartTime;
+    }
 
-    public void SetSystemMessage(string content) =>
-        _systemMessage = new ChatMessage { Role = Roles.System, Content = content };
+    public void SetSystemMessage(string content)
+    {
+        _systemMessage = new ChatMessage 
+        { 
+            Role = Roles.System, 
+            Content = content,
+            CreatedAt = _conversationStartTime
+        };
+    }
 
     public ChatMessage GetSystemMessage()
     {
