@@ -80,7 +80,7 @@ public partial class CommandManager
                         }
 
                         Console.Write("Enter search query: ");
-                        var query = Console.ReadLine();
+                        var query = User.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(query))
                         {
                             var embeddingProvider = Engine.Provider as IEmbeddingProvider;
@@ -96,7 +96,10 @@ public partial class CommandManager
                                 return Command.Result.Failed;
                             }
 
-                            var results = await Engine.SearchVectorDB(query);
+                            // Use the RagSearchTool to search the vector database
+                            var ragTool = new RagSearchTool();
+                            var results = await ragTool.SearchVectorDB(query);
+                            
                             if (results.Any())
                             {
                                 Console.WriteLine("Search Results:");
@@ -133,10 +136,12 @@ public partial class CommandManager
                         }
 
                         Console.Write("Enter query: ");
-                        var query = Console.ReadLine();
+                        var query = User.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(query))
                         {
-                            var response = await Engine.GetRagQueryAsync(query);
+                            // Use the RagSearchTool to generate the RAG query
+                            var ragTool = new RagSearchTool();
+                            var response = await ragTool.GetRagQueryAsync(query);
                             Console.WriteLine($"RAG Query Response: \"{response}\"");
                         }
                         return Command.Result.Success;

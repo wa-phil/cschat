@@ -11,6 +11,7 @@ public class ChatMessage
 {
     public Roles Role { get; set; }
     public string Content { get; set; } = string.Empty; // Ensure non-nullable property is initialized
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
 }
 
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
@@ -26,7 +27,7 @@ public class IsConfigurable : Attribute
 public interface IChatProvider
 {
     Task<List<string>> GetAvailableModelsAsync();
-    Task<string> PostChatAsync(Memory history);
+    Task<string> PostChatAsync(Memory history, float temperature);
 }
 
 public interface IEmbeddingProvider
@@ -55,9 +56,11 @@ public interface ITextChunker
     List<(string Reference, string Content)> ChunkText(string path, string text);
 }
 
+public record ToolResult (bool Summarize, string ResponseText, Memory Memory);
+
 public interface ITool
 {
     string Description { get; }
     string Usage { get; } // Example: "Add(a, b)"
-    Task<string> InvokeAsync(string input); // Expects input in a structured string format, like JSON or CSV
+    Task<ToolResult> InvokeAsync(string input, Memory memory); // Returns response text, and optionally modifies memory for context
 }

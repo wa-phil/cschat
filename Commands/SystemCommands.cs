@@ -44,7 +44,7 @@ public partial class CommandManager
                             Action = () =>
                             {
                                 Console.Write("Enter file path to save the log: ");
-                                var filePath = Console.ReadLine();
+                                var filePath = User.ReadLineWithHistory();
                                 if (!string.IsNullOrWhiteSpace(filePath))
                                 {
                                     try
@@ -61,6 +61,15 @@ public partial class CommandManager
                                 return Task.FromResult(Command.Result.Success);
                             }
                         }
+                    }
+                },
+                new Command
+                {
+                    Name = "clear", Description = "Clear the console screen",
+                    Action = () =>
+                    {
+                        Console.Clear();
+                        return Task.FromResult(Command.Result.Success);
                     }
                 },
                 new Command {

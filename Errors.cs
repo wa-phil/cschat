@@ -4,8 +4,8 @@ using System.Collections.Generic;
 
 public enum Error : UInt32
 {
-    Success = 0x8c5c0000, // c5c is the HRESULT facility for CSChat
-    Unknown,
+    Success = 0x80000000, // S_OK
+    Unknown = 0x8c5c0001, // c5c is the HRESULT facility for CSChat, the remaining bits are the error code
     ProviderNotConfigured,
     ModelNotFound,
     DirectoryNotFound,

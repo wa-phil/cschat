@@ -18,11 +18,7 @@ public partial class CommandManager
                     Name = "show", Description = "Show chat history",
                     Action = () =>
                     {
-                        Console.WriteLine("Chat History:");
-                        foreach (var msg in Program.memory.Messages)
-                        {
-                            Console.WriteLine($"{msg.Role}: {msg.Content}");
-                        }
+                        User.RenderChatHistory(Program.memory.Messages);
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -43,7 +39,7 @@ public partial class CommandManager
                     Action = () =>
                     {
                         Console.Write("Enter file path to load chat history: ");
-                        var filePath = Console.ReadLine();
+                        var filePath = User.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(filePath))
                         {
                             try
@@ -65,7 +61,7 @@ public partial class CommandManager
                     Action = () =>
                     {
                         Console.Write("Enter file path to save chat history: ");
-                        var filePath = Console.ReadLine();
+                        var filePath = User.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(filePath))
                         {
                             try

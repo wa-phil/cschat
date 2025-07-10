@@ -4,6 +4,8 @@ using System.Collections.Generic;
 
 public class User
 {
+    private static string? lastInput = null;
+    
     // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
     public static string? RenderMenu(string header, List<string> choices, int selected = 0) // Allow nullable return type to handle null cases
     {
@@ -177,7 +179,10 @@ public class User
             }
             if (key.Key == ConsoleKey.Enter)
             {
-                Console.WriteLine();
+                // erase the contents of the current line, and do not advance to the next line
+                Console.SetCursorPosition(0, Console.CursorTop);
+                Console.Write(new string(' ', Console.WindowWidth - 1));
+                Console.SetCursorPosition(0, Console.CursorTop);
                 break;
             }
             if (key.Key == ConsoleKey.Backspace)
@@ -202,6 +207,26 @@ public class User
                 cursor = 0;
                 continue;
             }
+            if (key.Key == ConsoleKey.UpArrow)
+            {
+                if (lastInput != null)
+                {
+                    // Clear current buffer display
+                    for (int i = 0; i < buffer.Count; i++)
+                    {
+                        Console.Write("\b \b");
+                    }
+                    
+                    // Set buffer to last input
+                    buffer.Clear();
+                    buffer.AddRange(lastInput.ToCharArray());
+                    cursor = buffer.Count;
+                    
+                    // Display the recalled input
+                    Console.Write(lastInput);
+                }
+                continue;
+            }
             if (key.KeyChar != '\0')
             {
                 buffer.Insert(cursor, key.KeyChar);
@@ -211,6 +236,13 @@ public class User
         }
         lines.Add(new string(buffer.ToArray()));
         var input = string.Join("\n", lines).Trim();
+        
+        // Store the input for history if it's not empty
+        if (!string.IsNullOrWhiteSpace(input))
+        {
+            lastInput = input;
+        }
+        
         return string.IsNullOrWhiteSpace(input) ? null : input;
     }
 
@@ -267,5 +299,127 @@ public class User
 
         var result = new string(buffer.ToArray());
         return string.IsNullOrWhiteSpace(result) ? null : Path.GetFullPath(result);
+    }
+
+    public static string? ReadLineWithHistory()
+    {
+        var buffer = new List<char>();
+        int cursor = 0;
+        ConsoleKeyInfo key;
+
+        while (true)
+        {
+            key = Console.ReadKey(intercept: true);
+            
+            if (key.Key == ConsoleKey.Enter)
+            {
+                Console.WriteLine();
+                break;
+            }
+            else if (key.Key == ConsoleKey.Backspace)
+            {
+                if (cursor > 0)
+                {
+                    buffer.RemoveAt(cursor - 1);
+                    cursor--;
+                    Console.Write("\b \b");
+                }
+            }
+            else if (key.Key == ConsoleKey.UpArrow)
+            {
+                if (lastInput != null)
+                {
+                    // Clear current buffer display
+                    for (int i = 0; i < buffer.Count; i++)
+                    {
+                        Console.Write("\b \b");
+                    }
+                    
+                    // Set buffer to last input
+                    buffer.Clear();
+                    buffer.AddRange(lastInput.ToCharArray());
+                    cursor = buffer.Count;
+                    
+                    // Display the recalled input
+                    Console.Write(lastInput);
+                }
+            }
+            else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
+            {
+                buffer.Insert(cursor, key.KeyChar);
+                cursor++;
+                Console.Write(key.KeyChar);
+            }
+        }
+        
+        var input = new string(buffer.ToArray()).Trim();
+        
+        // Store the input for history if it's not empty
+        if (!string.IsNullOrWhiteSpace(input))
+        {
+            lastInput = input;
+        }
+        
+        return string.IsNullOrWhiteSpace(input) ? null : input;
+    }
+
+    // Shared infrastructure for rendering chat messages with timestamps and role indicators
+    public static void RenderChatMessage(ChatMessage message)
+    {
+        string timestamp = message.CreatedAt.ToString("HH:mm:ss");
+        string roleIndicator;
+        ConsoleColor roleColor;
+        
+        switch (message.Role)
+        {
+            case Roles.System:
+                roleIndicator = "[SYSTEM]";
+                roleColor = ConsoleColor.DarkGray;
+                break;
+            case Roles.User:
+                roleIndicator = "[USER]";
+                roleColor = ConsoleColor.Cyan;
+                break;
+            case Roles.Assistant:
+                roleIndicator = "[ASSISTANT]";
+                roleColor = ConsoleColor.Green;
+                break;
+            default:
+                roleIndicator = "[UNKNOWN]";
+                roleColor = ConsoleColor.Red;
+                break;
+        }
+        
+        // For new messages in the main loop, show all messages with timestamp and role formatting
+        // Render timestamp in gray
+        Console.ForegroundColor = ConsoleColor.Gray;
+        Console.Write(timestamp);
+        Console.Write(" ");
+        
+        // Render role indicator in role-specific color
+        Console.ForegroundColor = roleColor;
+        Console.Write(roleIndicator);
+        Console.ResetColor();
+        Console.Write(" ");
+        
+        // Render content
+        Console.WriteLine(message.Content);
+    }
+    
+    public static void RenderChatHistory(IEnumerable<ChatMessage> messages)
+    {
+        Console.WriteLine("Chat History:");
+        Console.WriteLine(new string('-', 50));
+        
+        foreach (var message in messages)
+        {
+            // Skip empty system messages in history view
+            if (message.Role == Roles.System && string.IsNullOrWhiteSpace(message.Content))
+                continue;
+                
+            RenderChatMessage(message);
+        }
+        
+        Console.WriteLine(new string('-', 50));
     }
 }

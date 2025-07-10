@@ -104,9 +104,15 @@ static class Program
             Console.Write("> ");
             var userInput = await User.ReadInputWithFeaturesAsync(commandManager);
             if (string.IsNullOrWhiteSpace(userInput)) continue;
+            
+            // Add and render user message with proper formatting
             memory.AddUserMessage(userInput);
+            var userMessage = memory.Messages.Last(); // Get the message we just added
+            User.RenderChatMessage(userMessage);
+            
             string response = await Engine.PostChatAsync(memory);
-            Console.WriteLine(response);
+            var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response };
+            User.RenderChatMessage(assistantMessage);
             memory.AddAssistantMessage(response);
         }
     }
