@@ -47,7 +47,7 @@ public class LineChunk : ITextChunker
         {
             var content = string.Join("\n", lines.Skip(i).Take(chunkSize));
             if (string.IsNullOrWhiteSpace(content)) continue; // Skip empty chunks
-            chunks.Add(($"{path}:{i}", content));
+            chunks.Add(($"{path}, Line {i+1}", content)); // line numbers are 1-based for user-friendliness
         }
         return chunks;
     }

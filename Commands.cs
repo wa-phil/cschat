@@ -84,6 +84,8 @@ public partial class CommandManager : Command
                             var tempMemory = new Memory(string.Empty); // Create temporary memory for command execution
                             var result = await ToolRegistry.InvokeToolAsync(tool.Name, input ?? string.Empty, tempMemory, input ?? string.Empty) ?? string.Empty;
                             Console.WriteLine($"Tool result: {result}");
+                            Console.WriteLine($"Tool Memory:");
+                            User.RenderChatHistory(tempMemory.Messages);
                             return Command.Result.Success;
                         }
                     }).ToList()

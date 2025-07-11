@@ -1,6 +1,7 @@
 using System;
 using System.Text;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
@@ -36,13 +37,25 @@ public static class ToolRegistry
         ctx.Succeeded();
     });
 
-    public static List<(string Name, string Description, string Usage)> GetRegisteredTools() => 
-        _tools.Select(t => (t.Key, t.Value.Description, t.Value.Usage)).ToList();
+    private static bool All(string _) => true;
+    public static List<(string Name, string Description, string Usage)> GetRegisteredTools(Func<string, bool> filter) => _tools
+        .Where(t => filter(t.Key))
+        .Select(t => (t.Key, t.Value.Description, t.Value.Usage))
+        .ToList();
 
+    public static List<(string Name, string Description, string Usage)> GetRegisteredTools() => GetRegisteredTools(All);
+
+    public static List<string> GetToolDescriptions(Func<string, bool> filter) => _tools
+        .Where(t => filter(t.Key))
+        .Select(t => $"Name: {t.Key}\nDescription: {t.Value.Description}\nUsage: {t.Value.Usage}")
+        .ToList();
+
+    public static List<string> GetToolDescriptions() => GetToolDescriptions(All);
+    
     public static async Task<ToolSuggestion?> GetToolSuggestionAsync(string userMessage) => await Log.MethodAsync(async ctx =>
     {
         Engine.Provider.ThrowIfNull("Provider is not set.");
-        
+
         // Keep in sync with ToolSuggestion definition.
         var expectedResponseFormat = "{\n   \"tool\":\"<tool_name>\",\n   \"input\":\"<input_string>\"\n}";
         var toolDescriptions = ToolRegistry.GetRegisteredTools()
@@ -81,7 +94,7 @@ If no tool is appropriate, respond with: NO_TOOL
             response = response.Substring(3).TrimEnd('`', '\n', ' ');
             ctx.Append(Log.Data.Result, "Stripping code block.");
         }
-        
+
         if (response.StartsWith("json", StringComparison.OrdinalIgnoreCase))
         {
             response = response.Substring(4).TrimStart(':', ' ', '\n');
@@ -116,53 +129,66 @@ If no tool is appropriate, respond with: NO_TOOL
         return null;
     });
 
-    public static async Task<string> InvokeToolAsync(string toolName, string toolInput, Memory memory, string lastUserInput) => await Log.MethodAsync(async ctx =>
+    internal static async Task<ToolResult> InvokeInternalAsync(string toolName, string toolInput, Memory memory, string userInput) =>
+        await Log.MethodAsync(async ctx =>
     {
         ctx.Append(Log.Data.Name, toolName);
         ctx.Append(Log.Data.ToolInput, toolInput);
+
         if (_tools == null || !_tools.ContainsKey(toolName))
         {
-            ctx.Failed($"Tool '{toolName}' is not registered.", Error.ToolNotFound);
-            return string.Empty;
+            ctx.Failed($"Tool '{toolName}' is not registered.", Error.ToolNotAvailable);
+            return ToolResult.Failure($"ERROR: Tool '{toolName}' is not registered.", memory);
         }
 
         var tool = _tools[toolName];
         if (tool == null)
         {
             ctx.Failed($"Tool '{toolName}' is not available.", Error.ToolNotAvailable);
-            return string.Empty;
+            return ToolResult.Failure($"ERROR: Tool '{toolName}' is not available.", memory);
         }
+        var toolResult = await tool.InvokeAsync(toolInput, memory);
+        ctx.Append(Log.Data.Result, $"Summarize:{toolResult.Summarize}, ResponseText:{toolResult.Response}");
 
-        try
+        if (null == toolResult)
         {
-            var result = await tool.InvokeAsync(toolInput, memory);
-            ctx.Append(Log.Data.Result, $"Summarize:{result.Summarize}, ResponseText:{result.ResponseText}");
-
-            Memory toolMemory = !result.Summarize ? result.Memory : new Memory(new[]
-            {
-                new ChatMessage { Role = Roles.System, Content= "Use the result of the invoked tool to answer the user's original question in natural language."},
-                new ChatMessage { Role = Roles.User,
-                Content = $"""
-                    The user asked a question that required invoking a tool to help answer it.
-
-                    {lastUserInput}
-
-                    A tool, {toolName}, was invoked to help answer the user's question, the result of which was: {result.ResponseText}.
-
-                    Explain the answer succinctly.  You do not need to reference the tool or its output directly, just use it's result to inform your response.
-                """}
-            });
-
-            var formattedResponse = await Engine.Provider!.PostChatAsync(toolMemory, Program.config.Temperature);
-            ctx.Succeeded();
-            return formattedResponse;
+            ctx.Failed($"Tool '{toolName}' returned null result.", Error.ToolFailed);
+            return ToolResult.Failure($"ERROR: Tool '{toolName}' returned null result.", memory);
         }
-        catch (Exception ex)
+
+        if (!toolResult.Succeeded)
         {
-            ctx.Failed($"Error invoking tool '{toolName}': {ex.Message}", ex);
-            return string.Empty;
+            var error = toolResult.Error ?? "Unknown error";
+            ctx.Append(Log.Data.Error, error);
+            ctx.Failed($"Tool '{toolName}' failed: {error}", Error.ToolFailed);
+            return ToolResult.Failure(error, memory);
         }
+
+        Memory toolMemory = !toolResult.Summarize ? toolResult.Memory : new Memory(new[]
+        {
+            new ChatMessage { Role = Roles.System, Content= "Use the result of the invoked tool to answer the user's original question in natural language."},
+            new ChatMessage { Role = Roles.User,
+            Content = $"""
+                The user asked a question that required invoking a tool to help answer it.
+
+                {userInput}
+
+                A tool, {toolName}, was invoked to help answer the user's question, the result of which was: {toolResult.Response}.
+
+                Explain the answer succinctly.  You do not need to reference the tool or its output directly, just use it's result to inform your response.
+            """}
+        });
+
+        var formattedResponse = await Engine.Provider!.PostChatAsync(toolMemory, Program.config.Temperature);
+        ctx.Succeeded();
+        return ToolResult.Success(formattedResponse, toolResult.Memory, toolResult.Summarize);
     });
+    
+    public static async Task<string> InvokeToolAsync(string toolName, string toolInput, Memory memory, string lastUserInput)
+    {
+        var result = await InvokeInternalAsync(toolName, toolInput, memory, lastUserInput);
+        return result.Response;
+    }
 }
 
 [IsConfigurable("Calculator")]
@@ -177,12 +203,12 @@ public class CalculatorTool : ITool
         {
             var result = new System.Data.DataTable().Compute(input, null);
             ctx.Succeeded();
-            return Task.FromResult(new ToolResult(Summarize: true, ResponseText: result?.ToString() ?? string.Empty, new Memory()));
+            return Task.FromResult(ToolResult.Success(result?.ToString() ?? string.Empty, memory, true));
         }
         catch (Exception ex)
         {
             ctx.Failed($"Error evaluating expression '{input}'", ex);
-            return Task.FromResult(new ToolResult(Summarize: false, ResponseText: string.Empty, new Memory()));
+            return Task.FromResult(ToolResult.Failure($"Error evaluating expression '{input}'", memory));
         }
     });
 }
@@ -195,8 +221,9 @@ public class CurrentDateTimeTool : ITool
 
     public Task<ToolResult> InvokeAsync(string input, Memory memory) => Log.Method(ctx =>
     {
+        var result = DateTime.Now.ToString("u");
         ctx.Succeeded();
-        return Task.FromResult(new ToolResult(Summarize: true, ResponseText: DateTime.Now.ToString("u"), new Memory()));
+        return Task.FromResult(ToolResult.Success(result, memory, true));
     });
 }
 
@@ -215,20 +242,20 @@ public class RagSearchTool : ITool
         {
             memory.ClearContext();
             foreach (var result in results)
-            {         
+            {
                 references.Add(result.Reference);
                 memory.AddContext(result.Reference, result.Content);
             }
             // Context was added, no summary response required, returning modified memory back to caller.
             ctx.Append(Log.Data.Result, references.ToArray());
             ctx.Succeeded();
-            return new ToolResult(Summarize: false, ResponseText: string.Empty, memory);
+            return ToolResult.Success(string.Empty, memory, false);
         }
 
         // If no results found, return a message
         ctx.Append(Log.Data.Message, "No relevant information found in the knowledge base.");
         ctx.Succeeded();
-        return new ToolResult(Summarize: false, ResponseText: string.Empty, memory);
+        return ToolResult.Failure("No relevant information found in the knowledge base.", memory);
     });
 
     public async Task<List<SearchResult>> SearchVectorDB(string userMessage)

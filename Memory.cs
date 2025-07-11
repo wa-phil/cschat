@@ -115,6 +115,22 @@ public class Memory
         _context = data.Context ?? new List<(string Reference, string Chunk)>();
     }
 
+    public Memory Clone()
+    {
+        return new Memory
+        {
+            _systemMessage = new ChatMessage 
+            { 
+                Role = Roles.System, 
+                Content = _systemMessage.Content, 
+                CreatedAt = _systemMessage.CreatedAt 
+            },
+            _messages = new List<ChatMessage>(_messages),
+            _context = new List<(string Reference, string Chunk)>(_context),
+            _conversationStartTime = _conversationStartTime
+        };
+    }
+
     private class MemoryData
     {
         public ChatMessage? SystemMessage { get; set; }

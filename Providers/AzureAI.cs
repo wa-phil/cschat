@@ -114,7 +114,8 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
                 Roles.User => new UserChatMessage(msg.Content),
                 Roles.Assistant => new AssistantChatMessage(msg.Content),
                 Roles.System => new SystemChatMessage(msg.Content),
-                _ => throw new ArgumentException("Unknown role in chat message")
+                Roles.Tool => new ToolChatMessage(msg.Content),
+                _ => throw new NotSupportedException($"Role '{msg.Role}' is not supported in Azure OpenAI.")
             }).ToList(); // Explicitly specify type arguments
 
         ctx.Append(Log.Data.Model, config.Model ?? "unknown");

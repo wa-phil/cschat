@@ -13,6 +13,7 @@ public enum Error : UInt32
     ToolNotFound,
     ToolNotAvailable,
     FailedToParseResponse,
+    ToolFailed,
 }
 
 public class CsChatException : Exception
