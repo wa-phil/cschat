@@ -86,6 +86,7 @@ public partial class CommandManager : Command
                             Console.WriteLine($"Tool result: {result}");
                             Console.WriteLine($"Tool Memory:");
                             User.RenderChatHistory(tempMemory.Messages);
+                            
                             return Command.Result.Success;
                         }
                     }).ToList()
