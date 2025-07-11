@@ -4,6 +4,159 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
+public class PlanStep
+{
+    public int    EstimatedRemainingSteps { get; set; } = 0;
+    public string ToolName { get; set; } = string.Empty;
+    public string ToolInput { get; set; } = string.Empty;
+    public string Summary { get; set; } = string.Empty;
+}
+
+public class Planner
+{
+    public MemoryContextManager ContextManager = new MemoryContextManager();
+    List<string> results = new List<string>();
+
+    public string Description => "Dynamically plans and executes multi-step tasks using available tools.";
+    public string Usage => "Input: A natural language goal, e.g., 'Summarize the repo contents'.";
+
+    public async Task<ToolResult> InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
+    {
+        memory.AddUserMessage(input);
+        var working = memory.Clone();        
+        int stepCounter = 0;
+        foreach (var step in Steps(input, working))
+        {
+            stepCounter++;
+            Console.Write($"Step {stepCounter}: {step.Summary}... ");
+
+            var result = await ToolRegistry.InvokeInternalAsync(step.ToolName, step.ToolInput, working, input);
+            var status = result.Succeeded ? "✅" : "❌";
+            Console.WriteLine($" - {status}\n--- context start --- \n{result.Response}\n--- context end ---");
+
+            // update working and memory with the step summary
+            var stepSummary = $"--- step {stepCounter}: {step.Summary} ---\n{result.Response}\n--- end step {stepCounter} ---";
+            results.Add(stepSummary);
+            working.AddAssistantMessage(stepSummary);
+
+            memory.AddAssistantMessage($"Step {stepCounter}: {step.Summary} {status}"); 
+        }
+
+        // Final summarization with feedback loop
+        working.SetSystemMessage($"""
+The user asked {input}.
+Below is a log of the steps taken to achieve that goal, and their results.
+Summarize the results of the steps below for the user. 
+""");
+
+        var context = stepCounter > 0 ? working : memory;
+        var final = await Engine.Provider!.PostChatAsync(context, Program.config.Temperature);
+        ctx.Succeeded();
+        return ToolResult.Success(final, memory);
+    });
+
+    public IEnumerable<Task<PlanStep>> Steps(string goal, Memory memory)
+    {
+        var remainingSteps = 3; // Set a limit on the number of steps to prevent infinite loops
+        while (0 < remainingSteps)
+        {
+            --remainingSteps;
+            // Get the next step based on the goal and current context
+            var step = await GetNextStep(goal, memory);
+            if (step != null && string.IsNullOrEmpty(step.ToolName) && !step.ToolName.StartsWith("No further action required", StringComparison.OrdinalIgnoreCase))
+            {
+                remainingSteps = step.EstimatedRemainingSteps;
+                yield return step;
+            }
+            else
+            {
+                Console.WriteLine("No further actionable steps found.");
+                yield break;
+            }
+        }
+    }
+
+    private async Task<PlanStep?> GetNextStep(string goal, Memory memory) => await Log.MethodAsync(async ctx =>
+    {
+        var lastMessage = memory.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? goal;
+        await ContextManager.InvokeAsync(lastMessage, memory);
+
+        var noActionRequired = new PlanStep
+        {
+            EstimatedRemainingSteps = 0,
+            ToolName = string.Empty,
+            ToolInput = string.Empty,
+            Summary = "No further action required."
+        }.ToString();
+
+        var takeFollowingAction = new PlanStep
+        {
+            EstimatedRemainingSteps = 1,
+            ToolName = "ToolName",
+            ToolInput = "ToolInput",
+            Summary = "..."
+        }.ToString();
+
+        var context = string.Join("\n", results.TakeLast(5));
+        var tools = ToolRegistry.GetToolDescriptions();
+
+        var prompt = $"""
+You are a stepwise planner. Respond only with a single next step."
+The user has a stated goal: "{goal}"
+
+{(results.Count > 0 ? 
+    $"You have the following knowledge of progress against the goal thusfar:\n{context}" : 
+    "You haven't taken a single step yet."
+)}
+
+Determine the next best step to help reach the user's goal. 
+If a step previously failed, consider what other information or actions might be required to succeed before trying it again. 
+Reflect on which steps have worked well so far and which have not, and adapt your plan accordingly.
+
+If no further action is needed, respond with:
+{noActionRequired}
+
+Otherwise, respond with:
+{takeFollowingAction}
+
+Where: 
+* "EstimatedRemainingSteps" is the number of steps remaining to complete the goal
+* "ToolName" is the name of the tool to use
+* "ToolInput" is the input to provide to the tool
+* "Summary" is a brief description of what the step does.
+
+Only use tools from this list exactly as named:
+{string.Join("\n", tools)}
+
+Any and all other context you have about the user and their goal is available to you below, including any relevant files or information in the knowledge base.
+""";
+
+        var planMemory = memory.Clone();
+        planMemory.SetSystemMessage(prompt);
+
+        var response = await Engine.Provider!.PostChatAsync(planMemory, 0.0f);
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            ctx.Failed("Received empty response from planner.", Error.EmptyResponse);
+            return null;
+        }
+
+        try
+        {
+            var step = response.FromJson<PlanStep>();
+            ctx.Append(Log.Data.Response, response);
+            ctx.Succeeded();
+            return step;
+        }
+        catch (Exception ex)
+        {
+            ctx.Append(Log.Data.Response, response);
+            ctx.Failed("Failed to parse next plan step.", ex);
+            return null;
+        }
+    });
+}
+
 public static class Engine
 {
     public static IVectorStore VectorStore = new InMemoryVectorStore();
@@ -174,6 +327,7 @@ public static class Engine
         Provider.ThrowIfNull("Provider is not set.");
         
         var lastUserInput = history.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
+        var planner = new Planner();
 
         // === Check if tool is applicable ===
         var suggestion = await ToolRegistry.GetToolSuggestionAsync(lastUserInput);
