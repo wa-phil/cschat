@@ -372,6 +372,11 @@ public class User
         
         switch (message.Role)
         {
+            case Roles.Tool:
+                roleIndicator = "[TOOL]";
+                roleColor = ConsoleColor.Yellow;
+                textColor = ConsoleColor.White; // Tool messages in white
+                break;            
             case Roles.System:
                 roleIndicator = "[SYSTEM]";
                 roleColor = ConsoleColor.DarkBlue;

@@ -38,7 +38,7 @@ public static class Log
         Method, Level, Timestamp, Message, Success, ErrorCode, IsRetry, Threw, Caught, Exception, PlugIn, Count, Source,
         Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, Response,
         Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered,
-        ToolName, ToolInput, ParsedInput, Enabled,
+        ToolName, ToolInput, ParsedInput, Enabled, Error, Reference,
     }
 
     public enum Level { Information, Error }
@@ -75,7 +75,7 @@ public static class Log
             _items[Data.Message] = message;
             if (ex != null)
             {
-                _items[Data.Threw] = ex.Message;
+                _items[Data.Threw] = $"{ex.GetType().Name}: {ex.Message}";
                 _items[Data.ErrorCode] = $"0x{ex.HResult:X8}";
             }
             Succeeded(false);
@@ -85,7 +85,7 @@ public static class Log
         {
             _items[Data.Level] = Level.Error;
             _items[Data.Message] = message;
-            _items[Data.ErrorCode] = $"0x{(UInt32)errorCode:X8}";
+            _items[Data.ErrorCode] = errorCode.ToString();
             Succeeded(false);
         }
 

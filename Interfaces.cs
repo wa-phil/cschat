@@ -5,7 +5,8 @@ public enum Roles
 {
     System,
     User,
-    Assistant
+    Assistant,
+    Tool,
 }
 public class ChatMessage
 {
@@ -56,7 +57,14 @@ public interface ITextChunker
     List<(string Reference, string Content)> ChunkText(string path, string text);
 }
 
-public record ToolResult (bool Summarize, string ResponseText, Memory Memory);
+public record ToolResult(bool Succeeded, string Response, Memory Memory, bool Summarize = true, string? Error = null)
+{
+    public static ToolResult Success(string response, Memory memory, bool summarize = true) =>
+        new(true, response, memory, summarize, null);
+
+    public static ToolResult Failure(string errorMessage, Memory memory) =>
+        new(false, $"ERROR: {errorMessage}", memory, Summarize: false, Error: errorMessage);
+}
 
 public interface ITool
 {
