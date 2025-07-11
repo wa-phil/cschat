@@ -14,7 +14,6 @@ public enum Error : UInt32
     ToolNotAvailable,
     ToolFailed,
     FailedToParseResponse,
-    ToolFailed,
     PathNotFound,
     EmptyResponse
 }
