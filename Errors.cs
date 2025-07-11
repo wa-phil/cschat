@@ -12,7 +12,10 @@ public enum Error : UInt32
     ChunkerNotConfigured,
     ToolNotFound,
     ToolNotAvailable,
+    ToolFailed,
     FailedToParseResponse,
+    PathNotFound,
+    EmptyResponse
 }
 
 public class CsChatException : Exception
