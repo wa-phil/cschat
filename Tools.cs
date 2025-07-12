@@ -175,7 +175,6 @@ public class GetFileNamesTool : ITool
             .ToList();
 
         var list = string.Join("\n", files.Select(f => Path.GetRelativePath(path, f)));
-        memory.ClearContext();
         memory.AddContext("file_list", list);
         await Engine.AddContentToVectorStore(list, "file_list");
         ctx.Succeeded();
@@ -212,7 +211,7 @@ public class FileMetadataTool : ITool
         sb.AppendLine($"Words: {wordCount:N0}");
         sb.AppendLine($"Characters: {charCount:N0}");
         sb.AppendLine($"Last Modified: {modified:u}");
-        memory.ClearContext();
+
         memory.AddContext("file_metadata", sb.ToString());
         await Engine.AddContentToVectorStore(sb.ToString(), "file_metadata");
         ctx.Succeeded();
@@ -243,6 +242,8 @@ public class SummarizeFileTool : ITool
             content = content.Substring(0, MaxContentLength) + "\n... [truncated]";
         }
 
+        memory.AddContext($"file_summary: {input}", content);
+        await Engine.AddContentToVectorStore(content, $"file_summary: {input}");
         ctx.Succeeded();
         return ToolResult.Success($"Contents of {input}:\n{content}", memory, true);
     });
@@ -293,8 +294,7 @@ public class ListFilesMatchingTool : ITool
         }
 
         var output = string.Join("\n", matching);
-        memory.ClearContext();
-        memory.AddContext("matched_files", output);
+        memory.AddContext($"matched_files: {input}", output);
 
         ctx.Append(Log.Data.Count, matching.Count);
         ctx.Succeeded();

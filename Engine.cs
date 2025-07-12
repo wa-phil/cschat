@@ -72,11 +72,17 @@ At this point, you don't need to know how to achieve the goal, you just need to 
                 Console.Write($"Step {stepsTaken}: {step.Summary}...");
                 Console.ResetColor();
 
-                var result = await ToolRegistry.InvokeInternalAsync(step.ToolName, step.ToolInput, working, planGoal.Goal);                
+                var result = await ToolRegistry.InvokeInternalAsync(step.ToolName, step.ToolInput, working, planGoal.Goal);
+                if (result.Succeeded)
+                {
+                    // update memory and working memory with the result of the tool invocation
+                    memory = result.Memory;
+                    working = memory.Clone();
+                }
                 var status = result.Succeeded ? "✅" : "❌";
 
                 Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine($"{status}\n--- context start --- \n{result.Response}\n--- context end ---");
+                Console.WriteLine($"{status}\n{result.Response}");
                 Console.ResetColor();
 
                 // update working and memory with the step summary
