@@ -54,7 +54,7 @@ At this point, you don't need to know how to achieve the goal, you just need to 
         int stepsTaken = 0, maxAllowedSteps = Program.config.MaxSteps;
         if (null != planGoal && planGoal.Result.Equals("ActionRequired", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(planGoal.Goal))
         {
-            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
             Console.WriteLine($"working on: {planGoal.Goal}");
             Console.ResetColor();
 
@@ -65,13 +65,15 @@ At this point, you don't need to know how to achieve the goal, you just need to 
             {
                 stepsTaken++;
                 ctx.Append(Log.Data.Count, stepsTaken);
-                Console.Write($"Step {stepsTaken}: {step.Summary}... ");
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.Write($"Step {stepsTaken}: {step.Summary}...");
+                Console.ResetColor();
 
                 var result = await ToolRegistry.InvokeInternalAsync(step.ToolName, step.ToolInput, working, planGoal.Goal);                
                 var status = result.Succeeded ? "✅" : "❌";
 
                 Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine($" - {status}\n--- context start --- \n{result.Response}\n--- context end ---");
+                Console.WriteLine($"{status}\n--- context start --- \n{result.Response}\n--- context end ---");
                 Console.ResetColor();
 
                 // update working and memory with the step summary
@@ -114,7 +116,9 @@ Use the following context to inform your response to the user's statement.
             }
             else
             {
-                Console.WriteLine("No further actionable steps found.");
+                Console.ForegroundColor = ConsoleColor.DarkYellow;
+                Console.WriteLine("Done.");
+                Console.ResetColor();
                 yield break;
             }
         }
@@ -122,6 +126,7 @@ Use the following context to inform your response to the user's statement.
 
     private async Task<PlanStep?> GetNextStep(string goal, Memory memory) => await Log.MethodAsync(async ctx =>
     {
+        ctx.Append(Log.Data.Goal, goal);
         var lastMessage = memory.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? goal;
         await ContextManager.InvokeAsync(lastMessage, memory);
 
