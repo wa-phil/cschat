@@ -26,6 +26,7 @@ public class Planner
     public async Task<string> PostChatAsync(Memory memory) => await Log.MethodAsync(async ctx =>
     {
         var input = memory.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
+        await ContextManager.InvokeAsync(input, memory);
         var noAction        = "{  \"Result\": \"NoAction\",       \"Goal\": \"\"        }";
         var actionRequired  = "{  \"Result\": \"ActionRequired\", \"Goal\": \"<goal>\"  }";
 
