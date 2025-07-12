@@ -15,7 +15,8 @@ public enum Error : UInt32
     ToolFailed,
     FailedToParseResponse,
     PathNotFound,
-    EmptyResponse
+    EmptyResponse,
+    InvalidInput
 }
 
 public class CsChatException : Exception

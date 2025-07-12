@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
+using System.Text.RegularExpressions;
 
 // Can't use a record here as JSON parser doesn't support parsing records. :(
 public class ToolSuggestion
@@ -244,5 +245,59 @@ public class SummarizeFileTool : ITool
 
         ctx.Succeeded();
         return ToolResult.Success($"Contents of {input}:\n{content}", memory, true);
+    });
+}
+
+[IsConfigurable("ListFilesMatching")]
+public class ListFilesMatchingTool : ITool
+{
+    public string Description => "Lists files in the current project whose full path matches a provided regular expression.";
+    public string Usage => @"Input: .NET-style regex pattern to match file paths (e.g., '^Commands/.*\\.cs$', 'README', '.*Test.*')";
+
+    public Task<ToolResult> InvokeAsync(string input, Memory memory) => Log.Method(ctx =>
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            ctx.Failed("Empty regex input.", Error.InvalidInput);
+            return Task.FromResult(ToolResult.Failure("Please provide a regex pattern to match file paths.", memory));
+        }
+
+        Regex pattern;
+        try
+        {
+            pattern = new Regex(input, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        }
+        catch (Exception ex)
+        {
+            ctx.Failed("Invalid regex.", ex);
+            return Task.FromResult(ToolResult.Failure($"Invalid regex: {ex.Message}", memory));
+        }
+
+        var baseDir = Directory.GetCurrentDirectory();
+        var supportedExtensions = Engine.supportedFileTypes;
+
+        var allFiles = Directory.GetFiles(baseDir, "*.*", SearchOption.AllDirectories)
+            .Where(f => supportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+            .Select(f => Path.GetRelativePath(baseDir, f))
+            .ToList();
+
+        var matching = allFiles
+            .Where(f => pattern.IsMatch(f))
+            .OrderBy(f => f)
+            .ToList();
+
+        if (matching.Count == 0)
+        {
+            ctx.Failed("No files matched.", Error.ToolFailed);
+            return Task.FromResult(ToolResult.Failure($"No files matched regex: `{input}`", memory));
+        }
+
+        var output = string.Join("\n", matching);
+        memory.ClearContext();
+        memory.AddContext("matched_files", output);
+
+        ctx.Append(Log.Data.Count, matching.Count);
+        ctx.Succeeded();
+        return Task.FromResult(ToolResult.Success($"Matched {matching.Count} files:\n{output}", memory));
     });
 }
