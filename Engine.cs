@@ -34,12 +34,14 @@ public class Planner
         var working = memory.Clone(); // do not disturb the original system message or memory, work off a temporary copy instead.
         working.SetSystemMessage($"""
 The user just stated: {input}
-Your task is to determine if the user's statement requires agency on your part, or if a meaningful and useful response can be generated without further action above and beyond replying to the user with the context and knowledge you already have.
-If you determine that no action is required, respond with
+Your task is to determine if the user's statement could benefit from tool usage to provide a more accurate or personalized response.
+
+- If the user's query depends on runtime data (e.g., filesystem contents, current date/time, etc.), assume action is required.
+- Otherwise, if a meaningful and useful static response can be generated from existing knowledge, respond with:
 
 {noAction}
 
-and if action is required, only respond with the following:
+If action is required, respond with:
 
 {actionRequired}
 
@@ -92,6 +94,8 @@ The user stated: {input}.
 
 Use the following context to inform your response to the user's statement.
 """);
+
+            working.AddUserMessage($"Use a summary of the results of the steps taken to {planGoal.Goal} to inform your response to the original statement: {input}");
         }
 
         // Finally determine the response to the user, using working memory if actions were taken, or memory if no actions were taken.
@@ -111,7 +115,7 @@ Use the following context to inform your response to the user's statement.
             var step = await GetNextStep(goal, memory);
             if (step != null && !string.IsNullOrEmpty(step.ToolName) && !step.ToolName.StartsWith("No further action required", StringComparison.OrdinalIgnoreCase))
             {
-                remainingSteps = step.RemainingSteps;
+                remainingSteps += step.RemainingSteps;
                 yield return step;
             }
             else
