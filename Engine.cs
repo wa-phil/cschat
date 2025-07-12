@@ -4,11 +4,219 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
+public class PlanStep
+{
+    public int    RemainingSteps { get; set; } = 0;
+    public string ToolName { get; set; } = string.Empty;
+    public string ToolInput { get; set; } = string.Empty;
+    public string Summary { get; set; } = string.Empty;
+}
+
+public class PlanGoal
+{
+    public string Result { get; set; } = string.Empty; // "NoAction" or "ActionRequired"
+    public string Goal { get; set; } = string.Empty; // The goal statement if action is required
+}
+
+public class Planner
+{
+    public MemoryContextManager ContextManager = new MemoryContextManager();
+    List<string> results = new List<string>();
+
+    public async Task<string> PostChatAsync(Memory memory) => await Log.MethodAsync(async ctx =>
+    {
+        var input = memory.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
+        await ContextManager.InvokeAsync(input, memory);
+        var noAction        = "{  \"Result\": \"NoAction\",       \"Goal\": \"\"        }";
+        var actionRequired  = "{  \"Result\": \"ActionRequired\", \"Goal\": \"<goal>\"  }";
+
+        // first determine if the user's statement requires agency on the part of the planner, or if a meaningful and useful response 
+        // can be generated without further action above and beyond replying to the user with the context and knowledge already available.
+        var working = memory.Clone(); // do not disturb the original system message or memory, work off a temporary copy instead.
+        working.SetSystemMessage($"""
+The user just stated: {input}
+Your task is to determine if the user's statement could benefit from tool usage to provide a more accurate or personalized response.
+
+- If the user's query depends on runtime data (e.g., filesystem contents, current date/time, etc.), assume action is required.
+- Otherwise, if a meaningful and useful static response can be generated from existing knowledge, respond with:
+
+{noAction}
+
+If action is required, respond with:
+
+{actionRequired}
+
+Where <goal> is a statement of what the user is trying to achieve, e.g., "Summarize the repo contents" or "Help me plan a trip to Paris".
+At this point, you don't need to know how to achieve the goal, you just need to clearly state the goal as you understand it, so that you can plan the steps to achieve it later.
+""");
+        var response = await Engine.Provider!.PostChatAsync(working, 0.1f);
+        ctx.Append(Log.Data.Response, response);
+        var planGoal = response.FromJson<PlanGoal>();
+        ctx.Append(Log.Data.Goal, planGoal != null ? planGoal.ToJson() : "<null>");
+
+        int stepsTaken = 0, maxAllowedSteps = Program.config.MaxSteps;
+        if (null != planGoal && planGoal.Result.Equals("ActionRequired", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(planGoal.Goal))
+        {
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.WriteLine($"working on: {planGoal.Goal}");
+            Console.ResetColor();
+
+            ctx.Append(Log.Data.Message, "Taking steps to achieve the goal.");
+            // Conversation implies action on the part of the planner.
+            results = new List<string>();
+            await foreach (var step in Steps(planGoal.Goal, working))
+            {
+                stepsTaken++;
+                ctx.Append(Log.Data.Count, stepsTaken);
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.Write($"Step {stepsTaken}: {step.Summary}...");
+                Console.ResetColor();
+
+                var result = await ToolRegistry.InvokeInternalAsync(step.ToolName, step.ToolInput, working, planGoal.Goal);
+                if (result.Succeeded)
+                {
+                    // update memory and working memory with the result of the tool invocation
+                    memory = result.Memory;
+                    working = memory.Clone();
+                }
+                var status = result.Succeeded ? "✅" : "❌";
+
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"{status}\n{result.Response}");
+                Console.ResetColor();
+
+                // update working and memory with the step summary
+                var stepSummary = $"--- step {stepsTaken}: {step.Summary} ---\n{result.Response}\n--- end step {stepsTaken} ---";
+                results.Add(stepSummary);
+                working.AddAssistantMessage(stepSummary);
+                memory.AddAssistantMessage($"Step {stepsTaken}: {step.Summary} {status}"); 
+            }
+
+            // Final summarization with feedback loop
+            working.SetSystemMessage($"""
+Below is a conversation leading up to and including the steps taken, and their results, to achieve that goal.
+The implied goal before action was taken was: {planGoal.Goal}
+
+The user stated: {input}.
+
+Use the following context to inform your response to the user's statement.
+""");
+
+            working.AddUserMessage($"Use a summary of the results of the steps taken to {planGoal.Goal} to inform your response to the original statement: {input}");
+        }
+
+        // Finally determine the response to the user, using working memory if actions were taken, or memory if no actions were taken.
+        var context = stepsTaken > 0 ? working : memory;
+        var final = await Engine.Provider!.PostChatAsync(context, Program.config.Temperature);
+        ctx.Succeeded();
+        return final;
+    });
+
+    public async IAsyncEnumerable<PlanStep> Steps(string goal, Memory memory)
+    {
+        var remainingSteps = 3; // Set a limit on the number of steps to prevent infinite loops
+        while (0 < remainingSteps)
+        {
+            --remainingSteps;
+            // Get the next step based on the goal and current context
+            var step = await GetNextStep(goal, memory);
+            if (step != null && !string.IsNullOrEmpty(step.ToolName) && !step.ToolName.StartsWith("No further action required", StringComparison.OrdinalIgnoreCase))
+            {
+                remainingSteps += step.RemainingSteps;
+                yield return step;
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.DarkYellow;
+                Console.WriteLine("Done.");
+                Console.ResetColor();
+                yield break;
+            }
+        }
+    }
+
+    private async Task<PlanStep?> GetNextStep(string goal, Memory memory) => await Log.MethodAsync(async ctx =>
+    {
+        ctx.Append(Log.Data.Goal, goal);
+        var lastMessage = memory.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? goal;
+        await ContextManager.InvokeAsync(lastMessage, memory);
+
+        var noActionRequired    = "{ \"RemainingSteps\": 0, \"ToolName\": \"\",            \"ToolInput\": \"\",             \"Summary\": \"No further action required.\" }";
+        var takeFollowingAction = "{ \"RemainingSteps\": 1, \"ToolName\": \"<tool_name>\", \"ToolInput\": \"<tool_input>\", \"Summary\": \"<summary>\" }";
+
+        var context = string.Join("\n", results.TakeLast(5));
+        var tools = ToolRegistry.GetToolDescriptions();
+
+        var prompt = $"""
+You are a stepwise planner. The user has stated: {goal}
+
+{(results.Count > 0 ? 
+    $"You have the following knowledge of progress against the goal thus far:\n{context}" : 
+    "You haven't taken a single step yet."
+)}
+
+Determine if any action is needed to help reach the user's goal. If so, plan the next step.
+
+⚠️ **Important:** You must avoid repeating steps that have already been taken. Do not suggest using the same tool with the same input more than once.
+- If a tool previously failed, consider what new information or preconditions might make it succeed.
+- If a tool succeeded, assume its result is available in context and do not re-run it unless the input has changed significantly.
+
+Your response should be:
+- A JSON object indicating the next step to take, **or**
+- An object indicating no further action is needed.
+
+Respond with **only** one of the following JSON options:
+
+If no further action is needed:
+{noActionRequired}
+
+If action is needed:
+{takeFollowingAction}
+
+Where:
+- `<tool_name>` is the exact name of the tool to invoke
+- `<tool_input>` is the argument
+- `<summary>` is a brief description of the step's purpose
+
+You may use the following tools:
+{string.Join("\n", tools)}
+
+Any relevant context or results from prior steps are available to you below.
+""";
+
+        var planMemory = memory.Clone();
+        planMemory.SetSystemMessage(prompt);
+
+        var response = await Engine.Provider!.PostChatAsync(planMemory, 0.0f);
+        ctx.Append(Log.Data.Response, response ?? "<null>" );
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            ctx.Failed("Received empty response from planner.", Error.EmptyResponse);
+            return null;
+        }
+
+        try
+        {
+            var step = response.FromJson<PlanStep>();
+            ctx.Append(Log.Data.Step, step != null ? step.ToJson() : "<null>");
+            ctx.Succeeded();
+            return step;
+        }
+        catch (Exception ex)
+        {
+            ctx.Append(Log.Data.Response, response);
+            ctx.Failed("Failed to parse next plan step.", ex);
+            return null;
+        }
+    });
+}
+
 public static class Engine
 {
     public static IVectorStore VectorStore = new InMemoryVectorStore();
     public static IChatProvider? Provider = null;
     public static ITextChunker? TextChunker = null;
+    public static Planner Planner = new Planner();
 
     public static List<string> supportedFileTypes = new List<string>
     {
@@ -171,21 +379,7 @@ public static class Engine
 
     public static async Task<string> PostChatAsync(Memory history)
     {
-        Provider.ThrowIfNull("Provider is not set.");
-        
-        var lastUserInput = history.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
-
-        // === Check if tool is applicable ===
-        var suggestion = await ToolRegistry.GetToolSuggestionAsync(lastUserInput);
-        if (null != suggestion)
-        {
-            var toolResponse = await ToolRegistry.InvokeToolAsync(suggestion.Tool, suggestion.Input ?? string.Empty, history, lastUserInput);
-            if (!string.IsNullOrEmpty(toolResponse))
-            {
-                return toolResponse;
-            }
-        }
-
-        return await Provider!.PostChatAsync(history, Program.config.Temperature);
+        Provider.ThrowIfNull("Provider is not set.");        
+        return await Planner.PostChatAsync(history);
     }
 }

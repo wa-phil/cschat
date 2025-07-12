@@ -208,3 +208,50 @@ public class InMemoryVectorStore : IVectorStore
         return (float)(dot / (Math.Sqrt(normA) * Math.Sqrt(normB) + 1e-8));
     }
 }
+
+public class MemoryContextManager
+{
+    public async Task InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
+    {
+        memory.ClearContext();
+
+        // Try to add context to memory first
+        var references = new List<string>();
+        var results = await SearchVectorDB(input);
+        if (results != null && results.Count > 0)
+        {
+            foreach (var result in results)
+            {
+                references.Add(result.Reference);
+                memory.AddContext(result.Reference, result.Content);
+            }
+            // Context was added, no summary response required, returning modified memory back to caller.
+            ctx.Append(Log.Data.Result, references.ToArray());
+            ctx.Succeeded();
+            return;
+        }
+
+        // If no results found, return a message
+        memory.AddContext("Memory", "No special or relevant information about current context.");
+        ctx.Append(Log.Data.Message, "Nothing relevant in the knowledge base.");
+        ctx.Succeeded();
+        return;
+    });
+
+    public async Task<List<SearchResult>> SearchVectorDB(string userMessage)
+    {
+        var empty = new List<SearchResult>();
+        if (string.IsNullOrEmpty(userMessage) || null == Engine.VectorStore || Engine.VectorStore.IsEmpty) { return empty; }
+
+        var embeddingProvider = Engine.Provider as IEmbeddingProvider;
+        if (embeddingProvider == null) { return empty; }
+
+        float[]? query = await embeddingProvider!.GetEmbeddingAsync(userMessage);
+        if (query == null) { return empty; }
+
+        var items = Engine.VectorStore.Search(query, Program.config.RagSettings.TopK);
+        // filter out below average results
+        var average = items.Average(i => i.Score);
+        return items.Where(i => i.Score >= average).ToList();
+    }
+}

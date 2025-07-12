@@ -76,6 +76,25 @@ public partial class CommandManager
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
+                },
+                new Command
+                {
+                    Name = "set max steps", Description = "Set maximum steps for planning",
+                    Action = () =>
+                    {
+                        Console.Write("Enter maximum steps (default 25): ");
+                        var input = Console.ReadLine();
+                        if (int.TryParse(input, out int maxSteps))
+                        {
+                            Program.config.MaxSteps = maxSteps;
+                            Console.WriteLine($"Maximum steps set to {maxSteps}.");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Invalid input. Maximum steps remain at {Program.config.MaxSteps}.");
+                        }
+                        return Task.FromResult(Command.Result.Success);
+                    }
                 }
             }
         };

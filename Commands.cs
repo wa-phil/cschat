@@ -94,6 +94,22 @@ public partial class CommandManager : Command
             CreateSystemCommands(),
             new Command
             {
+                Name = "restart", Description = "Reset chat history, RAG state, logs, and clear the console",
+                Action = () =>
+                {
+                    Program.memory.Clear();
+                    Program.memory.AddSystemMessage(Program.config.SystemPrompt);   
+                    Engine.VectorStore.Clear();
+                    Log.ClearOutput();
+                    Console.Clear();
+                    Console.WriteLine("Chat history, RAG state, and logs have been reset.");
+                    Console.WriteLine("Current Configuration:");
+                    Console.WriteLine(Program.config.ToJson());
+                    return Task.FromResult(Command.Result.Success);
+                }
+            },
+            new Command
+            {
                 Name = "exit", Description = "Quit the application",
                 Action = () => { Environment.Exit(0); return Task.FromResult(Command.Result.Success); }
             }
