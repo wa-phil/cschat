@@ -185,7 +185,7 @@ public class GetFileNamesTool : ITool
 [IsConfigurable("FileMetadata")]
 public class FileMetadataTool : ITool
 {
-    public string Description => "Provides metadata about a file including size, line count, and last modified date.";
+    public string Description => "Extracts key metrics (lines, words, size) and modification details for a given file. Useful for identifying complexity or recent changes.";
     public string Usage => "Input: path to a file.";
 
     public async Task<ToolResult> InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
@@ -223,7 +223,7 @@ public class FileMetadataTool : ITool
 public class SummarizeFileTool : ITool
 {
     public static readonly int MaxContentLength = 16000; // Maximum length of content to read
-    public string Description => "Reads and summarizes the contents of a source/text file.";
+    public string Description => "Summarizes the content in a specified file to help understand its function. Ideal for analyzing supported files like text (.txt, .log, etc), source code, project, or markdown (.md) files.";
     public string Usage => "Input: path to a file.";
 
     public async Task<ToolResult> InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>

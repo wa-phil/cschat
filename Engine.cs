@@ -144,30 +144,37 @@ Use the following context to inform your response to the user's statement.
 You are a stepwise planner. The user has stated: {goal}
 
 {(results.Count > 0 ? 
-    $"You have the following knowledge of progress against the goal thusfar:\n{context}" : 
+    $"You have the following knowledge of progress against the goal thus far:\n{context}" : 
     "You haven't taken a single step yet."
 )}
 
-Determine if there is need to take an action, and if so, determine the next best step to help reach the user's goal. 
-If a step previously failed, consider what other information or actions might be required to succeed before trying it again. 
-Reflect on which steps have worked well so far and which have not, and adapt your plan accordingly.
-Respond either only with a single next step, or, if no action, or any further action, is needed, respond with:"
- 
+Determine if any action is needed to help reach the user's goal. If so, plan the next step.
+
+⚠️ **Important:** You must avoid repeating steps that have already been taken. Do not suggest using the same tool with the same input more than once.
+- If a tool previously failed, consider what new information or preconditions might make it succeed.
+- If a tool succeeded, assume its result is available in context and do not re-run it unless the input has changed significantly.
+
+Your response should be:
+- A JSON object indicating the next step to take, **or**
+- An object indicating no further action is needed.
+
+Respond with **only** one of the following JSON options:
+
+If no further action is needed:
 {noActionRequired}
 
-Otherwise, respond with:
-
+If action is needed:
 {takeFollowingAction}
 
-Where: 
-* <tool_name> is the name of the tool to use.
-* <tool_input> is the input to provide to the tool.
-* <summary> is a brief description of what the step does.
+Where:
+- `<tool_name>` is the exact name of the tool to invoke
+- `<tool_input>` is the argument
+- `<summary>` is a brief description of the step's purpose
 
-Only use tools from this list exactly as named:
+You may use the following tools:
 {string.Join("\n", tools)}
 
-Any and all other context you have about the user and their goal is available to you below, including any relevant files or information in the knowledge base.
+Any relevant context or results from prior steps are available to you below.
 """;
 
         var planMemory = memory.Clone();
