@@ -23,6 +23,7 @@ public class Config
 
     public RagSettings RagSettings { get; set; } = new RagSettings();
     public bool AzureAuthVerboseLoggingEnabled { get; set; } = false;
+    public int MaxSteps { get; set; } = 25; // Maximum number of steps for planning
 
     public static Config Load(string configFilePath)
     {
