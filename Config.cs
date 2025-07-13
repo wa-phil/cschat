@@ -17,9 +17,9 @@ public class Config
     public string Provider { get; set; } = "Ollama";
     public string Model { get; set; } = string.Empty; // Ensure non-nullable property is initialized
     public string Host { get; set; } = "http://localhost:11434";
-    public int MaxTokens { get; set; } = 4000;
+    public int MaxTokens { get; set; } = 32000;
     public float Temperature { get; set; } = 0.7f;
-    public string SystemPrompt { get; set; } = "You are a helpful assistant.  When answering questions, if you do not know the answer, tell the user as much. Always strive to be honest and truthful.";
+    public string SystemPrompt { get; set; } = "You are a helpful system agent.  When answering questions, if you do not know the answer, tell the user as much. Always strive to be honest and truthful.  You have access to an array of tools that you can use to get the information you need to help the user. These tools can list the contents of a directory, read metadata about files, read file contents, etc...";
 
     public RagSettings RagSettings { get; set; } = new RagSettings();
     public bool AzureAuthVerboseLoggingEnabled { get; set; } = false;

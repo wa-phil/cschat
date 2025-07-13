@@ -52,6 +52,7 @@ public class Memory
 
     public void AddUserMessage(string content) => _messages.Add(new ChatMessage { Role = Roles.User, Content = content });
     public void AddAssistantMessage(string content) => _messages.Add(new ChatMessage { Role = Roles.Assistant, Content = content });
+    public void AddToolMessage(string content) => _messages.Add(new ChatMessage { Role = Roles.Tool, Content = content });
     public void AddSystemMessage(string content)
     {
         _systemMessage.Content = _systemMessage.Content.Length > 0
@@ -122,7 +123,7 @@ public class Memory
             _systemMessage = new ChatMessage 
             { 
                 Role = Roles.System, 
-                Content = _systemMessage.Content, 
+                Content = $"{_systemMessage.Content}", // Ensure a deep copy of the content for system message -- SUPER IMPORTANT
                 CreatedAt = _systemMessage.CreatedAt 
             },
             _messages = new List<ChatMessage>(_messages),
@@ -252,6 +253,7 @@ public class MemoryContextManager
         var items = Engine.VectorStore.Search(query, Program.config.RagSettings.TopK);
         // filter out below average results
         var average = items.Average(i => i.Score);
+
         return items.Where(i => i.Score >= average).ToList();
     }
 }

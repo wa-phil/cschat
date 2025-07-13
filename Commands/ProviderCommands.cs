@@ -98,7 +98,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "max-tokens", Description = "Set maximum tokens for response",
+                    Name = "max tokens", Description = "Set maximum tokens for response",
                     Action = () =>
                     {
                         Console.Write($"Current max tokens: {Program.config.MaxTokens}. Enter new value (1 to 10000): ");

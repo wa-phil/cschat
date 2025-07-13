@@ -38,6 +38,8 @@ public static class ToolRegistry
         ctx.Succeeded();
     });
 
+    public static bool IsToolRegistered(string toolName) => _tools.Keys.Any(t => t.Equals(toolName, StringComparison.OrdinalIgnoreCase));
+
     private static bool All(string _) => true;
 
     public static List<(string Name, string Description, string Usage)> GetRegisteredTools(Func<string, bool> filter) => _tools
@@ -223,7 +225,7 @@ public class FileMetadataTool : ITool
 public class SummarizeFileTool : ITool
 {
     public static readonly int MaxContentLength = 16000; // Maximum length of content to read
-    public string Description => "Summarizes the content in a specified file to help understand its function. Ideal for analyzing supported files like text (.txt, .log, etc), source code, project, or markdown (.md) files.";
+    public string Description => "Reads and summarizes the contents in a specified file. Ideal for analyzing or explaining supported files like text (.txt, .log, etc), source code, project, or markdown (.md) files.";
     public string Usage => "Input: path to a file.";
 
     public async Task<ToolResult> InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
@@ -274,18 +276,21 @@ public class ListFilesMatchingTool : ITool
             return Task.FromResult(ToolResult.Failure($"Invalid regex: {ex.Message}", memory));
         }
 
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var baseDir = Directory.GetCurrentDirectory();
         var supportedExtensions = Engine.supportedFileTypes;
 
-        var allFiles = Directory.GetFiles(baseDir, "*.*", SearchOption.AllDirectories)
+        var matching = Directory.GetFiles(baseDir, "*.*", SearchOption.AllDirectories)
             .Where(f => supportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
             .Select(f => Path.GetRelativePath(baseDir, f))
-            .ToList();
-
-        var matching = allFiles
             .Where(f => pattern.IsMatch(f))
             .OrderBy(f => f)
             .ToList();
+
+        stopwatch.Stop();
+        var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
+        Console.WriteLine($"{elapsedTime}ms required to find files that match '{input}'.");
+
 
         if (matching.Count == 0)
         {
