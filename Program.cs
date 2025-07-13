@@ -109,10 +109,11 @@ static class Program
             memory.AddUserMessage(userInput);
             var userMessage = memory.Messages.Last(); // Get the message we just added
             User.RenderChatMessage(userMessage);
-            
-            string response = await Engine.PostChatAsync(memory);
-            var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response };
+
+            var (response, updatedMemory) = await Engine.PostChatAsync(memory);
+            var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
             User.RenderChatMessage(assistantMessage);
+            memory = updatedMemory;
             memory.AddAssistantMessage(response);
         }
     }

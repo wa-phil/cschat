@@ -375,7 +375,7 @@ public class User
             case Roles.Tool:
                 roleIndicator = "[TOOL]";
                 roleColor = ConsoleColor.Yellow;
-                textColor = ConsoleColor.White; // Tool messages in white
+                textColor = ConsoleColor.DarkGray; // Tool messages in dark gray
                 break;            
             case Roles.System:
                 roleIndicator = "[SYSTEM]";

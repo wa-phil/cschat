@@ -114,7 +114,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
                 Roles.User => new UserChatMessage(msg.Content),
                 Roles.Assistant => new AssistantChatMessage(msg.Content),
                 Roles.System => new SystemChatMessage(msg.Content),
-                Roles.Tool => new ToolChatMessage(msg.Content),
+                Roles.Tool => new AssistantChatMessage(msg.Content),
                 _ => throw new NotSupportedException($"Role '{msg.Role}' is not supported in Azure OpenAI.")
             }).ToList(); // Explicitly specify type arguments
 

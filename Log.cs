@@ -37,8 +37,8 @@ public static class Log
     {
         Method, Level, Timestamp, Message, Success, ErrorCode, IsRetry, Threw, Caught, Exception, PlugIn, Count, Source,
         Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, Response,
-        Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered,
-        ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step,
+        Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered, Reason,
+        ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step, Input, TypeToParse, PlanningFailed, 
     }
 
     public enum Level { Information, Error }
@@ -66,7 +66,8 @@ public static class Log
         public void Succeeded(bool success = true)
         {
             _items[Data.Success] = success;
-            _items[Data.Timestamp] = DateTime.UtcNow;
+            // format the time as local time, but down to milliseconds
+            _items[Data.Timestamp] = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff");
         }
 
         public void Failed(string message, Exception? ex)
@@ -252,6 +253,10 @@ public static class Log
                     Data.Success,
                     Data.ErrorCode,
                     Data.IsRetry,
+                    Data.TypeToParse,
+                    Data.Input,
+                    Data.Response,
+                    Data.Result,
                     Data.Message
                 };
 

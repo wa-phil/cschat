@@ -23,12 +23,14 @@ public class Planner
     public MemoryContextManager ContextManager = new MemoryContextManager();
     List<string> results = new List<string>();
 
-    public async Task<string> PostChatAsync(Memory memory) => await Log.MethodAsync(async ctx =>
+    public async Task<(string result, Memory memory)> PostChatAsync(Memory memory) => await Log.MethodAsync(async ctx =>
     {
+        results = new List<string>(); // always reset results for each planning session
+
         var input = memory.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         await ContextManager.InvokeAsync(input, memory);
-        var noAction        = "{  \"Result\": \"NoAction\",       \"Goal\": \"\"        }";
-        var actionRequired  = "{  \"Result\": \"ActionRequired\", \"Goal\": \"<goal>\"  }";
+        var noAction        = "{  \"Result\": \"NoAction\",       \"Goal\": \"<reason>\" }";
+        var actionRequired  = "{  \"Result\": \"ActionRequired\", \"Goal\": \"<goal>\"   }";
 
         // first determine if the user's statement requires agency on the part of the planner, or if a meaningful and useful response 
         // can be generated without further action above and beyond replying to the user with the context and knowledge already available.
@@ -37,7 +39,7 @@ public class Planner
 The user just stated: {input}
 Your task is to determine if the user's statement could benefit from tool usage to provide a more accurate or personalized response.
 
-- If the user's query depends on runtime data (e.g., filesystem contents, current date/time, etc.), assume action is required.
+- If the user's query depends on runtime data (e.g., filesystem contents, current date/time, etc.), assume action is required, and that you will be able to complete it.
 - Otherwise, if a meaningful and useful static response can be generated from existing knowledge, respond with:
 
 {noAction}
@@ -46,54 +48,102 @@ If action is required, respond with:
 
 {actionRequired}
 
-Where <goal> is a statement of what the user is trying to achieve, e.g., "Summarize the repo contents" or "Help me plan a trip to Paris".
-At this point, you don't need to know how to achieve the goal, you just need to clearly state the goal as you understand it, so that you can plan the steps to achieve it later.
+Where:
+  * <goal> is a statement of what the user is trying to achieve, e.g., "Summarize the repo contents" or "Help me plan a trip to Paris".
+  * <reason> is a statement of why no action is required, e.g., "The user is asking for a summary of the repo contents, which can be generated from existing knowledge."
+
+At this point, you don't need to know how to achieve the goal, just clearly state the goal as you understand it, so that you can plan the steps to achieve it later.
+Only respond with the JSON object, do not include any additional text or explanation.
 """);
-        var response = await Engine.Provider!.PostChatAsync(working, 0.1f);
-        ctx.Append(Log.Data.Response, response);
-        var planGoal = response.FromJson<PlanGoal>();
+        var planGoal = await Engine.PostChatAndParseAsync<PlanGoal>(working, 0.1f);
         ctx.Append(Log.Data.Goal, planGoal != null ? planGoal.ToJson() : "<null>");
 
-        int stepsTaken = 0, maxAllowedSteps = Program.config.MaxSteps;
-        if (null != planGoal && planGoal.Result.Equals("ActionRequired", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(planGoal.Goal))
+        // EARLY EXIT: If no action is needed, skip planning loop and just answer
+        if (null == planGoal || 
+            planGoal.Result.Equals("NoAction", StringComparison.OrdinalIgnoreCase) || 
+            string.IsNullOrEmpty(planGoal.Goal?.Trim() ?? string.Empty) || 
+            planGoal.Goal?.Equals("No further action required", StringComparison.OrdinalIgnoreCase) == true)
         {
-            Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.WriteLine($"working on: {planGoal.Goal}");
-            Console.ResetColor();
+            ctx.Append(Log.Data.Message, "No planning required, generating response directly.");
+            // Construct a user-facing natural language reply using the original memory
+            memory.SetSystemMessage(Program.config.SystemPrompt);
+            var finalResult = await Engine.Provider!.PostChatAsync(memory, Program.config.Temperature);
+            ctx.Succeeded();
+            return (finalResult, memory); // memory is unchanged
+        }
 
-            ctx.Append(Log.Data.Message, "Taking steps to achieve the goal.");
-            // Conversation implies action on the part of the planner.
-            results = new List<string>();
-            await foreach (var step in Steps(planGoal.Goal, working))
+        int stepsTaken = 0, maxAllowedSteps = Program.config.MaxSteps;
+        Console.ForegroundColor = ConsoleColor.DarkYellow;
+        Console.WriteLine($"working on: {planGoal.Goal}");
+        Console.ResetColor();
+
+        ctx.Append(Log.Data.Message, "Taking steps to achieve the goal.");
+        // Conversation implies action on the part of the planner.
+        var distinctActionsTaken = new HashSet<string>();
+        
+        bool planningFailed = false;
+        await foreach (var step in Steps(planGoal!.Goal!, working, onPlanningFailure: reason => {
+            planningFailed = true;
+            ctx.Append(Log.Data.Reason, reason);
+        }))
+        {
+            // Prevent infinite loops by limiting the number of steps taken (user configureable).
+            if (stepsTaken++ > maxAllowedSteps)
             {
-                stepsTaken++;
-                ctx.Append(Log.Data.Count, stepsTaken);
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.Write($"Step {stepsTaken}: {step.Summary}...");
-                Console.ResetColor();
-
-                var result = await ToolRegistry.InvokeInternalAsync(step.ToolName, step.ToolInput, working, planGoal.Goal);
-                if (result.Succeeded)
-                {
-                    // update memory and working memory with the result of the tool invocation
-                    memory = result.Memory;
-                    working = memory.Clone();
-                }
-                var status = result.Succeeded ? "✅" : "❌";
-
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine($"{status}\n{result.Response}");
-                Console.ResetColor();
-
-                // update working and memory with the step summary
-                var stepSummary = $"--- step {stepsTaken}: {step.Summary} ---\n{result.Response}\n--- end step {stepsTaken} ---";
-                results.Add(stepSummary);
-                working.AddAssistantMessage(stepSummary);
-                memory.AddAssistantMessage($"Step {stepsTaken}: {step.Summary} {status}"); 
+                ctx.Append(Log.Data.Message, $"Exceeded maximum allowed steps ({maxAllowedSteps}). Stopping planning.");
+                break;
             }
 
-            // Final summarization with feedback loop
-            working.SetSystemMessage($"""
+            // Follow the DRY principle to avoid repeating steps...
+            var key = $"{step.ToolName}:{step?.ToolInput.Trim()??""}";
+            if (distinctActionsTaken.Contains(key))
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"Skipping duplicate step: {step?.ToolName ?? "<unknown>"} with already attempted input.");
+                Console.ResetColor();
+                continue; // skip duplicate steps
+            }
+            distinctActionsTaken.Add(key);
+
+            ctx.Append(Log.Data.Count, stepsTaken);
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.Write($"Step {stepsTaken}: {step?.Summary ?? "<unknown>"}...");
+            Console.ResetColor();
+
+            var result = await ToolRegistry.InvokeInternalAsync(step!.ToolName, step!.ToolInput, working, planGoal!.Goal!);
+            if (result.Succeeded)
+            {
+                // update memory and working memory with the result of the tool invocation
+                memory = result.Memory;
+                working = memory.Clone();
+            }
+            var status = result.Succeeded ? "✅" : "❌";
+
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"{status}\n{result.Response}");
+            Console.ResetColor();
+
+            // update working and memory with the step summary
+            var stepSummary = $"--- step {stepsTaken}: {step.Summary} ({step.ToolInput})---\n{result.Response}\n--- end step {stepsTaken} ---";
+            results.Add(stepSummary);
+            working.AddToolMessage(stepSummary);
+        }
+
+        // handle the case where planning failed, and bail out early with a summary of the results taken so far.
+        if (planningFailed || 0 == stepsTaken)
+        {            
+            working.SetSystemMessage(Program.config.SystemPrompt);
+            working.AddUserMessage($"Planning failed for goal: {planGoal.Goal}. Please summarize the results of the steps taken so far.");
+            var finalResponse = await Engine.Provider!.PostChatAsync(working, Program.config.Temperature);
+
+            memory.SetSystemMessage(Program.config.SystemPrompt);
+            results.ForEach(r => memory.AddToolMessage(r));
+            ctx.Failed("Planning failed, summarizing results.", Error.PlanningFailed);
+            return (finalResponse, memory);
+        }
+
+        // Final summarization with feedback loop
+        working.SetSystemMessage($"""
 Below is a conversation leading up to and including the steps taken, and their results, to achieve that goal.
 The implied goal before action was taken was: {planGoal.Goal}
 
@@ -101,41 +151,92 @@ The user stated: {input}.
 
 Use the following context to inform your response to the user's statement.
 """);
+        working.AddUserMessage($"Use a summary of the results of the steps taken to {planGoal.Goal} to inform your response to the original statement: {input}");
+        var final = await Engine.Provider!.PostChatAsync(working, Program.config.Temperature);
 
-            working.AddUserMessage($"Use a summary of the results of the steps taken to {planGoal.Goal} to inform your response to the original statement: {input}");
-        }
-
-        // Finally determine the response to the user, using working memory if actions were taken, or memory if no actions were taken.
-        var context = stepsTaken > 0 ? working : memory;
-        var final = await Engine.Provider!.PostChatAsync(context, Program.config.Temperature);
+        results.ForEach(r => memory.AddToolMessage(r));
         ctx.Succeeded();
-        return final;
+        return (final, memory);
     });
 
-    public async IAsyncEnumerable<PlanStep> Steps(string goal, Memory memory)
+    private enum State { failed, success, noFurtherActionRequired };
+
+    public async IAsyncEnumerable<PlanStep> Steps(string goal, Memory memory, Action<string> onPlanningFailure = null!) 
     {
         var remainingSteps = 3; // Set a limit on the number of steps to prevent infinite loops
         while (0 < remainingSteps)
         {
             --remainingSteps;
             // Get the next step based on the goal and current context
-            var step = await GetNextStep(goal, memory);
-            if (step != null && !string.IsNullOrEmpty(step.ToolName) && !step.ToolName.StartsWith("No further action required", StringComparison.OrdinalIgnoreCase))
+            PlanStep? step = null;
+            State state = State.success;
+            string reason = string.Empty;
+            
+            try
             {
-                remainingSteps += step.RemainingSteps;
-                yield return step;
+                step = await GetNextStep(goal, memory);
+            } 
+            catch (Exception ex)
+            {
+                state = State.failed;
+                reason = $"ERROR: Planner failed to return a valid step due to an exception: {ex.Message}";
             }
-            else
+
+            if (step == null)
+            {
+                state = State.failed;
+                reason = "ERROR: Planner failed to return a valid step; check logs for further details.";
+            }
+            else if (0 == step.RemainingSteps && string.IsNullOrEmpty(step.ToolName))
+            {
+                state = State.noFurtherActionRequired;
+            }
+            else if (step.ToolName.StartsWith("No further action required", StringComparison.OrdinalIgnoreCase))
+            {
+                state = State.noFurtherActionRequired;
+            }
+            else if (step.RemainingSteps < 0)
+            {
+                state = State.failed;
+                reason = "ERROR: Planner returned a step with negative remaining steps; check logs for further details.";
+            }
+            else if (string.IsNullOrEmpty(step.ToolName))
+            {
+                state = State.failed;
+                reason = "ERROR: Planner returned a step with an empty tool name; check logs for further details.";
+            }
+            else if (!ToolRegistry.IsToolRegistered(step.ToolName))
+            {
+                state = State.failed;
+                reason = $"ERROR: Planner returned an invalid tool name: {step.ToolName}; check logs for further details.";
+            }
+
+            if (State.failed == state)
+            {
+                onPlanningFailure?.Invoke(reason);
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine(reason);
+                Console.ResetColor();
+                yield break;
+            }
+
+            if (State.noFurtherActionRequired == state)
             {
                 Console.ForegroundColor = ConsoleColor.DarkYellow;
                 Console.WriteLine("Done.");
                 Console.ResetColor();
                 yield break;
             }
+
+            remainingSteps += step!.RemainingSteps;
+            yield return step;
         }
     }
 
-    private async Task<PlanStep?> GetNextStep(string goal, Memory memory) => await Log.MethodAsync(async ctx =>
+    private async Task<PlanStep?> GetNextStep(string goal, Memory memory) => await Log.MethodAsync(
+        retryCount: 2,
+        shouldRetry: e => e is CsChatException cce && cce.ErrorCode == Error.EmptyResponse,
+        func: async ctx =>
     {
         ctx.Append(Log.Data.Goal, goal);
         var lastMessage = memory.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? goal;
@@ -147,19 +248,21 @@ Use the following context to inform your response to the user's statement.
         var context = string.Join("\n", results.TakeLast(5));
         var tools = ToolRegistry.GetToolDescriptions();
 
-        var prompt = $"""
-You are a stepwise planner. The user has stated: {goal}
+        var examples ="""
+✅ { "RemainingSteps": 0, "ToolName": "", "ToolInput": "", "Summary": "No further action required." }
+✅ { "RemainingSteps": 1, "ToolName": "GetFileNames", "ToolInput": "", "Summary": "List files in directory" }
+""";
 
+        var systemPrompt = $"""
+You are a stepwise planner.
+The user has stated: {goal}
 {(results.Count > 0 ? 
     $"You have the following knowledge of progress against the goal thus far:\n{context}" : 
     "You haven't taken a single step yet."
 )}
 
-Determine if any action is needed to help reach the user's goal. If so, plan the next step.
-
-⚠️ **Important:** You must avoid repeating steps that have already been taken. Do not suggest using the same tool with the same input more than once.
-- If a tool previously failed, consider what new information or preconditions might make it succeed.
-- If a tool succeeded, assume its result is available in context and do not re-run it unless the input has changed significantly.
+Your task is to plan the next step to achieve the goal.
+Determine if any action is needed to help reach the goal. If so, plan the next step.
 
 Your response should be:
 - A JSON object indicating the next step to take, **or**
@@ -182,32 +285,32 @@ You may use the following tools:
 {string.Join("\n", tools)}
 
 Any relevant context or results from prior steps are available to you below.
+
+⚠️ **Important:** 
+- You must avoid repeating steps that have already been taken. 
+- Do not suggest using the same tool with the same input more than once.
+- If a tool previously failed, consider what new information or preconditions might make it succeed.
+- If a tool succeeded, assume its result is available in context and do not re-run it unless the input has changed significantly.
+- Your output will be parsed as JSON. Do NOT include markdown, commentary, or explanations.
+- Do not add preambles like "Here is the JSON you requested" or "As per the context".
+
+EXAMPLES:
+{examples}
+Now respond with ONLY the JSON object.
 """;
 
         var planMemory = memory.Clone();
-        planMemory.SetSystemMessage(prompt);
+        planMemory.SetSystemMessage(systemPrompt);
 
-        var response = await Engine.Provider!.PostChatAsync(planMemory, 0.0f);
-        ctx.Append(Log.Data.Response, response ?? "<null>" );
-        if (string.IsNullOrWhiteSpace(response))
+        var step = await Engine.PostChatAndParseAsync<PlanStep>(planMemory, 0.0f);
+        ctx.Append(Log.Data.Response, step != null ? step.ToJson() : "<null>" );
+        if (step == null)
         {
-            ctx.Failed("Received empty response from planner.", Error.EmptyResponse);
-            return null;
+            throw new CsChatException("Received empty response from planner.", Error.EmptyResponse);
         }
 
-        try
-        {
-            var step = response.FromJson<PlanStep>();
-            ctx.Append(Log.Data.Step, step != null ? step.ToJson() : "<null>");
-            ctx.Succeeded();
-            return step;
-        }
-        catch (Exception ex)
-        {
-            ctx.Append(Log.Data.Response, response);
-            ctx.Failed("Failed to parse next plan step.", ex);
-            return null;
-        }
+        ctx.Succeeded();
+        return step;
     });
 }
 
@@ -242,7 +345,7 @@ public static class Engine
             ctx.Failed($"Directory '{path}' does not exist.", Error.DirectoryNotFound);
             return;
         }
-
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
             .Where(f => supportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
             .ToList();
@@ -264,6 +367,10 @@ public static class Engine
         ));
         Engine.VectorStore.Add(embeddings);
         Console.WriteLine($"Added directory index to vector store in {chunks.Count} chunks.");
+
+        stopwatch.Stop();
+        var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
+        Console.WriteLine($"{elapsedTime}ms required to process files in '{path}'.");
 
         ctx.Append(Log.Data.Count, files.Count);
         ctx.Succeeded();
@@ -377,9 +484,53 @@ public static class Engine
         return selected;
     });
 
-    public static async Task<string> PostChatAsync(Memory history)
+    public static async Task<(string result, Memory memory)> PostChatAsync(Memory history)
     {
         Provider.ThrowIfNull("Provider is not set.");        
         return await Planner.PostChatAsync(history);
     }
+
+    public static async Task<T?> PostChatAndParseAsync<T>(Memory memory, float temperature = 0.05f) where T : class
+        => await Log.MethodAsync(async ctx =>
+    {
+        ctx.Append(Log.Data.TypeToParse, typeof(T).Name);
+        var lastMessage = memory.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
+
+        // Send memory to the provider's PostChatAsync method
+        var response = await Provider!.PostChatAsync(memory, temperature);
+        ctx.Append(Log.Data.Response, response);
+
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            ctx.Failed("Received empty response from provider.", Error.EmptyResponse);
+            return null;
+        }
+
+        if (!response.TrimStart().StartsWith("{"))
+        {
+            ctx.Failed("LLM returned invalid JSON: hallucinated preamble or natural language detected.", Error.FailedToParseResponse);
+            return null;
+        }
+
+        if (!response.TrimEnd().EndsWith("}"))
+        {
+            ctx.Failed("LLM returned invalid JSON: hallucinated postamble or missing closing brace detected.", Error.FailedToParseResponse);
+            return null;
+        }
+
+        try
+        {
+            // Parse the response into the specified type
+            var parsedObject = response.FromJson<T>();
+            ctx.Append(Log.Data.Result, $"{(parsedObject != null ? "Successfully parsed" : "Failed to parse")} {typeof(T).Name}");
+            ctx.Succeeded(parsedObject != null);
+            return parsedObject;
+        }
+        catch (Exception ex)
+        {
+            ctx.Append(Log.Data.Response, response);
+            ctx.Failed("Failed to parse response into the specified type.", ex);
+            return null;
+        }
+    });
 }
