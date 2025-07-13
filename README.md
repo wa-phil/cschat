@@ -19,15 +19,17 @@ A simple, interactive C# console chat client for [Ollama](https://ollama.com/) a
     - az login
 
 ## Features
-- Connects to Ollama or Azure OpenAI servers and interacts with LLM models via chat.
-- Supports multi-line input (Shift+Enter for new line).
-- Easily switch models, providers, and hosts at runtime.
-- Extensible provider and command abstraction for easy extension.
-- Maintains chat history in memory.
-- Configuration is loaded from or saved to `config.json` (auto-generated).
+- **Multi-Provider Support:** Connects to Ollama or Azure OpenAI servers and interacts with LLM models via chat.
+- **Rich Input Handling:** Supports multi-line input (Shift+Enter for new line) and command history.
+- **Runtime Configuration:** Easily switch models, providers, and hosts at runtime without restarting.
+- **Extensible Architecture:** Provider and command abstraction for easy extension with new capabilities.
+- **Memory Management:** Maintains chat history in memory with cloning and context management capabilities.
+- **Auto-Configuration:** Configuration is loaded from or saved to `config.json` (auto-generated).
 - **Retrieval-Augmented Generation (RAG):** Ingest, search, and use external documents or knowledge in chat context. RAG data can be added, listed, and cleared via commands.
-- **Interactive menu system:** Press `Escape` to open a keyboard-navigable menu for commands, model/provider selection, and more. Supports filtering and quick selection.
-- **Tool system:** Register and invoke custom tools via the `tools` command or through model-suggested tool use. Tools can be used to extend the assistant with new capabilities (e.g., calculations, lookups, etc.).
+- **Interactive Menu System:** Press `Escape` to open a keyboard-navigable menu for commands, model/provider selection, and more. Supports filtering and quick selection.
+- **Advanced Tool System:** Register and invoke custom tools via the `tools` command or through model-suggested tool use. Tools can be used to extend the assistant with new capabilities (e.g., calculations, file operations, lookups, etc.).
+- **Autonomous Planning:** Multi-step task execution with intelligent planning system that can break down complex goals into actionable steps.
+- **Comprehensive Logging:** Built-in logging system with retry logic, error handling, and detailed execution tracking for debugging and monitoring.
 
 ## Tool System
 
@@ -37,6 +39,48 @@ The tool system allows you to register and invoke custom tools from within the c
 - **Invoking tools:** Select a tool from the menu to use a tool. You will be prompted for any required input.
 - **Model tool use:** The model may suggest and invoke tools automatically if it determines a tool is relevant to your query. The result will be used to inform the model's response.
 - **Implementing tools:** To add a new tool, implement the `ITool` interface and mark it with the IsConfigurable attribute. Each tool provides a name, description, usage string, and an async invocation method.
+
+## Planning System
+
+The planning system enables autonomous multi-step task execution by breaking down complex user goals into actionable steps. When a user's query requires multiple operations or data gathering, the planner automatically coordinates tool usage to achieve the desired outcome.
+
+**How Planning Works:**
+1. **Goal Assessment:** The system first determines if the user's request requires action or can be answered with existing knowledge.
+2. **Step Generation:** If action is needed, the planner generates a series of steps using available tools to achieve the goal.
+3. **Step Execution:** Each step is executed in sequence, with results feeding into subsequent steps.
+4. **Duplicate Prevention:** The system tracks executed actions to avoid repeating the same tool with identical inputs.
+5. **Error Handling:** Failed steps are logged and the planner adapts to continue with alternative approaches.
+6. **Result Synthesis:** Once all steps are complete, the system synthesizes the results into a coherent response.
+
+**Key Features:**
+- **Intelligent Step Planning:** Uses AI to determine the optimal sequence of tool invocations
+- **Context Management:** Maintains memory of previous steps to inform future decisions
+- **Configurable Limits:** Maximum step count (default: 25) prevents infinite loops
+- **Retry Logic:** Built-in retry mechanisms for handling transient failures
+- **Visual Progress:** Real-time console output shows step execution with colored status indicators
+
+## Logging System
+
+The logging system provides comprehensive tracking of application behavior with built-in retry logic and detailed error handling. It's designed for both debugging and monitoring system reliability.
+
+**Core Features:**
+- **Method-Level Logging:** Automatically captures method entry, execution time, parameters, and results
+- **Retry Logic:** Configurable retry attempts with custom retry conditions for handling transient failures
+- **Context Tracking:** Rich contextual data including source file, line number, method name, and execution flow
+- **Structured Data:** Log entries include typed data fields for easy parsing and analysis
+- **Exception Handling:** Detailed exception capture with stack traces and retry attempt tracking
+
+**Retry Mechanism:**
+```csharp
+// Example: Retry up to 2 times on specific exceptions
+var result = await Log.MethodAsync(
+    retryCount: 2,
+    shouldRetry: e => e is CsChatException cce && cce.ErrorCode == Error.EmptyResponse,
+    func: async ctx => {
+        // Your code here
+        return await SomeOperation();
+    });
+```
 
 ## How it works
 - On startup, loads or creates a configuration file (`config.json`) for provider, host, model, and system prompt.
@@ -132,7 +176,25 @@ To add a new tool, implement the `ITool` interface and and mark it with the IsCo
 
 ## History
 
-### July 2025
+### v0.3 (July 12, 2025)
+- **Enhanced Planning & Reliability:** Major improvements to planning system reliability with better error handling and retry logic
+- **Expanded Token Limits:** Increased default max token size to 32,000 for larger responses
+- **Improved Tool Support:** Added support for tool messages in chat history and enhanced tool invocation reliability
+- **Better Logging:** Updated time format to include milliseconds for better diagnosability
+- **System Hardening:** Substantial improvements to PostChat & JSON parsing reliability
+- **Bug Fixes:** Fixed issues in provider commands' max tokens command and general stability improvements
+
+### v0.2 (July 12, 2025)
+- **Advanced Planning System:** Introduced PlanStep and Planner classes for autonomous multi-step task execution
+- **Enhanced File Tools:** Added ListFilesMatchingTool for regex-based file searching and improved FileMetadataTool
+- **New Restart Command:** Added restart command to reset chat history, RAG state, logs, and console
+- **Improved Tool Integration:** Enhanced tool role handling and error reporting in tool invocation
+- **Memory Management:** Introduced memory cloning capabilities and improved context management
+- **Better User Experience:** Enhanced console output with colored step summaries and completion messages
+- **Command Structure:** Refactored commands into separate files (chat, provider, RAG, system) for better organization
+- **Azure OpenAI Improvements:** Added embedding client initialization and retry logic for timeouts
+
+### v0.1 and Earlier (July 2025)
 - Added Azure OpenAI provider support alongside Ollama.
 - Unified configuration file (`config.json`) for provider, host, model, and prompt.
 - Improved provider abstraction and dynamic provider switching at runtime.
