@@ -3,6 +3,7 @@ using System.Text;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 public class PlanStep
 {
@@ -34,8 +35,8 @@ public class Planner
 
         // first determine if the user's statement requires agency on the part of the planner, or if a meaningful and useful response 
         // can be generated without further action above and beyond replying to the user with the context and knowledge already available.
-        var working = memory.Clone(); // do not disturb the original system message or memory, work off a temporary copy instead.
-        working.SetSystemMessage($"""
+        var planning = memory.Clone(); // do not disturb the original system message or memory, work off a temporary copy instead.
+        planning.SetSystemMessage($"""
 The user just stated: {input}
 Your task is to determine if the user's statement could benefit from tool usage to provide a more accurate or personalized response.
 
@@ -55,7 +56,7 @@ Where:
 At this point, you don't need to know how to achieve the goal, just clearly state the goal as you understand it, so that you can plan the steps to achieve it later.
 Only respond with the JSON object, do not include any additional text or explanation.
 """);
-        var planGoal = await Engine.PostChatAndParseAsync<PlanGoal>(working, 0.1f);
+        var planGoal = await Engine.PostChatAndParseAsync<PlanGoal>(planning, 0.1f);
         ctx.Append(Log.Data.Goal, planGoal != null ? planGoal.ToJson() : "<null>");
 
         // EARLY EXIT: If no action is needed, skip planning loop and just answer
@@ -82,7 +83,7 @@ Only respond with the JSON object, do not include any additional text or explana
         var distinctActionsTaken = new HashSet<string>();
         
         bool planningFailed = false;
-        await foreach (var step in Steps(planGoal!.Goal!, working, onPlanningFailure: reason => {
+        await foreach (var step in Steps(planGoal!.Goal!, memory, onPlanningFailure: reason => {
             planningFailed = true;
             ctx.Append(Log.Data.Reason, reason);
         }))
@@ -110,12 +111,11 @@ Only respond with the JSON object, do not include any additional text or explana
             Console.Write($"Step {stepsTaken}: {step?.Summary ?? "<unknown>"}...");
             Console.ResetColor();
 
-            var result = await ToolRegistry.InvokeInternalAsync(step!.ToolName, step!.ToolInput, working, planGoal!.Goal!);
+            var result = await ToolRegistry.InvokeInternalAsync(step!.ToolName, step!.ToolInput, memory, planGoal!.Goal!);
             if (result.Succeeded)
             {
-                // update memory and working memory with the result of the tool invocation
+                // update memory with the result of the tool invocation
                 memory = result.Memory;
-                working = memory.Clone();
             }
             var status = result.Succeeded ? "✅" : "❌";
 
@@ -126,24 +126,22 @@ Only respond with the JSON object, do not include any additional text or explana
             // update working and memory with the step summary
             var stepSummary = $"--- step {stepsTaken}: {step.Summary} ({step.ToolInput})---\n{result.Response}\n--- end step {stepsTaken} ---";
             results.Add(stepSummary);
-            working.AddToolMessage(stepSummary);
+            memory.AddToolMessage(stepSummary);
         }
 
         // handle the case where planning failed, and bail out early with a summary of the results taken so far.
         if (planningFailed || 0 == stepsTaken)
-        {            
-            working.SetSystemMessage(Program.config.SystemPrompt);
-            working.AddUserMessage($"Planning failed for goal: {planGoal.Goal}. Please summarize the results of the steps taken so far.");
-            var finalResponse = await Engine.Provider!.PostChatAsync(working, Program.config.Temperature);
+        {
+            planning.SetSystemMessage(Program.config.SystemPrompt);
+            planning.AddUserMessage($"Planning failed for goal: {planGoal.Goal}. Please summarize the results of the steps taken so far.");
+            var finalResponse = await Engine.Provider!.PostChatAsync(planning, Program.config.Temperature);
 
-            memory.SetSystemMessage(Program.config.SystemPrompt);
-            results.ForEach(r => memory.AddToolMessage(r));
             ctx.Failed("Planning failed, summarizing results.", Error.PlanningFailed);
             return (finalResponse, memory);
         }
 
         // Final summarization with feedback loop
-        working.SetSystemMessage($"""
+        planning.SetSystemMessage($"""
 Below is a conversation leading up to and including the steps taken, and their results, to achieve that goal.
 The implied goal before action was taken was: {planGoal.Goal}
 
@@ -151,8 +149,8 @@ The user stated: {input}.
 
 Use the following context to inform your response to the user's statement.
 """);
-        working.AddUserMessage($"Use a summary of the results of the steps taken to {planGoal.Goal} to inform your response to the original statement: {input}");
-        var final = await Engine.Provider!.PostChatAsync(working, Program.config.Temperature);
+        planning.AddUserMessage($"Use a summary of the results of the steps taken to {planGoal.Goal} to inform your response to the original statement: {input}");
+        var final = await Engine.Provider!.PostChatAsync(planning, Program.config.Temperature);
 
         results.ForEach(r => memory.AddToolMessage(r));
         ctx.Succeeded();
@@ -240,7 +238,6 @@ Use the following context to inform your response to the user's statement.
     {
         ctx.Append(Log.Data.Goal, goal);
         var lastMessage = memory.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? goal;
-        await ContextManager.InvokeAsync(lastMessage, memory);
 
         var noActionRequired    = "{ \"RemainingSteps\": 0, \"ToolName\": \"\",            \"ToolInput\": \"\",             \"Summary\": \"No further action required.\" }";
         var takeFollowingAction = "{ \"RemainingSteps\": 1, \"ToolName\": \"<tool_name>\", \"ToolInput\": \"<tool_input>\", \"Summary\": \"<summary>\" }";
@@ -299,8 +296,11 @@ EXAMPLES:
 Now respond with ONLY the JSON object.
 """;
 
-        var planMemory = memory.Clone();
+        var planMemory = new Memory();
         planMemory.SetSystemMessage(systemPrompt);
+        memory.GetContext().ForEach(c => planMemory.AddContext(c.Reference, c.Chunk)); // marshal context from caller's memory
+        planMemory.AddUserMessage(lastMessage); // add the user's last message to the memory
+        results.ForEach(r => planMemory.AddToolMessage(r));
 
         var step = await Engine.PostChatAndParseAsync<PlanStep>(planMemory, 0.0f);
         ctx.Append(Log.Data.Response, step != null ? step.ToJson() : "<null>" );

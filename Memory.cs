@@ -49,6 +49,7 @@ public class Memory
 
     public void AddContext(string reference, string chunk) => _context.Add((reference, chunk));
     public void ClearContext() => _context.Clear();
+    public List<(string Reference, string Chunk)> GetContext() => new List<(string Reference, string Chunk)>(_context);
 
     public void AddUserMessage(string content) => _messages.Add(new ChatMessage { Role = Roles.User, Content = content });
     public void AddAssistantMessage(string content) => _messages.Add(new ChatMessage { Role = Roles.Assistant, Content = content });

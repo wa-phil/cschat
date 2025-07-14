@@ -18,6 +18,7 @@ public enum Error : UInt32
     EmptyResponse,
     InvalidInput,
     PlanningFailed,
+    NoMatchesFound,
 }
 
 public class CsChatException : Exception

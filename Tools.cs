@@ -154,8 +154,8 @@ public class CurrentDateTimeTool : ITool
     });
 }
 
-[IsConfigurable("GetFileNames")]
-public class GetFileNamesTool : ITool
+[IsConfigurable("file_list")]
+public class file_list : ITool
 {
     public string Description => "Gets the names of supported source/text files in the specified directory recursively.";
     public string Usage => "Input: optional path (defaults to current directory).";
@@ -180,12 +180,12 @@ public class GetFileNamesTool : ITool
         memory.AddContext("file_list", list);
         await Engine.AddContentToVectorStore(list, "file_list");
         ctx.Succeeded();
-        return ToolResult.Success($"Found {files.Count} files:\n{list}", memory, true);
+        return ToolResult.Success($"Found {files.Count} files:\n{list}", memory, false);
     });
 }
 
-[IsConfigurable("FileMetadata")]
-public class FileMetadataTool : ITool
+[IsConfigurable("file_metadata")]
+public class file_metadata : ITool
 {
     public string Description => "Extracts key metrics (lines, words, size) and modification details for a given file. Useful for identifying complexity or recent changes.";
     public string Usage => "Input: path to a file.";
@@ -217,12 +217,12 @@ public class FileMetadataTool : ITool
         memory.AddContext("file_metadata", sb.ToString());
         await Engine.AddContentToVectorStore(sb.ToString(), "file_metadata");
         ctx.Succeeded();
-        return ToolResult.Success(sb.ToString(), memory, true);
+        return ToolResult.Success(sb.ToString(), memory, false);
     });
 }
 
-[IsConfigurable("SummarizeFile")]
-public class SummarizeFileTool : ITool
+[IsConfigurable("summarize_file")]
+public class summarize_file : ITool
 {
     public static readonly int MaxContentLength = 16000; // Maximum length of content to read
     public string Description => "Reads and summarizes the contents in a specified file. Ideal for analyzing or explaining supported files like text (.txt, .log, etc), source code, project, or markdown (.md) files.";
@@ -251,8 +251,106 @@ public class SummarizeFileTool : ITool
     });
 }
 
-[IsConfigurable("ListFilesMatching")]
-public class ListFilesMatchingTool : ITool
+[IsConfigurable("grep_files")]
+public class grep_files : ITool
+{
+    public string Description => "Searches for a text pattern in all files in the current directory.";
+    public string Usage => "Input: .NET-style regex pattern to match file contents (e.g. '^using System;.*', 'TODO', 'public class .*')";
+
+    public record GrepResult(bool Succeeded, int Matches, string Results)
+    {
+        public static GrepResult Failure(string message) => new(false, 0, message);
+        public static GrepResult Success(int matches, string results) => new(true, matches, results);
+    }
+
+    public async Task<ToolResult> InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            ctx.Failed("Empty search input.", Error.InvalidInput);
+            return ToolResult.Failure("Please provide a text pattern to search for.", memory);
+        }
+
+        var grepResult = await GrepFilesAsync(input);
+
+        memory.AddContext($"grep_files({input})", string.Join("\n", grepResult.Results));
+        ctx.Succeeded(grepResult.Succeeded);
+        return ToolResult.Success($"{(grepResult.Succeeded?"Succeeded in finding":"Failed. Found")} {grepResult.Matches} files matching `{input}`:\n{grepResult.Results}", memory, false);
+    });
+
+    public static async Task<GrepResult> GrepFilesAsync(string regExPattern, string path = ".") => await Log.MethodAsync(async ctx =>
+    {
+        const int MaxBlockAtMatch = 100; // Maximum number of lines of text to return at each match
+        ctx.Append(Log.Data.Input, regExPattern);
+        ctx.Append(Log.Data.Path, path);
+        if (!Directory.Exists(path))
+        {
+            ctx.Failed($"Directory '{path}' does not exist.", Error.DirectoryNotFound);
+            return GrepResult.Failure($"Directory '{path}' does not exist.");
+        }
+        if (string.IsNullOrWhiteSpace(regExPattern))
+        {
+            ctx.Failed("Regular expression pattern cannot be empty.", Error.InvalidInput);
+            return GrepResult.Failure("Regular expression pattern cannot be empty.");
+        }
+        var pattern = new Regex(regExPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
+            .Where(f => Engine.supportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        // return all the line numbers, and the at most MaxBlockAtMatch lines of text after the line of each match as a tuple of (line number, text block)
+        var results = new List<(string fileName, int LineNumber, string TextBlock)>();
+        foreach (var file in files)
+        {
+            var relativePath = Path.GetRelativePath(Directory.GetCurrentDirectory(), file);
+            var content = await File.ReadAllTextAsync(file);
+            var matches = pattern.Matches(content);
+
+            foreach (Match match in matches)
+            {
+                var startLine = content.Substring(0, match.Index).Count(c => c == '\n') + 1; // 1-based line number
+                var endLine = startLine + content.Substring(match.Index, match.Length).Count(c => c == '\n');
+                var lines = content.Split('\n').Skip(startLine - 1).Take(Math.Min(MaxBlockAtMatch, endLine - startLine +1)).ToArray();
+                var block = string.Join("\n", lines);
+                // TODO: consider grouping matched lines that are close to each other into a single block
+                results.Add((fileName: relativePath, LineNumber: startLine, TextBlock: block));
+            }
+            if (matches.Count > 0)
+            {
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                Console.WriteLine($"Matched: {relativePath}");
+                await Engine.AddContentToVectorStore(content, relativePath);
+                stopwatch.Stop();
+                var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
+                Console.WriteLine($"{elapsedTime}ms required to read file '{file}' contents.");
+
+                ctx.Append(Log.Data.FilePath, relativePath);
+            }
+        }
+        if (results.Count == 0)
+        {
+            var message = $"No matches found for pattern '{regExPattern}' in directory '{path}'.";
+            ctx.Failed(message, Error.NoMatchesFound);
+            return GrepResult.Failure(message);
+        }
+
+        var resultsString = string.Join("\n", results
+            .OrderBy(r => r.fileName)
+            .ThenBy(r => r.LineNumber)
+            .Select(r => $"--- {r.fileName} line number: {r.LineNumber} ---\n{r.TextBlock}\n--- end match ---")
+            .ToList());
+
+        await Engine.AddContentToVectorStore(resultsString, $"grep_files({regExPattern})");
+
+        ctx.Append(Log.Data.Count, results.Count);
+        ctx.Succeeded();
+        return GrepResult.Success(results.Count, $"grep_files({regExPattern}):\n{resultsString}\n");
+    });
+}
+
+[IsConfigurable("find_file")]
+public class find_file : ITool
 {
     public string Description => "Lists files in the current project whose full path matches a provided regular expression.";
     public string Usage => @"Input: .NET-style regex pattern to match file paths (e.g., '^Commands/.*\\.cs$', 'README', '.*Test.*')";
@@ -298,11 +396,11 @@ public class ListFilesMatchingTool : ITool
             return Task.FromResult(ToolResult.Failure($"No files matched regex: `{input}`", memory));
         }
 
-        var output = string.Join("\n", matching);
+        var output = $"find_files({input}):\n{string.Join("\n", matching)}\n";
         memory.AddContext($"matched_files: {input}", output);
 
         ctx.Append(Log.Data.Count, matching.Count);
         ctx.Succeeded();
-        return Task.FromResult(ToolResult.Success($"Matched {matching.Count} files:\n{output}", memory));
+        return Task.FromResult(ToolResult.Success(output, memory, false));
     });
 }
