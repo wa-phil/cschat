@@ -19,10 +19,15 @@ public class ChatMessage
 public class IsConfigurable : Attribute
 {
     public string Name { get; }
-    public IsConfigurable(string name)
-    {
-        Name = name;
-    }
+    public IsConfigurable(string name) => Name = name;
+}
+
+// Attribute to provide example text for input types, used for generating input prompts
+[AttributeUsage(AttributeTargets.Class, Inherited = false)]
+public class ExampleText : Attribute
+{
+    public string Text { get; }
+    public ExampleText(string text) => Text = text;
 }
 
 public interface IChatProvider
@@ -70,5 +75,6 @@ public interface ITool
 {
     string Description { get; }
     string Usage { get; } // Example: "Add(a, b)"
-    Task<ToolResult> InvokeAsync(string input, Memory memory); // Returns response text, and optionally modifies memory for context
+    Type InputType { get; } // The type expected for the input parameter
+    Task<ToolResult> InvokeAsync(object input, Memory memory); // Returns response text, and optionally modifies memory for context
 }

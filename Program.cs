@@ -99,22 +99,34 @@ static class Program
         Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
         Console.WriteLine("Type your message and press Enter. Press the escape key for the menu. (Shift+Enter for new line)");
         Console.WriteLine();
-        while (true)
+        try
         {
-            Console.Write("> ");
-            var userInput = await User.ReadInputWithFeaturesAsync(commandManager);
-            if (string.IsNullOrWhiteSpace(userInput)) continue;
-            
-            // Add and render user message with proper formatting
-            memory.AddUserMessage(userInput);
-            var userMessage = memory.Messages.Last(); // Get the message we just added
-            User.RenderChatMessage(userMessage);
+            while (true)
+            {
+                Console.Write("> ");
+                var userInput = await User.ReadInputWithFeaturesAsync(commandManager);
+                if (string.IsNullOrWhiteSpace(userInput)) continue;
+                
+                // Add and render user message with proper formatting
+                memory.AddUserMessage(userInput);
+                var userMessage = memory.Messages.Last(); // Get the message we just added
+                User.RenderChatMessage(userMessage);
 
-            var (response, updatedMemory) = await Engine.PostChatAsync(memory);
-            var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
-            User.RenderChatMessage(assistantMessage);
-            memory = updatedMemory;
-            memory.AddAssistantMessage(response);
+                var (response, updatedMemory) = await Engine.PostChatAsync(memory);
+                var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
+                User.RenderChatMessage(assistantMessage);
+                memory = updatedMemory;
+                memory.AddAssistantMessage(response);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception: {ex.Message}");
+            Console.WriteLine("Log Entries:");
+            var entries = Log.GetOutput().ToList();
+            Console.WriteLine($"Log Entries [{entries.Count}]:");
+            entries.ToList().ForEach(entry => Console.WriteLine(entry));
+            throw; // unhandled exceptions result in a stack trace in the console.
         }
     }
 }

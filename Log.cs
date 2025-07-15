@@ -36,7 +36,7 @@ public static class Log
     public enum Data : UInt32
     {
         Method, Level, Timestamp, Message, Success, ErrorCode, IsRetry, Threw, Caught, Exception, PlugIn, Count, Source,
-        Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, Response,
+        Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, Response, Progress,
         Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered, Reason,
         ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step, Input, TypeToParse, PlanningFailed, 
     }

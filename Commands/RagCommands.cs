@@ -96,9 +96,7 @@ public partial class CommandManager
                                 return Command.Result.Failed;
                             }
 
-                            // Use the MemoryContextManager to search the vector database
-                            var ragTool = new MemoryContextManager();
-                            var results = await ragTool.SearchVectorDB(query);
+                            var results = await MemoryContextManager.SearchVectorDB(query);
                             
                             if (results.Any())
                             {
