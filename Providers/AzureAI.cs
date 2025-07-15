@@ -30,12 +30,13 @@ public class AzureLogEventListener : EventListener
     });
 
     protected override void OnEventWritten(EventWrittenEventArgs eventData)
-    {
+    {        
         if (eventData.EventSource.Name.StartsWith("Azure-"))
         {
             var level = eventData.Level == EventLevel.Error ? Log.Level.Error : Log.Level.Information;
 
             using var ctx = new Log.Context(level);
+            ctx.OnlyEmitOnFailure();
             ctx.Append(Log.Data.Level, level);
             ctx.Append(Log.Data.Source, $"Azure.{eventData.EventSource.Name}");
             ctx.Append(Log.Data.Message, $"[{eventData.EventName}] {eventData.Message}");
@@ -154,6 +155,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
         shouldRetry: e => e is TimeoutException,
         func: async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         embeddingClient.ThrowIfNull("Embedding client could not be retrieved.");
         try
         {

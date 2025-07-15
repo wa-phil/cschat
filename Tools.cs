@@ -7,14 +7,32 @@ using System.Collections.Generic;
 using System.Runtime.Serialization;
 using System.Text.RegularExpressions;
 
-// Can't use a record here as JSON parser doesn't support parsing records. :(
-public class ToolSuggestion
-{
-    [DataMember(Name = "tool")]
-    public string Tool { get; set;} = string.Empty;
+// Input classes for tools
+[ExampleText("""
+{ "Path": "<path_to_file_or_directory>" }
 
-    [DataMember(Name = "input")]
-    public string Input { get; set;} = string.Empty;
+Where <path_to_file_or_directory> is either a full, or a relative path to a file on the local filesystem.
+If the path is empty, the current working directory will be used.
+""")]
+public class PathInput
+{
+    public string Path { get; set; } = string.Empty;
+}
+
+[ExampleText("""
+{ "Pattern": "<regex_pattern>" }
+
+Where <regex_pattern> is a valid .NET regular expression pattern.
+""")]
+public class RegexInput  
+{
+    public string Pattern { get; set; } = string.Empty;
+}
+
+[ExampleText("{ null }")]
+public class NoInput
+{
+    // Empty class for tools that don't require input
 }
 
 public static class ToolRegistry
@@ -22,6 +40,7 @@ public static class ToolRegistry
     private static Dictionary<string, ITool> _tools = new Dictionary<string, ITool>();
     public static void Initialize() => Log.Method(ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         List<string> registered = new List<string>();
         Program.serviceProvider.ThrowIfNull("Service provider is not initialized.");
         foreach (var tool in Program.Tools)
@@ -51,21 +70,30 @@ public static class ToolRegistry
 
     public static List<string> GetToolDescriptions(Func<string, bool> filter) => _tools
         .Where(t => filter(t.Key))
-        .Select(t => $"Name: {t.Key}\nDescription: {t.Value.Description}\nUsage: {t.Value.Usage}")
+        .Select(t => $"--- Name: {t.Key} ---\nInputType: {t.Value.InputType.Name}\nDescription: {t.Value.Description}\nUsage: {t.Value.Usage}\n--- end {t.Key} ---")
         .ToList();
 
     public static List<string> GetToolDescriptions() => GetToolDescriptions(All);
 
-    internal static async Task<ToolResult> InvokeInternalAsync(string toolName, string toolInput, Memory memory, string userInput) =>
+    public static ITool? GetTool(string toolName) => _tools.TryGetValue(toolName, out var tool) ? tool : null;
+
+    internal static async Task<ToolResult> InvokeInternalAsync(string toolName, object toolInput, Memory memory, string userInput) =>
         await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, toolName);
-        ctx.Append(Log.Data.ToolInput, toolInput);
+        ctx.Append(Log.Data.ToolInput, toolInput?.ToString() ?? "<null>");
 
-        if (_tools == null || !_tools.ContainsKey(toolName))
+        if (_tools == null || string.IsNullOrEmpty(toolName) || !_tools.ContainsKey(toolName))
         {
             ctx.Failed($"Tool '{toolName}' is not registered.", Error.ToolNotAvailable);
             return ToolResult.Failure($"ERROR: Tool '{toolName}' is not registered.", memory);
+        }
+
+        if (null == toolInput)
+        {
+            ctx.Failed($"Tool '{toolName}' requires input, but received null.", Error.InvalidInput);
+            return ToolResult.Failure($"ERROR: Tool '{toolName}' requires input, but received null.", memory);
         }
 
         var tool = _tools[toolName];
@@ -111,7 +139,7 @@ public static class ToolRegistry
         return ToolResult.Success(formattedResponse, toolResult.Memory, toolResult.Summarize);
     });
     
-    public static async Task<string> InvokeToolAsync(string toolName, string toolInput, Memory memory, string lastUserInput)
+    public static async Task<string> InvokeToolAsync(string toolName, object toolInput, Memory memory, string lastUserInput)
     {
         var result = await InvokeInternalAsync(toolName, toolInput, memory, lastUserInput);
         return result.Response;
@@ -122,31 +150,34 @@ public static class ToolRegistry
 public class CalculatorTool : ITool
 {
     public string Description => "Evaluates basic math expressions.";
-    public string Usage => "Input: arithmetic expression as string (e.g. '2 + 3 * 4')";
+    public string Usage => "Provide a mathematical expression to evaluate. Supports basic arithmetic operations, such as addition (+), subtraction (-), multiplication (*), division (/), and parentheses (()).";
+    public Type InputType => typeof(string);
 
-    public Task<ToolResult> InvokeAsync(string input, Memory memory) => Log.Method(ctx =>
+    public Task<ToolResult> InvokeAsync(object input, Memory memory) => Log.Method(ctx =>
     {
         try
         {
-            var result = new System.Data.DataTable().Compute(input, null);
+            var stringInput = input as string ?? throw new ArgumentException("Expected string as input");
+            var result = new System.Data.DataTable().Compute(stringInput, null);
             ctx.Succeeded();
             return Task.FromResult(ToolResult.Success(result?.ToString() ?? string.Empty, memory, true));
         }
         catch (Exception ex)
         {
-            ctx.Failed($"Error evaluating expression '{input}'", ex);
-            return Task.FromResult(ToolResult.Failure($"Error evaluating expression '{input}'", memory));
+            ctx.Failed($"Error evaluating expression", ex);
+            return Task.FromResult(ToolResult.Failure($"Error evaluating expression", memory));
         }
     });
 }
 
-[IsConfigurable("CurrentDateTime")]
-public class CurrentDateTimeTool : ITool
+[IsConfigurable("datetime_current")]
+public class datetime_current : ITool
 {
     public string Description => "Returns the current local date and time in UTC format.";
-    public string Usage => "Input: None.";
+    public string Usage => "No input required. Simply returns the current date and time.";
+    public Type InputType => typeof(NoInput);
 
-    public Task<ToolResult> InvokeAsync(string input, Memory memory) => Log.Method(ctx =>
+    public Task<ToolResult> InvokeAsync(object input, Memory memory) => Log.Method(ctx =>
     {
         var result = DateTime.Now.ToString("u");
         ctx.Succeeded();
@@ -158,11 +189,13 @@ public class CurrentDateTimeTool : ITool
 public class file_list : ITool
 {
     public string Description => "Gets the names of supported source/text files in the specified directory recursively.";
-    public string Usage => "Input: optional path (defaults to current directory).";
+    public string Usage => "Provide a directory path to list files from, or leave empty to use current directory. Only supported file types will be listed.";
+    public Type InputType => typeof(PathInput);
 
-    public async Task<ToolResult> InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
+    public async Task<ToolResult> InvokeAsync(object input, Memory memory) => await Log.MethodAsync(async ctx =>
     {
-        var path = string.IsNullOrWhiteSpace(input) ? Directory.GetCurrentDirectory() : input;
+        var pathInput = input as PathInput ?? new PathInput();
+        var path = string.IsNullOrWhiteSpace(pathInput.Path) ? Directory.GetCurrentDirectory() : pathInput.Path;
         ctx.Append(Log.Data.Path, path);
 
         if (!Directory.Exists(path))
@@ -188,26 +221,28 @@ public class file_list : ITool
 public class file_metadata : ITool
 {
     public string Description => "Extracts key metrics (lines, words, size) and modification details for a given file. Useful for identifying complexity or recent changes.";
-    public string Usage => "Input: path to a file.";
+    public string Usage => "Provide the full or relative path to a file to analyze its metadata including size, line count, word count, and modification time.";
+    public Type InputType => typeof(PathInput);
 
-    public async Task<ToolResult> InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
+    public async Task<ToolResult> InvokeAsync(object input, Memory memory) => await Log.MethodAsync(async ctx =>
     {
-        if (string.IsNullOrWhiteSpace(input) || !File.Exists(input))
+        var pathInput = input as PathInput ?? throw new ArgumentException("Expected PathInput");
+        if (string.IsNullOrWhiteSpace(pathInput.Path) || !File.Exists(pathInput.Path))
         {
-            return ToolResult.Failure($"ERROR: File not found: {input}", memory);
+            return ToolResult.Failure($"ERROR: File not found: {pathInput.Path}", memory);
         }
 
-        var fileInfo = new FileInfo(input);
+        var fileInfo = new FileInfo(pathInput.Path);
         var size = fileInfo.Length;
         var modified = fileInfo.LastWriteTime;
 
-        string[] lines = await File.ReadAllLinesAsync(input);
+        string[] lines = await File.ReadAllLinesAsync(pathInput.Path);
         int lineCount = lines.Length;
         int wordCount = lines.Sum(line => line.Split((char[])null!, StringSplitOptions.RemoveEmptyEntries).Length);
         int charCount = lines.Sum(line => line.Length);
 
         var sb = new StringBuilder();
-        sb.AppendLine($"File: {input}");
+        sb.AppendLine($"File: {pathInput.Path}");
         sb.AppendLine($"Size: {size:N0} bytes");
         sb.AppendLine($"Lines: {lineCount:N0}");
         sb.AppendLine($"Words: {wordCount:N0}");
@@ -226,28 +261,31 @@ public class summarize_file : ITool
 {
     public static readonly int MaxContentLength = 16000; // Maximum length of content to read
     public string Description => "Reads and summarizes the contents in a specified file. Ideal for analyzing or explaining supported files like text (.txt, .log, etc), source code, project, or markdown (.md) files.";
-    public string Usage => "Input: path to a file.";
+    public string Usage => "Provide the path to a file to read and summarize. Large files will be truncated for processing.";
+    public Type InputType => typeof(PathInput);
 
-    public async Task<ToolResult> InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
+    public async Task<ToolResult> InvokeAsync(object input, Memory memory) => await Log.MethodAsync(async ctx =>
     {
-        if (string.IsNullOrWhiteSpace(input) || !File.Exists(input))
+        ctx.OnlyEmitOnFailure();
+        var pathInput = input as PathInput ?? throw new ArgumentException("Expected PathInput");
+        if (string.IsNullOrWhiteSpace(pathInput.Path) || !File.Exists(pathInput.Path))
         {
-            ctx.Failed($"File not found: {input}", Error.PathNotFound);
-            return ToolResult.Failure($"ERROR: File not found: {input}", memory);
+            ctx.Failed($"File not found: {pathInput.Path}", Error.PathNotFound);
+            return ToolResult.Failure($"ERROR: File not found: {pathInput.Path}", memory);
         }
 
-        await Engine.AddFileToVectorStore(input);
-        var content = File.ReadAllText(input);
+        await Engine.AddFileToVectorStore(pathInput.Path);
+        var content = File.ReadAllText(pathInput.Path);
         if (content.Length > MaxContentLength)
         {
             ctx.Append(Log.Data.Message, $"Content truncated to {MaxContentLength} characters.");
             content = content.Substring(0, MaxContentLength) + "\n... [truncated]";
         }
 
-        memory.AddContext($"file_summary: {input}", content);
-        await Engine.AddContentToVectorStore(content, $"file_summary: {input}");
+        memory.AddContext($"file_summary: {pathInput.Path}", content);
+        await Engine.AddContentToVectorStore(content, $"file_summary: {pathInput.Path}");
         ctx.Succeeded();
-        return ToolResult.Success($"Contents of {input}:\n{content}", memory, true);
+        return ToolResult.Success($"Contents of {pathInput.Path}:\n{content}", memory, true);
     });
 }
 
@@ -255,7 +293,8 @@ public class summarize_file : ITool
 public class grep_files : ITool
 {
     public string Description => "Searches for a text pattern in all files in the current directory.";
-    public string Usage => "Input: .NET-style regex pattern to match file contents (e.g. '^using System;.*', 'TODO', 'public class .*')";
+    public string Usage => "Provide a .NET regex pattern to search for across all supported files. Returns matching lines with context.";
+    public Type InputType => typeof(RegexInput);
 
     public record GrepResult(bool Succeeded, int Matches, string Results)
     {
@@ -263,19 +302,20 @@ public class grep_files : ITool
         public static GrepResult Success(int matches, string results) => new(true, matches, results);
     }
 
-    public async Task<ToolResult> InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
+    public async Task<ToolResult> InvokeAsync(object input, Memory memory) => await Log.MethodAsync(async ctx =>
     {
-        if (string.IsNullOrWhiteSpace(input))
+        var regexInput = input as RegexInput ?? throw new ArgumentException("Expected RegexInput");
+        if (string.IsNullOrWhiteSpace(regexInput.Pattern))
         {
             ctx.Failed("Empty search input.", Error.InvalidInput);
             return ToolResult.Failure("Please provide a text pattern to search for.", memory);
         }
 
-        var grepResult = await GrepFilesAsync(input);
+        var grepResult = await GrepFilesAsync(regexInput.Pattern);
 
-        memory.AddContext($"grep_files({input})", string.Join("\n", grepResult.Results));
+        memory.AddContext($"grep_files({regexInput.Pattern})", string.Join("\n", grepResult.Results));
         ctx.Succeeded(grepResult.Succeeded);
-        return ToolResult.Success($"{(grepResult.Succeeded?"Succeeded in finding":"Failed. Found")} {grepResult.Matches} files matching `{input}`:\n{grepResult.Results}", memory, false);
+        return ToolResult.Success($"{(grepResult.Succeeded?"Succeeded in finding":"Failed. Found")} {grepResult.Matches} files matching `{regexInput.Pattern}`:\n{grepResult.Results}", memory, false);
     });
 
     public static async Task<GrepResult> GrepFilesAsync(string regExPattern, string path = ".") => await Log.MethodAsync(async ctx =>
@@ -353,11 +393,13 @@ public class grep_files : ITool
 public class find_file : ITool
 {
     public string Description => "Lists files in the current project whose full path matches a provided regular expression.";
-    public string Usage => @"Input: .NET-style regex pattern to match file paths (e.g., '^Commands/.*\\.cs$', 'README', '.*Test.*')";
+    public string Usage => "Provide a .NET regex pattern to match file paths. Only files with supported extensions will be searched.";
+    public Type InputType => typeof(RegexInput);
 
-    public Task<ToolResult> InvokeAsync(string input, Memory memory) => Log.Method(ctx =>
+    public Task<ToolResult> InvokeAsync(object input, Memory memory) => Log.Method(ctx =>
     {
-        if (string.IsNullOrWhiteSpace(input))
+        var regexInput = input as RegexInput ?? throw new ArgumentException("Expected RegexInput");
+        if (string.IsNullOrWhiteSpace(regexInput.Pattern))
         {
             ctx.Failed("Empty regex input.", Error.InvalidInput);
             return Task.FromResult(ToolResult.Failure("Please provide a regex pattern to match file paths.", memory));
@@ -366,7 +408,7 @@ public class find_file : ITool
         Regex pattern;
         try
         {
-            pattern = new Regex(input, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            pattern = new Regex(regexInput.Pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
         }
         catch (Exception ex)
         {
@@ -387,17 +429,17 @@ public class find_file : ITool
 
         stopwatch.Stop();
         var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
-        Console.WriteLine($"{elapsedTime}ms required to find files that match '{input}'.");
+        Console.WriteLine($"{elapsedTime}ms required to find files that match '{regexInput.Pattern}'.");
 
 
         if (matching.Count == 0)
         {
             ctx.Failed("No files matched.", Error.ToolFailed);
-            return Task.FromResult(ToolResult.Failure($"No files matched regex: `{input}`", memory));
+            return Task.FromResult(ToolResult.Failure($"No files matched regex: `{regexInput.Pattern}`", memory));
         }
 
-        var output = $"find_files({input}):\n{string.Join("\n", matching)}\n";
-        memory.AddContext($"matched_files: {input}", output);
+        var output = $"find_files({regexInput.Pattern}):\n{string.Join("\n", matching)}\n";
+        memory.AddContext($"matched_files: {regexInput.Pattern}", output);
 
         ctx.Append(Log.Data.Count, matching.Count);
         ctx.Succeeded();

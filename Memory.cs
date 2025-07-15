@@ -213,8 +213,9 @@ public class InMemoryVectorStore : IVectorStore
 
 public class MemoryContextManager
 {
-    public async Task InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
+    public static async Task InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         memory.ClearContext();
 
         // Try to add context to memory first
@@ -240,7 +241,7 @@ public class MemoryContextManager
         return;
     });
 
-    public async Task<List<SearchResult>> SearchVectorDB(string userMessage)
+    public static async Task<List<SearchResult>> SearchVectorDB(string userMessage)
     {
         var empty = new List<SearchResult>();
         if (string.IsNullOrEmpty(userMessage) || null == Engine.VectorStore || Engine.VectorStore.IsEmpty) { return empty; }

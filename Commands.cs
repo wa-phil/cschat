@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
@@ -54,6 +55,85 @@ public class Command
 
 public partial class CommandManager : Command
 {
+    // Helper method to get input format guidance for a tool
+    private static string GetInputFormatGuidance(ITool tool)
+    {
+        var inputType = tool.InputType;
+        
+        // Check if the input type has an ExampleText attribute
+        var exampleTextAttr = inputType.GetCustomAttribute<ExampleText>();
+        if (exampleTextAttr != null)
+        {
+            return $"Expected format ({inputType.Name}):\n{exampleTextAttr.Text}";
+        }
+        
+        // For NoInput, no input is needed
+        if (inputType == typeof(NoInput))
+        {
+            return "No input required - just press Enter.";
+        }
+        
+        // For string input, explain it's plain text
+        if (inputType == typeof(string))
+        {
+            return "Enter plain text (no JSON formatting needed).";
+        }
+        
+        // For other types, provide basic JSON guidance
+        return $"Expected format: JSON object matching {inputType.Name} structure.";
+    }
+
+    // Helper method to parse tool input based on the tool's expected input type
+    private static object ParseToolInput(ITool tool, string input)
+    {
+        // If the tool doesn't need input, return a default instance
+        if (tool.InputType == typeof(NoInput))
+        {
+            return new NoInput();
+        }
+        
+        // If the tool expects a string directly, return the string
+        if (tool.InputType == typeof(string))
+        {
+            return input;
+        }
+        
+        // For all other types, try to parse as JSON
+        try
+        {
+            // If input is empty or whitespace for non-string types, try to create a default instance
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                return Activator.CreateInstance(tool.InputType) ?? new NoInput();
+            }
+            
+            // Use reflection to call the generic FromJson method with the correct type
+            var fromJsonMethod = typeof(JSONParser).GetMethod("FromJson");
+            if (fromJsonMethod == null)
+            {
+                throw new InvalidOperationException("FromJson method not found");
+            }
+            
+            var genericMethod = fromJsonMethod.MakeGenericMethod(tool.InputType);
+            var parsedInput = genericMethod.Invoke(null, new object[] { input });
+            
+            if (parsedInput == null)
+            {
+                throw new ArgumentException($"Failed to parse input for tool {tool.GetType().Name}");
+            }
+            return parsedInput;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error parsing tool input: {ex.Message}");
+            Console.WriteLine($"Expected type: {tool.InputType.Name}");
+            Console.WriteLine($"Tool usage: {tool.Usage}");
+            
+            // Return a default instance if parsing fails
+            return Activator.CreateInstance(tool.InputType) ?? new NoInput();
+        }
+    }
+
     public new string Name { get; set; } = "Menu";
     public new string Description { get; set; } = "Commands";
     public CommandManager(IEnumerable<Command>? commands = null) // Allow nullable parameter
@@ -78,11 +158,41 @@ public partial class CommandManager : Command
                         Description = tool.Description,
                         Action = async () =>
                         {
-                            Console.Write($"Using tool: {tool.Name}.\n{tool.Usage}\n Enter input: ");
-                            // Tools may not require input, so we should handle empty input gracefully
+                            Console.WriteLine($"Using tool: {tool.Name}");
+                            Console.WriteLine($"Description: {tool.Description}");
+                            Console.WriteLine($"Usage: {tool.Usage}");
+                            Console.WriteLine();
+                            
+                            var toolInstance = ToolRegistry.GetTool(tool.Name);
+                            if (toolInstance == null)
+                            {
+                                Console.WriteLine($"Tool '{tool.Name}' not found.");
+                                return Command.Result.Failed;
+                            }
+                            
+                            // Show input format guidance
+                            var inputGuidance = GetInputFormatGuidance(toolInstance);
+                            Console.WriteLine(inputGuidance);
+                            Console.WriteLine();
+                            Console.Write("Enter input: ");
+                            
+                            // Get user input
                             var input = User.ReadLineWithHistory();
+                            
+                            // Parse input based on the tool's expected input type
+                            object toolInput;
+                            try
+                            {
+                                toolInput = ParseToolInput(toolInstance, input ?? string.Empty);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Error parsing input: {ex.Message}");
+                                return Command.Result.Failed;
+                            }
+                            
                             var tempMemory = new Memory(string.Empty); // Create temporary memory for command execution
-                            var result = await ToolRegistry.InvokeToolAsync(tool.Name, input ?? string.Empty, tempMemory, input ?? string.Empty) ?? string.Empty;
+                            var result = await ToolRegistry.InvokeToolAsync(tool.Name, toolInput, tempMemory, input ?? string.Empty) ?? string.Empty;
                             Console.WriteLine($"Tool result: {result}");
                             Console.WriteLine($"Tool Memory:");
                             User.RenderChatHistory(tempMemory.Messages);
