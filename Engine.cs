@@ -87,6 +87,7 @@ public class Planner
 
     private async Task<PlanProgress> GetPlanProgress(Memory memory, string goal, string userInput) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         var workingContext = memory.GetContext().Select(c => $"{c.Reference}: {c.Chunk}").ToList();
         var workingMemory = new Memory($"""
 You are a plan progress evaluator.
@@ -114,6 +115,7 @@ Your task is to determine if additional steps are needed to achieve the goal (e.
 
     private async Task<object?> GetToolInput(string toolName, ITool tool, string goal) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, toolName);
         ctx.Append(Log.Data.TypeToParse, tool.InputType.Name);
 
@@ -150,6 +152,7 @@ Respond with ONLY the JSON object that matches {tool.InputType.Name}.
 
     private async Task<ToolSelection> GetToolSelection(string goal, Memory history) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         var context = string.Join("\n", results.TakeLast(5));
         var tools = ToolRegistry.GetToolDescriptions();
 
@@ -186,6 +189,7 @@ Your task is to determine which tool to use based on the following:
 
     private async Task<PlanObjective> GetObjective(Memory memory) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         var input = memory.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         var working = new Memory($"""
 You are a goal planner.
@@ -405,6 +409,7 @@ Use the following context to inform your response to the user's statement.
         shouldRetry: e => e is CsChatException cce && cce.ErrorCode == Error.EmptyResponse,
         func: async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Goal, goal);
         
         // Phase 1: Determine what tool to use
@@ -499,6 +504,7 @@ public static class Engine
 
     public static async Task AddContentToVectorStore(string content, string reference = "content") => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
         IEmbeddingProvider? embeddingProvider = Engine.Provider as IEmbeddingProvider;
         embeddingProvider.ThrowIfNull("Current configured provider does not support embeddings.");
@@ -522,6 +528,7 @@ public static class Engine
 
     public static async Task AddFileToVectorStore(string path) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         // start a timer to measure the time taken to add the file
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         await AddContentToVectorStore(File.ReadAllText(path), path);
@@ -534,6 +541,7 @@ public static class Engine
         
     public static void SetTextChunker(string chunkerName) => Log.Method(ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         Program.config.RagSettings.ChunkingStrategy = chunkerName;
         ctx.Append(Log.Data.Name, chunkerName);
         Program.serviceProvider.ThrowIfNull("Service provider is not initialized.");
@@ -559,6 +567,7 @@ public static class Engine
 
     public static void SetProvider(string providerName) => Log.Method(ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         Program.config.Provider = providerName;
         ctx.Append(Log.Data.Provider, providerName);
         Program.serviceProvider.ThrowIfNull("Service provider is not initialized.");
@@ -584,6 +593,7 @@ public static class Engine
 
     public static async Task<string?> SelectModelAsync() => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         if (Provider == null)
         {
             Console.WriteLine("Provider is not set.");
@@ -614,6 +624,7 @@ public static class Engine
     }
 
     public static async Task<object> PostChatAndParseTypeAsync(Memory memory, Type t) => await Log.MethodAsync(async ctx=>{
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.TypeToParse, t.Name);
 
         var exampleTextAttr = t.GetCustomAttribute<ExampleText>();
@@ -671,6 +682,7 @@ public static class Engine
             retryCount: 2,
             func: async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         var lastMessage = memory.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         ctx.Append(Log.Data.TypeToParse, typeof(T).Name);
 

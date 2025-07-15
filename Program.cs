@@ -126,6 +126,8 @@ static class Program
             var entries = Log.GetOutput().ToList();
             Console.WriteLine($"Log Entries [{entries.Count}]:");
             entries.ToList().ForEach(entry => Console.WriteLine(entry));
+            Console.WriteLine("Chat History:");
+            User.RenderChatHistory(memory.Messages);
             throw; // unhandled exceptions result in a stack trace in the console.
         }
     }

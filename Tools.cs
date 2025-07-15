@@ -9,7 +9,7 @@ using System.Text.RegularExpressions;
 
 // Input classes for tools
 [ExampleText("""
-{ \"Path\": \"<path_to_file_or_directory>\" }
+{ "Path": "<path_to_file_or_directory>" }
 
 Where <path_to_file_or_directory> is either a full, or a relative path to a file on the local filesystem.
 If the path is empty, the current working directory will be used.
@@ -19,7 +19,11 @@ public class PathInput
     public string Path { get; set; } = string.Empty;
 }
 
-[ExampleText("{ \"Pattern\": \"your regex pattern\" }")]
+[ExampleText("""
+{ "Pattern": "<regex_pattern>" }
+
+Where <regex_pattern> is a valid .NET regular expression pattern.
+""")]
 public class RegexInput  
 {
     public string Pattern { get; set; } = string.Empty;
@@ -31,21 +35,12 @@ public class NoInput
     // Empty class for tools that don't require input
 }
 
-// Can't use a record here as JSON parser doesn't support parsing records. :(
-public class ToolSuggestion
-{
-    [DataMember(Name = "tool")]
-    public string Tool { get; set;} = string.Empty;
-
-    [DataMember(Name = "input")]
-    public string Input { get; set;} = string.Empty;
-}
-
 public static class ToolRegistry
 {
     private static Dictionary<string, ITool> _tools = new Dictionary<string, ITool>();
     public static void Initialize() => Log.Method(ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         List<string> registered = new List<string>();
         Program.serviceProvider.ThrowIfNull("Service provider is not initialized.");
         foreach (var tool in Program.Tools)
@@ -85,6 +80,7 @@ public static class ToolRegistry
     internal static async Task<ToolResult> InvokeInternalAsync(string toolName, object toolInput, Memory memory, string userInput) =>
         await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, toolName);
         ctx.Append(Log.Data.ToolInput, toolInput?.ToString() ?? "<null>");
 
@@ -270,6 +266,7 @@ public class summarize_file : ITool
 
     public async Task<ToolResult> InvokeAsync(object input, Memory memory) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         var pathInput = input as PathInput ?? throw new ArgumentException("Expected PathInput");
         if (string.IsNullOrWhiteSpace(pathInput.Path) || !File.Exists(pathInput.Path))
         {

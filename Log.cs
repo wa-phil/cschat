@@ -41,7 +41,7 @@ public static class Log
         ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step, Input, TypeToParse, PlanningFailed, 
     }
 
-    public enum Level { Information, Error }
+    public enum Level { Verbose, Information, Error }
 
     public static void SetOutput(Action<Dictionary<Data, object>> output) => _output = output;
     private static Action<Dictionary<Data, object>> _output = (_) => { };
@@ -61,6 +61,11 @@ public static class Log
         {
             _items[key] = value;
             return this;
+        }
+
+        public void OnlyEmitOnFailure()
+        {
+            _items[Data.Level] = Level.Verbose;
         }
 
         public void Succeeded(bool success = true)
@@ -92,6 +97,11 @@ public static class Log
 
         public void Dispose()
         {
+            if (_items[Data.Level] is Level level && level == Level.Verbose && _items[Data.Success] is bool success && success)
+            {
+                // Don't output verbose logs by default
+                return;
+            }
             _output(_items);
         }
     }

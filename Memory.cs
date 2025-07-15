@@ -215,6 +215,7 @@ public class MemoryContextManager
 {
     public static async Task InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         memory.ClearContext();
 
         // Try to add context to memory first
