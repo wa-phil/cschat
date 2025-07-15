@@ -87,7 +87,6 @@ public class Planner
 
     private async Task<PlanProgress> GetPlanProgress(Memory memory, string goal, string userInput) => await Log.MethodAsync(async ctx =>
     {
-        ctx.OnlyEmitOnFailure();
         var workingContext = memory.GetContext().Select(c => $"{c.Reference}: {c.Chunk}").ToList();
         var workingMemory = new Memory($"""
 You are a plan progress evaluator.
@@ -115,7 +114,6 @@ Your task is to determine if additional steps are needed to achieve the goal (e.
 
     private async Task<object?> GetToolInput(string toolName, ITool tool, string goal) => await Log.MethodAsync(async ctx =>
     {
-        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, toolName);
         ctx.Append(Log.Data.TypeToParse, tool.InputType.Name);
 
@@ -152,7 +150,6 @@ Respond with ONLY the JSON object that matches {tool.InputType.Name}.
 
     private async Task<ToolSelection> GetToolSelection(string goal, Memory history) => await Log.MethodAsync(async ctx =>
     {
-        ctx.OnlyEmitOnFailure();
         var context = string.Join("\n", results.TakeLast(5));
         var tools = ToolRegistry.GetToolDescriptions();
 
@@ -189,7 +186,6 @@ Your task is to determine which tool to use based on the following:
 
     private async Task<PlanObjective> GetObjective(Memory memory) => await Log.MethodAsync(async ctx =>
     {
-        ctx.OnlyEmitOnFailure();
         var input = memory.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         var working = new Memory($"""
 You are a goal planner.
@@ -409,7 +405,6 @@ Use the following context to inform your response to the user's statement.
         shouldRetry: e => e is CsChatException cce && cce.ErrorCode == Error.EmptyResponse,
         func: async ctx =>
     {
-        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Goal, goal);
         
         // Phase 1: Determine what tool to use
