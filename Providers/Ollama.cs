@@ -45,8 +45,10 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         }
     }
 
-    public async Task<string> PostChatAsync(Memory memory, float temperature)
+    public async Task<string> PostChatAsync(Memory memory, float temperature) => await Log.MethodAsync(async ctx=>
     {
+        ctx.OnlyEmitOnFailure();
+        string respJson = string.Empty;
         var requestBody = new
         {
             model = config.Model,
@@ -65,20 +67,26 @@ public class Ollama : IChatProvider, IEmbeddingProvider
             var response = await client.PostAsync($"{config.Host}/v1/chat/completions", content);
             if (!response.IsSuccessStatusCode)
             {
+                ctx.Append(Log.Data.Response, response.StatusCode.ToString());
                 return $"Error: {response.StatusCode}";
             }
 
-            var respJson = await response.Content.ReadAsStringAsync();
+            respJson = await response.Content.ReadAsStringAsync();
             respJson.ThrowIfNull("Response from Ollama API is null.");
+            ctx.Append(Log.Data.Input, requestBody.ToJson());
+            ctx.Append(Log.Data.Result, respJson);
             dynamic? respObj = respJson!.FromJson<dynamic>();
-            return respObj?["choices"]?[0]?["message"]?["content"]?.ToString() ?? string.Empty;
+            var result = respObj?["choices"]?[0]?["message"]?["content"]?.ToString() ?? string.Empty;
+            ctx.Succeeded();
+            return result;
         }
         catch (Exception ex)
         {
+            ctx.Failed("Exception during PostChatAsync", ex);
             Console.WriteLine($"Exception occurred: {ex.Message}");
             throw;
         }
-    }
+    });
     
     public async Task<float[]> GetEmbeddingAsync(string text)
     {
