@@ -29,6 +29,19 @@ public class RegexInput
     public string Pattern { get; set; } = string.Empty;
 }
 
+[ExampleText("""
+{ "Path": "<path_to_file_or_directory>", "Pattern": "<regex_pattern>" }
+
+Where 
+<path_to_file_or_directory> is either a full, or a relative path to a file on the local filesystem.  If the path is empty, the current working directory will be used.
+<regex_pattern> is a valid .NET regular expression pattern.
+""")]
+class PathAndRegexInput
+{
+    public string Path { get; set; } = string.Empty;
+    public string Pattern { get; set; } = string.Empty;
+}
+
 [ExampleText("{ null }")]
 public class NoInput
 {
@@ -294,7 +307,7 @@ public class grep_files : ITool
 {
     public string Description => "Searches for a text pattern in all files in the current directory.";
     public string Usage => "Provide a .NET regex pattern to search for across all supported files. Returns matching lines with context.";
-    public Type InputType => typeof(RegexInput);
+    public Type InputType => typeof(PathAndRegexInput);
 
     public record GrepResult(bool Succeeded, int Matches, string Results)
     {
@@ -304,14 +317,14 @@ public class grep_files : ITool
 
     public async Task<ToolResult> InvokeAsync(object input, Memory memory) => await Log.MethodAsync(async ctx =>
     {
-        var regexInput = input as RegexInput ?? throw new ArgumentException("Expected RegexInput");
+        var regexInput = input as PathAndRegexInput ?? throw new ArgumentException("Expected RegexInput");
         if (string.IsNullOrWhiteSpace(regexInput.Pattern))
         {
             ctx.Failed("Empty search input.", Error.InvalidInput);
             return ToolResult.Failure("Please provide a text pattern to search for.", memory);
         }
 
-        var grepResult = await GrepFilesAsync(regexInput.Pattern);
+        var grepResult = await GrepFilesAsync(regexInput.Pattern, string.IsNullOrEmpty(regexInput.Path) ? Directory.GetCurrentDirectory() : regexInput.Path);
 
         memory.AddContext($"grep_files({regexInput.Pattern})", string.Join("\n", grepResult.Results));
         ctx.Succeeded(grepResult.Succeeded);
@@ -394,12 +407,12 @@ public class find_file : ITool
 {
     public string Description => "Lists files in the current project whose full path matches a provided regular expression.";
     public string Usage => "Provide a .NET regex pattern to match file paths. Only files with supported extensions will be searched.";
-    public Type InputType => typeof(RegexInput);
+    public Type InputType => typeof(PathAndRegexInput);
 
     public Task<ToolResult> InvokeAsync(object input, Memory memory) => Log.Method(ctx =>
     {
-        var regexInput = input as RegexInput ?? throw new ArgumentException("Expected RegexInput");
-        if (string.IsNullOrWhiteSpace(regexInput.Pattern))
+        var findInput = input as PathAndRegexInput ?? throw new ArgumentException("Expected PathAndRegexInput");
+        if (string.IsNullOrWhiteSpace(findInput.Pattern))
         {
             ctx.Failed("Empty regex input.", Error.InvalidInput);
             return Task.FromResult(ToolResult.Failure("Please provide a regex pattern to match file paths.", memory));
@@ -408,7 +421,7 @@ public class find_file : ITool
         Regex pattern;
         try
         {
-            pattern = new Regex(regexInput.Pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            pattern = new Regex(findInput.Pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
         }
         catch (Exception ex)
         {
@@ -417,7 +430,7 @@ public class find_file : ITool
         }
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var baseDir = Directory.GetCurrentDirectory();
+        var baseDir = string.IsNullOrEmpty(findInput.Path) ? Directory.GetCurrentDirectory() : findInput.Path;
         var supportedExtensions = Engine.supportedFileTypes;
 
         var matching = Directory.GetFiles(baseDir, "*.*", SearchOption.AllDirectories)
@@ -429,17 +442,17 @@ public class find_file : ITool
 
         stopwatch.Stop();
         var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
-        Console.WriteLine($"{elapsedTime}ms required to find files that match '{regexInput.Pattern}'.");
+        Console.WriteLine($"{elapsedTime}ms required to find files that match '{findInput.Pattern}'.");
 
 
         if (matching.Count == 0)
         {
             ctx.Failed("No files matched.", Error.ToolFailed);
-            return Task.FromResult(ToolResult.Failure($"No files matched regex: `{regexInput.Pattern}`", memory));
+            return Task.FromResult(ToolResult.Failure($"No files matched regex: `{findInput.Pattern}`", memory));
         }
 
-        var output = $"find_files({regexInput.Pattern}):\n{string.Join("\n", matching)}\n";
-        memory.AddContext($"matched_files: {regexInput.Pattern}", output);
+        var output = $"find_files({findInput.Pattern}):\n{string.Join("\n", matching)}\n";
+        memory.AddContext($"matched_files: {findInput.Pattern}", output);
 
         ctx.Append(Log.Data.Count, matching.Count);
         ctx.Succeeded();
