@@ -96,7 +96,7 @@ public partial class CommandManager
                                 return Command.Result.Failed;
                             }
 
-                            var results = await MemoryContextManager.SearchVectorDB(query);
+                            var results = await ContextManager.SearchVectorDB(query);
                             
                             if (results.Any())
                             {

@@ -106,10 +106,10 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
         return Task.FromResult(new List<string>() { "esai-gpt4-32k" });
     }
 
-    public async Task<string> PostChatAsync(Memory memory, float _ /* TODO: figure out how temp plumbs through here*/) => await Log.MethodAsync(async ctx =>
+    public async Task<string> PostChatAsync(Context Context, float _ /* TODO: figure out how temp plumbs through here*/) => await Log.MethodAsync(async ctx =>
     {
         await Task.CompletedTask; // Ensure we don't block the thread unnecessarily
-        var chatHistory = memory.Messages.Select<ChatMessage, OpenAI.Chat.ChatMessage>(msg =>
+        var chatHistory = Context.Messages.Select<ChatMessage, OpenAI.Chat.ChatMessage>(msg =>
             msg.Role switch
             {
                 Roles.User => new UserChatMessage(msg.Content),

@@ -191,11 +191,11 @@ public partial class CommandManager : Command
                                 return Command.Result.Failed;
                             }
                             
-                            var tempMemory = new Memory(string.Empty); // Create temporary memory for command execution
-                            var result = await ToolRegistry.InvokeToolAsync(tool.Name, toolInput, tempMemory, input ?? string.Empty) ?? string.Empty;
+                            var tempContext = new Context(string.Empty); // Create temporary Context for command execution
+                            var result = await ToolRegistry.InvokeToolAsync(tool.Name, toolInput, tempContext, input ?? string.Empty) ?? string.Empty;
                             Console.WriteLine($"Tool result: {result}");
-                            Console.WriteLine($"Tool Memory:");
-                            User.RenderChatHistory(tempMemory.Messages);
+                            Console.WriteLine($"Tool Context:");
+                            User.RenderChatHistory(tempContext.Messages);
                             
                             return Command.Result.Success;
                         }
@@ -207,8 +207,8 @@ public partial class CommandManager : Command
                 Name = "restart", Description = "Reset chat history, RAG state, logs, and clear the console",
                 Action = () =>
                 {
-                    Program.memory.Clear();
-                    Program.memory.AddSystemMessage(Program.config.SystemPrompt);   
+                    Program.Context.Clear();
+                    Program.Context.AddSystemMessage(Program.config.SystemPrompt);   
                     Engine.VectorStore.Clear();
                     Log.ClearOutput();
                     Console.Clear();

@@ -12,7 +12,7 @@ static class Program
 {
     public static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
     public static Config config = null!;
-    public static Memory memory = null!;
+    public static Context Context = null!;
     public static Dictionary<string, Type> Providers = null!; // Dictionary to hold provider types by name
     public static Dictionary<string, Type> Chunkers = null!; // Dictionary to hold chunker types by name
     public static Dictionary<string, Type> Tools = null!; // Dictionary to hold tool types by name
@@ -56,7 +56,7 @@ static class Program
         Tools     = DictionaryOfTypesToNamesForInterface<ITool>(serviceCollection, types);
 
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
-        memory = new Memory(config.SystemPrompt);
+        Context = new Context(config.SystemPrompt);
         ToolRegistry.Initialize();
         
         // Provider and chunker initialization deferred until after config is loaded.
@@ -108,15 +108,15 @@ static class Program
                 if (string.IsNullOrWhiteSpace(userInput)) continue;
                 
                 // Add and render user message with proper formatting
-                memory.AddUserMessage(userInput);
-                var userMessage = memory.Messages.Last(); // Get the message we just added
+                Context.AddUserMessage(userInput);
+                var userMessage = Context.Messages.Last(); // Get the message we just added
                 User.RenderChatMessage(userMessage);
 
-                var (response, updatedMemory) = await Engine.PostChatAsync(memory);
+                var (response, updatedContext) = await Engine.PostChatAsync(Context);
                 var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
                 User.RenderChatMessage(assistantMessage);
-                memory = updatedMemory;
-                memory.AddAssistantMessage(response);
+                Context = updatedContext;
+                Context.AddAssistantMessage(response);
             }
         }
         catch (Exception ex)
@@ -127,7 +127,7 @@ static class Program
             Console.WriteLine($"Log Entries [{entries.Count}]:");
             entries.ToList().ForEach(entry => Console.WriteLine(entry));
             Console.WriteLine("Chat History:");
-            User.RenderChatHistory(memory.Messages);
+            User.RenderChatHistory(Context.Messages);
             throw; // unhandled exceptions result in a stack trace in the console.
         }
     }

@@ -45,14 +45,14 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         }
     }
 
-    public async Task<string> PostChatAsync(Memory memory, float temperature) => await Log.MethodAsync(async ctx=>
+    public async Task<string> PostChatAsync(Context Context, float temperature) => await Log.MethodAsync(async ctx=>
     {
         ctx.OnlyEmitOnFailure();
         string respJson = string.Empty;
         var requestBody = new
         {
             model = config.Model,
-            messages = memory.Messages?.Select(msg => new
+            messages = Context.Messages?.Select(msg => new
             {
                 role = msg.Role.ToString().ToLower(),
                 content = msg.Content

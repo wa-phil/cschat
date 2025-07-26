@@ -159,7 +159,7 @@ system commands
 - `Engine.cs` - Core chat engine
 - `Json/` — Minimal JSON parser and writer
 - `Log.cs` — Logging utilities
-- `Memory.cs` - Memory implementations
+- `Context.cs` - Context implementations
 - `Program.cs` — Main application logic, chat loop, and command handling
 - `Providers/` — Provider implementations (Ollama, AzureAI)
 - `Tools.cs` - ToolRegistry and various simple tools
