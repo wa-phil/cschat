@@ -40,7 +40,7 @@ static class Program
         return result;
     }
 
-    public static void InitProgram()
+    public static async Task InitProgramAsync()
     {
         config = Config.Load(ConfigFilePath);
         Log.Initialize();
@@ -59,14 +59,19 @@ static class Program
         Context = new Context(config.SystemPrompt);
         ToolRegistry.Initialize();
         
+        // Initialize MCP manager and load servers
+        await McpManager.Instance.LoadAllServersAsync();
+        
+        // Create command manager after all tools are registered
+        commandManager = CommandManager.CreateDefaultCommands();
+                
         // Provider and chunker initialization deferred until after config is loaded.
     }
 
     static async Task Main(string[] args)
     {
         Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
-        InitProgram();
-        commandManager = CommandManager.CreateDefaultCommands();
+        await InitProgramAsync();
 
         bool showHelp = false;
         var options = new OptionSet {
@@ -106,7 +111,7 @@ static class Program
                 Console.Write("> ");
                 var userInput = await User.ReadInputWithFeaturesAsync(commandManager);
                 if (string.IsNullOrWhiteSpace(userInput)) continue;
-                
+
                 // Add and render user message with proper formatting
                 Context.AddUserMessage(userInput);
                 var userMessage = Context.Messages.Last(); // Get the message we just added
@@ -129,6 +134,11 @@ static class Program
             Console.WriteLine("Chat History:");
             User.RenderChatHistory(Context.Messages);
             throw; // unhandled exceptions result in a stack trace in the console.
+        }
+        finally
+        {
+            // Set up graceful shutdown
+            await McpManager.Instance.ShutdownAllAsync();
         }
     }
 }

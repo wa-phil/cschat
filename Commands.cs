@@ -148,10 +148,45 @@ public partial class CommandManager : Command
             CreateChatCommands(),
             CreateProviderCommands(),
             CreateRagCommands(),
+            CreateMcpCommands(),
+            CreateToolsCommands(),
+            CreateSystemCommands(),
             new Command
             {
-                Name = "tools", Description = "Tool commands",
-                SubCommands = ToolRegistry.GetRegisteredTools().Select(tool => 
+                Name = "restart", Description = "Reset chat history, RAG state, logs, and clear the console",
+                Action = () =>
+                {
+                    Program.Context.Clear();
+                    Program.Context.AddSystemMessage(Program.config.SystemPrompt);   
+                    Engine.VectorStore.Clear();
+                    Log.ClearOutput();
+                    Console.Clear();
+                    Console.WriteLine("Chat history, RAG state, and logs have been reset.");
+                    Console.WriteLine("Current Configuration:");
+                    Console.WriteLine(Program.config.ToJson());
+                    return Task.FromResult(Command.Result.Success);
+                }
+            },
+            new Command
+            {
+                Name = "exit", Description = "Quit the application",
+                Action = () => { Environment.Exit(0); return Task.FromResult(Command.Result.Success); }
+            }
+        });
+
+        return commands; 
+    }
+
+    private static Command CreateToolsCommands()
+    {
+        return new Command
+        {
+            Name = "tools", 
+            Description = "Tool commands",
+            Action = async () =>
+            {
+                // Dynamically create subcommands based on current registry state
+                var dynamicSubCommands = ToolRegistry.GetRegisteredTools().Select(tool => 
                     new Command
                     {
                         Name = tool.Name,
@@ -199,32 +234,34 @@ public partial class CommandManager : Command
                             
                             return Command.Result.Success;
                         }
-                    }).ToList()
-            },
-            CreateSystemCommands(),
-            new Command
-            {
-                Name = "restart", Description = "Reset chat history, RAG state, logs, and clear the console",
-                Action = () =>
-                {
-                    Program.Context.Clear();
-                    Program.Context.AddSystemMessage(Program.config.SystemPrompt);   
-                    Engine.VectorStore.Clear();
-                    Log.ClearOutput();
-                    Console.Clear();
-                    Console.WriteLine("Chat history, RAG state, and logs have been reset.");
-                    Console.WriteLine("Current Configuration:");
-                    Console.WriteLine(Program.config.ToJson());
-                    return Task.FromResult(Command.Result.Success);
-                }
-            },
-            new Command
-            {
-                Name = "exit", Description = "Quit the application",
-                Action = () => { Environment.Exit(0); return Task.FromResult(Command.Result.Success); }
-            }
-        });
+                    }).ToList();
 
-        return commands; 
+                // Implement the menu logic directly (similar to DefaultAction but accessible)
+                Command.Result result = Command.Result.Cancelled;
+                while (Command.Result.Cancelled == result)
+                {
+                    var selected = User.RenderMenu("tools commands", dynamicSubCommands.Select(c => $"{c.Name} - {c.Description}").ToList());
+                    if (string.IsNullOrEmpty(selected))
+                    {
+                        return Command.Result.Cancelled;
+                    }
+                    
+                    // Strip the description part to get just the command name
+                    selected = selected.Split('-')[0].Trim();
+                    
+                    // Find the command by name
+                    var command = dynamicSubCommands.FirstOrDefault(c => c.Name.Equals(selected, StringComparison.OrdinalIgnoreCase));
+                    if (command == null)
+                    {
+                        Console.WriteLine($"Command '{selected}' not found.");
+                        return Command.Result.Failed;
+                    }
+                    
+                    // Execute the command's action
+                    result = await command.Action.Invoke();
+                }
+                return result;
+            }
+        };
     }
 }

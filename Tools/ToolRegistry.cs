@@ -10,6 +10,7 @@ using System.Text.RegularExpressions;
 public static class ToolRegistry
 {
     private static Dictionary<string, ITool> _tools = new Dictionary<string, ITool>();
+    
     public static void Initialize() => Log.Method(ctx =>
     {
         ctx.OnlyEmitOnFailure();
@@ -28,6 +29,16 @@ public static class ToolRegistry
         ctx.Append(Log.Data.Registered, registered.ToArray());
         ctx.Succeeded();
     });
+
+    public static void RegisterMcpTool(string toolName, ITool tool)
+    {
+        _tools[toolName] = tool;
+    }
+
+    public static void UnregisterMcpTool(string toolName)
+    {
+        _tools.Remove(toolName);
+    }
 
     public static bool IsToolRegistered(string toolName) => _tools.Keys.Any(t => t.Equals(toolName, StringComparison.OrdinalIgnoreCase));
 

@@ -1,0 +1,12 @@
+{
+  "name": "GitMCP",
+  "description": "Git MCP server for cschat",
+  "command": "npx",
+  "args": [
+    "mcp-remote",
+    "https://gitmcp.io/wa-phil/cschat"
+  ],
+  "environment": {},
+  "workingDirectory": "",
+  "enabled": true
+}
