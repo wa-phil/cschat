@@ -19,7 +19,7 @@ public class McpManager
 
     private McpManager()
     {
-        _serverDefinitionsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "mcp_servers");
+        _serverDefinitionsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Program.config.McpServerDirectory);
         Directory.CreateDirectory(_serverDefinitionsPath);
     }
 
@@ -33,7 +33,7 @@ public class McpManager
             var filePath = Path.Combine(_serverDefinitionsPath, $"{serverDef.Name}.json");
             var json = serverDef.ToJson();
             await File.WriteAllTextAsync(filePath, json);
-            Console.WriteLine($"[DEBUG] Saved server definition to: {filePath}");
+            Console.WriteLine($"Saved server definition to: {filePath}");
 
             // Connect to the server and register tools
             var success = await ConnectToServerAsync(serverDef);
@@ -93,30 +93,38 @@ public class McpManager
         {
             try
             {
+                Console.ForegroundColor = ConsoleColor.DarkYellow;
                 Console.WriteLine($"Loading MCP server from {Path.GetFileName(file)}...");
+                Console.ResetColor();
                 var json = await File.ReadAllTextAsync(file);
                 var serverDef = json.FromJson<McpServerDefinition>();
 
                 if (serverDef != null && serverDef.Enabled)
                 {
-                    Console.WriteLine($"Connecting to MCP server: {serverDef.Name}");
                     ctx.Append(Log.Data.Name, serverDef.Name);
                     ctx.Append(Log.Data.Command, serverDef.Command);
                     var success = await ConnectToServerAsync(serverDef);
                     if (success)
                     {
                         loadedCount++;
+                        Console.ForegroundColor = ConsoleColor.Green;
                         Console.WriteLine($"Successfully connected to MCP server: {serverDef.Name}");
+                        Console.ResetColor();
                     }
                     else
                     {
+                        Console.ForegroundColor = ConsoleColor.Red;
                         Console.WriteLine($"Failed to connect to MCP server: {serverDef.Name}");
+                        Console.ResetColor();
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Warning: Failed to load MCP server from {Path.GetFileName(file)}: {ex.Message}");
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Warning: Failed to load MCP server from {Path.GetFileName(file)}: {ex.Message}.  See system logs for additional details.");
+                Console.ResetColor();
+                return;
             }
         }
         
@@ -131,8 +139,10 @@ public class McpManager
         
         try
         {
-            Console.WriteLine($"[DEBUG] Creating MCP client for server: {serverDef.Name}");
-            
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.Write($"Connecting client to MCP server: {serverDef.Name}...");
+            Console.ResetColor();
+
             // Create the MCP client using the simplified API
             var client = await McpClient.CreateAsync(serverDef);
             if (client == null)
@@ -141,10 +151,7 @@ public class McpManager
                 return false;
             }
 
-            Console.WriteLine("[DEBUG] MCP client created successfully");
-
             // List tools from the MCP server
-            Console.WriteLine("[DEBUG] Listing tools from MCP server");
             var clientTools = await client.ListToolsAsync();
             
             // Convert MCP client tools to our McpTool wrapper
@@ -175,29 +182,31 @@ public class McpManager
                     InputSchema = inputSchema
                 }, serverDef.Name);
             }).ToList();
-            
-            Console.WriteLine($"[DEBUG] Found {tools.Count} tools from server");
+        
             
             // Register tools in the global tool registry
             foreach (var tool in tools)
             {
                 var toolName = $"mcp_{serverDef.Name}_{tool.ToolName}";
                 ToolRegistry.RegisterMcpTool(toolName, tool);
-                Console.WriteLine($"[DEBUG] Registered tool: {toolName}");
             }
             
             // Store the client and tools
             _clients[serverDef.Name] = client;
             _serverTools[serverDef.Name] = tools;
             
-            Console.WriteLine($"[DEBUG] Successfully connected to MCP server: {serverDef.Name}");
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.WriteLine($"✅ {clientTools.Count} tools added.");
+            Console.ResetColor();
             ctx.Append(Log.Data.Count, tools.Count);
             ctx.Succeeded();
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DEBUG] Exception in ConnectToServerAsync: {ex}");
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($" failed: {ex.Message}");
+            Console.ResetColor();
             ctx.Failed($"Error connecting to MCP server: {ex.Message}", ex);
             return false;
         }

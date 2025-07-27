@@ -3,6 +3,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using ModelContextProtocol.Protocol;
 
 // Basic MCP protocol types
 public class ToolInfo
@@ -42,8 +43,18 @@ public class McpTool : ITool
     public string ServerName => _serverName;
     public string ToolName => _toolInfo.Name;
 
-    private Type GenerateDynamicInputType()
+    private Type GenerateDynamicInputType() => Log.Method(ctx =>
     {
+        ctx.Append(Log.Data.ServerName, _serverName);
+        ctx.Append(Log.Data.Name, _toolInfo.Name);
+        if (_toolInfo.InputSchema == null)
+        {
+            // No input schema, return a simple object type
+            ctx.Append(Log.Data.Input, "NoInput");
+            ctx.Succeeded();
+            return typeof(NoInput);
+        }
+
         // Currently returns Dictionary<string, object> since TinyJson handles this perfectly
         // and it matches what the MCP protocol expects for tool arguments.
         // 
@@ -55,11 +66,13 @@ public class McpTool : ITool
         // 
         // For now, Dictionary<string, object> provides the right balance of
         // flexibility and simplicity.
+        ctx.Succeeded();
         return typeof(Dictionary<string, object>);
-    }
+    });
 
     private string GenerateUsage() => Log.Method(ctx =>
     {
+        ctx.Append(Log.Data.Name, _toolInfo.Name);
         if (_toolInfo.InputSchema == null)
         {
             ctx.Succeeded();
@@ -95,6 +108,7 @@ public class McpTool : ITool
 
                 if (parameters.Count > 0)
                 {
+                    ctx.Succeeded();
                     return $"{_toolInfo.Name} - Parameters: {string.Join(", ", parameters)}";
                 }
             }
@@ -142,13 +156,13 @@ public class McpTool : ITool
     {
         ctx.Append(Log.Data.Name, _toolInfo.Name);
         ctx.Append(Log.Data.Input, (null == input ? "<null>" : input.ToJson()));
-        ctx.Append(Log.Data.Message, $"Calling MCP tool on server: {_serverName}");
+        ctx.Append(Log.Data.ServerName, _serverName);
 
         try
         {
             // Convert input to the expected Dictionary<string, object> format
             Dictionary<string, object> arguments;
-            
+
             if (input is Dictionary<string, object> directDict)
             {
                 arguments = directDict;
@@ -156,7 +170,7 @@ public class McpTool : ITool
             else
             {
                 // Convert any object to Dictionary<string, object>
-                var json = input.ToJson();
+                var json = input?.ToJson() ?? "{}";
                 arguments = json.FromJson<Dictionary<string, object>>() ?? new Dictionary<string, object>();
             }
             ctx.Append(Log.Data.ToolInput, arguments.ToJson());
@@ -164,16 +178,32 @@ public class McpTool : ITool
             // Convert Dictionary<string, object> to Dictionary<string, object?> for MCP client, we need to do this 
             // because CallToolAsync expects nullable values, because the MCP protocol allows for missing fields.
             var response = await _client.CallToolAsync(_toolInfo.Name, arguments.ToDictionary(kvp => kvp.Key, kvp => (object?)kvp.Value));
-            
+
             if (response?.Content == null || response.Content.Count == 0)
             {
                 ctx.Failed("No response content from MCP tool", Error.EmptyResponse);
                 return ToolResult.Failure("No response content from MCP tool", context);
             }
 
-            // Combine all content into a simple string representation
-            var responseText = string.Join("\n", response.Content.Select(content => content.ToString()));
+            // for now, only handle text content blocks
+            if (response.Content.All(c => c is not TextContentBlock))
+            {
+                ctx.Failed("MCP tool returned non-text content", Error.ToolFailed);
+                return ToolResult.Failure("MCP tool returned non-text content", context);
+            }
 
+            var responseText = response.Content.Select(c => (c as TextContentBlock)?.Text ?? string.Empty)
+                .Where(text => !string.IsNullOrEmpty(text))
+                .Aggregate((current, next) => $"{current}\n{next}");
+
+            if (response.IsError == true)
+            {
+                ctx.Failed($"MCP tool returned error: {responseText}", Error.ToolFailed);
+                return ToolResult.Failure($"MCP tool returned error: {responseText}", context);
+            }
+
+            // Combine all content into a simple string representation
+            ctx.Append(Log.Data.Response, responseText);
             ctx.Succeeded();
             return ToolResult.Success(responseText, context, true);
         }

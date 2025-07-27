@@ -16,6 +16,29 @@ public partial class CommandManager : Command
             {
                 new Command
                 {
+                    Name = "mcp directory",
+                    Description = "Set the directory for MCP server configurations",
+                    Action = () =>
+                    {
+                        Console.Write("Enter the path to the MCP server directory (default: ./mcp_servers): ");
+                        var input = Console.ReadLine()?.Trim();
+                        if (string.IsNullOrWhiteSpace(input))
+                        {
+                            input = "./mcp_servers";
+                        }
+                        if (!Directory.Exists(input))
+                        {
+                            Console.WriteLine($"Directory does not exist: {input}");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+                        Program.config.McpServerDirectory = input;
+                        Console.WriteLine($"MCP server directory set to: {input}");
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
                     Name = "list",
                     Description = "List configured MCP servers",
                     Action = () =>
@@ -32,7 +55,7 @@ public partial class CommandManager : Command
                         {
                             var status = McpManager.Instance.GetConnectedServers()
                                 .Any(cs => cs.ServerName == server.Name) ? "Connected" : "Not Connected";
-                            
+
                             Console.WriteLine($"  {server.Name} [{status}]");
                             Console.WriteLine($"    Description: {server.Description}");
                             Console.WriteLine($"    Config file: {server.Name}.json");

@@ -66,7 +66,7 @@ public class McpClient : IDisposable
             var tools = await _client.ListToolsAsync();
             var list = tools.ToList();
             ctx.Append(Log.Data.Count, list.Count);
-            ctx.Append(Log.Data.Names, string.Join(", ", list.Select(t => t.Name)));
+            ctx.Append(Log.Data.Names, list.Select(t => t.Name).ToArray());
             ctx.Succeeded();
             return list;
         }

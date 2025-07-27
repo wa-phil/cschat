@@ -22,7 +22,7 @@ public static class JSONParser
         return (T?)ParseValue(typeof(T), json);
     }
 
-    static object? ParseValue(Type type, string json)
+    public static object? ParseValue(Type type, string json)
     {
         json = json.Trim();
         if (json == "null") return null;

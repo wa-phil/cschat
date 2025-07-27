@@ -60,25 +60,25 @@ public partial class CommandManager : Command
     {
         var inputType = tool.InputType;
         
+        // For NoInput, no input is needed
+        if (inputType == typeof(NoInput))
+        {
+            return "No input required - just press Enter.";
+        }
+
+        // For string input, explain it's plain text
+        if (inputType == typeof(string))
+        {
+            return "Enter plain text (no JSON formatting needed).";
+        }
+
         // Check if the input type has an ExampleText attribute
         var exampleTextAttr = inputType.GetCustomAttribute<ExampleText>();
         if (exampleTextAttr != null)
         {
             return $"Expected format ({inputType.Name}):\n{exampleTextAttr.Text}";
         }
-        
-        // For NoInput, no input is needed
-        if (inputType == typeof(NoInput))
-        {
-            return "No input required - just press Enter.";
-        }
-        
-        // For string input, explain it's plain text
-        if (inputType == typeof(string))
-        {
-            return "Enter plain text (no JSON formatting needed).";
-        }
-        
+                        
         // For other types, provide basic JSON guidance
         return $"Expected format: JSON object matching {inputType.Name} structure.";
     }
@@ -107,15 +107,7 @@ public partial class CommandManager : Command
                 return Activator.CreateInstance(tool.InputType) ?? new NoInput();
             }
             
-            // Use reflection to call the generic FromJson method with the correct type
-            var fromJsonMethod = typeof(JSONParser).GetMethod("FromJson");
-            if (fromJsonMethod == null)
-            {
-                throw new InvalidOperationException("FromJson method not found");
-            }
-            
-            var genericMethod = fromJsonMethod.MakeGenericMethod(tool.InputType);
-            var parsedInput = genericMethod.Invoke(null, new object[] { input });
+            var parsedInput = JSONParser.ParseValue(tool.InputType, input);
             
             if (parsedInput == null)
             {
