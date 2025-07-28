@@ -56,31 +56,31 @@ public class Command
 public partial class CommandManager : Command
 {
     // Helper method to get input format guidance for a tool
-    private static string GetInputFormatGuidance(ITool tool)
+    private static (string guidance, bool required) GetInputFormatGuidance(ITool tool)
     {
         var inputType = tool.InputType;
-        
+
         // For NoInput, no input is needed
         if (inputType == typeof(NoInput))
         {
-            return "No input required - just press Enter.";
+            return ("No input required - just press Enter.", false);
         }
 
         // For string input, explain it's plain text
         if (inputType == typeof(string))
         {
-            return "Enter plain text (no JSON formatting needed).";
+            return ("Enter plain text (no JSON formatting needed).", true);
         }
 
         // Check if the input type has an ExampleText attribute
         var exampleTextAttr = inputType.GetCustomAttribute<ExampleText>();
         if (exampleTextAttr != null)
         {
-            return $"Expected format ({inputType.Name}):\n{exampleTextAttr.Text}";
+            return ($"Expected format ({inputType.Name}):\n{exampleTextAttr.Text}", true);
         }
-                        
+
         // For other types, provide basic JSON guidance
-        return $"Expected format: JSON object matching {inputType.Name} structure.";
+        return ($"Expected format: JSON object matching {inputType.Name} structure.", true);
     }
 
     // Helper method to parse tool input based on the tool's expected input type
@@ -196,27 +196,30 @@ public partial class CommandManager : Command
                                 Console.WriteLine($"Tool '{tool.Name}' not found.");
                                 return Command.Result.Failed;
                             }
-                            
+
                             // Show input format guidance
-                            var inputGuidance = GetInputFormatGuidance(toolInstance);
-                            Console.WriteLine(inputGuidance);
-                            Console.WriteLine();
-                            Console.Write("Enter input: ");
-                            
-                            // Get user input
-                            var input = User.ReadLineWithHistory();
-                            
-                            // Parse input based on the tool's expected input type
-                            object toolInput;
-                            try
+                            object toolInput = new NoInput(); // Default to NoInput
+                            string? input = null;
+                            var (guidance, isRequired) = GetInputFormatGuidance(toolInstance);
+                            if (isRequired)
                             {
-                                toolInput = ParseToolInput(toolInstance, input ?? string.Empty);
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Error parsing input: {ex.Message}");
-                                return Command.Result.Failed;
-                            }
+                                Console.WriteLine(guidance);
+                                Console.WriteLine();
+                                Console.Write("Enter input: ");
+                                                            
+                                // Get user input
+                                input = User.ReadLineWithHistory();
+                                try
+                                {
+                                    // Parse input based on the tool's expected input type
+                                    toolInput = ParseToolInput(toolInstance, input ?? string.Empty);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"Error parsing input: {ex.Message}");
+                                    return Command.Result.Failed;
+                                }
+                            }                    
                             
                             var tempContext = new Context(string.Empty); // Create temporary Context for command execution
                             var result = await ToolRegistry.InvokeToolAsync(tool.Name, toolInput, tempContext, input ?? string.Empty) ?? string.Empty;

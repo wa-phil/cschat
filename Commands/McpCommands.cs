@@ -285,7 +285,6 @@ public partial class CommandManager : Command
                             foreach (var tool in tools)
                             {
                                 Console.WriteLine($"  - {tool.ToolName}: {tool.Description}");
-                                Console.WriteLine($"    Usage: {tool.Usage}");
                             }
                         }
                         

@@ -1,6 +1,8 @@
 using System;
 using System.Linq;
 using System.Text.Json;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using ModelContextProtocol.Protocol;
@@ -34,7 +36,7 @@ public class McpTool : ITool
         ctx.Succeeded();
     }
 
-    public string Description => $"[MCP:{_serverName}] {_toolInfo.Description ?? _toolInfo.Name}";
+    public string Description => $"[{_serverName}] {_toolInfo.Description ?? _toolInfo.Name}";
 
     public string Usage => GenerateUsage();
 
@@ -47,27 +49,106 @@ public class McpTool : ITool
     {
         ctx.Append(Log.Data.ServerName, _serverName);
         ctx.Append(Log.Data.Name, _toolInfo.Name);
-        if (_toolInfo.InputSchema == null)
+        var schemaText = _toolInfo.InputSchema?.ToString();
+        ctx.Append(Log.Data.Schema, schemaText ?? "<null>");
+
+        if (string.IsNullOrWhiteSpace(schemaText))
         {
-            // No input schema, return a simple object type
             ctx.Append(Log.Data.Input, "NoInput");
             ctx.Succeeded();
             return typeof(NoInput);
         }
 
-        // Currently returns Dictionary<string, object> since TinyJson handles this perfectly
-        // and it matches what the MCP protocol expects for tool arguments.
-        // 
-        // Future enhancement: We could generate a dynamic type or anonymous type
-        // based on the InputSchema properties for better type safety:
-        // - Use System.Reflection.Emit to create a runtime type
-        // - Use ExpandoObject for dynamic property access  
-        // - Use anonymous types with proper property names
-        // 
-        // For now, Dictionary<string, object> provides the right balance of
-        // flexibility and simplicity.
+        var schema = schemaText.FromJson<Dictionary<string, object>>() ?? new Dictionary<string, object>();
+
+        if (!schema.TryGetValue("properties", out var propsObj) || propsObj is not Dictionary<string, object> props)
+        {
+            ctx.Append(Log.Data.Input, "NoInput");
+            ctx.Succeeded();
+            return typeof(NoInput);
+        }
+
+        var required = (schema.TryGetValue("required", out var reqObj) && reqObj is List<object> reqList)
+            ? reqList.Select(r => r.ToString() ?? "").ToHashSet()
+            : new HashSet<string>();
+
+        var exampleLines = new List<string>();
+        var explainedProps = new List<string>();
+        var propMap = new Dictionary<string, Type>();
+
+        foreach (var kvp in props)
+        {
+            var name = kvp.Key;
+            var desc = "";
+            var type = "string";
+
+            if (kvp.Value is Dictionary<string, object> propDict)
+            {
+                if (propDict.TryGetValue("type", out var typeVal)) type = typeVal?.ToString() ?? "string";
+                if (propDict.TryGetValue("description", out var descVal)) desc = descVal?.ToString() ?? "";
+            }
+
+            propMap[name] = type switch
+            {
+                "string" => typeof(string),
+                "number" => typeof(double),
+                "integer" => typeof(int),
+                "boolean" => typeof(bool),
+                _ => typeof(object)
+            };
+
+            exampleLines.Add($"  \"{name}\": \"<{name}>\"");
+            explainedProps.Add($"   <{name}> {(required.Contains(name) ? "" : "is optional, and ")}is {desc}.");
+        }
+
+        var exampleText = $"{{\n{string.Join(",\n", exampleLines)}\n}}\nWhere:\n{string.Join("\n", explainedProps)}\nONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.";
+        ctx.Append(Log.Data.ExampleText, exampleText);
+
+        // Create the dynamic type
+        var typeName = $"{_serverName}_{_toolInfo.Name}_{Guid.NewGuid():N}";
+        var asmName = new AssemblyName("DynamicMcpTypes");
+        var asmBuilder = AssemblyBuilder.DefineDynamicAssembly(asmName, AssemblyBuilderAccess.Run);
+        var moduleBuilder = asmBuilder.DefineDynamicModule("MainModule");
+        var typeBuilder = moduleBuilder.DefineType(typeName, TypeAttributes.Public | TypeAttributes.Class);
+
+        // Add the [ExampleText] attribute
+        var attrCtor = typeof(ExampleText).GetConstructor(new[] { typeof(string) });
+        var attrBuilder = new CustomAttributeBuilder(attrCtor!, new object[] { exampleText });
+        typeBuilder.SetCustomAttribute(attrBuilder);
+
+        // Add properties
+        foreach (var (propName, propType) in propMap)
+        {
+            var field = typeBuilder.DefineField($"_{propName}", propType, FieldAttributes.Private);
+            var propBuilder = typeBuilder.DefineProperty(propName, PropertyAttributes.HasDefault, propType, null);
+
+            var getter = typeBuilder.DefineMethod($"get_{propName}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                propType, Type.EmptyTypes);
+
+            var getterIL = getter.GetILGenerator();
+            getterIL.Emit(OpCodes.Ldarg_0);
+            getterIL.Emit(OpCodes.Ldfld, field);
+            getterIL.Emit(OpCodes.Ret);
+
+            var setter = typeBuilder.DefineMethod($"set_{propName}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                null, new[] { propType });
+
+            var setterIL = setter.GetILGenerator();
+            setterIL.Emit(OpCodes.Ldarg_0);
+            setterIL.Emit(OpCodes.Ldarg_1);
+            setterIL.Emit(OpCodes.Stfld, field);
+            setterIL.Emit(OpCodes.Ret);
+
+            propBuilder.SetGetMethod(getter);
+            propBuilder.SetSetMethod(setter);
+        }
+
+        var dynamicType = typeBuilder.CreateTypeInfo()!;
+        ctx.Append(Log.Data.Input, $"Generated type: {dynamicType.Name}");
         ctx.Succeeded();
-        return typeof(Dictionary<string, object>);
+        return dynamicType;
     });
 
     private string GenerateUsage() => Log.Method(ctx =>
