@@ -102,7 +102,13 @@ public static class ToolRegistry
             return ToolResult.Failure(error, Context);
         }
 
-        Context toolContext = !toolResult.Summarize ? toolResult.Context : new Context(new[]
+        if (!toolResult.Summarize)
+        {
+            ctx.Succeeded();
+            return toolResult;
+        }
+
+        Context toolContext = new Context(new[]
         {
             new ChatMessage { Role = Roles.System, Content= "Use the result of the invoked tool to answer the user's original question in natural language."},
             new ChatMessage { Role = Roles.User,

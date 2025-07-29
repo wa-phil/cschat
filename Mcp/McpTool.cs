@@ -24,19 +24,13 @@ public class McpTool : ITool
 
     public McpTool(McpClient client, ToolInfo toolInfo, string serverName)
     {
-        using var ctx = new Log.Context(Log.Level.Information);
-        ctx.Append(Log.Data.Method, nameof(McpTool));
-        ctx.Append(Log.Data.Name, toolInfo.Name);
-        ctx.Append(Log.Data.ServerName, serverName);
-        ctx.Append(Log.Data.ToolInput, toolInfo.InputSchema?.ToString() ?? "No input schema");
         _client = client;
         _toolInfo = toolInfo;
         _serverName = serverName;
         _dynamicInputType = GenerateDynamicInputType();
-        ctx.Succeeded();
     }
 
-    public string Description => $"[{_serverName}] {_toolInfo.Description ?? _toolInfo.Name}";
+    public string Description => $"{_toolInfo.Description}";
 
     public string Usage => GenerateUsage();
 
@@ -61,7 +55,7 @@ public class McpTool : ITool
 
         var schema = schemaText.FromJson<Dictionary<string, object>>() ?? new Dictionary<string, object>();
 
-        if (!schema.TryGetValue("properties", out var propsObj) || propsObj is not Dictionary<string, object> props)
+        if (!schema.TryGetValue("properties", out var propsObj) || propsObj is not Dictionary<string, object> props || 0 == props.Keys.Count)
         {
             ctx.Append(Log.Data.Input, "NoInput");
             ctx.Succeeded();
@@ -98,10 +92,20 @@ public class McpTool : ITool
             };
 
             exampleLines.Add($"  \"{name}\": \"<{name}>\"");
-            explainedProps.Add($"   <{name}> {(required.Contains(name) ? "" : "is optional, and ")}is {desc}.");
+
+            if (!string.IsNullOrEmpty(desc))
+            {
+                // If there's a description for the property, then the type is not self-explanatory.
+                explainedProps.Add($"   <{name}> {(required.Contains(name) ? "" : "is optional, and ")}is {desc}.");
+            }
         }
 
-        var exampleText = $"{{\n{string.Join(",\n", exampleLines)}\n}}\nWhere:\n{string.Join("\n", explainedProps)}\nONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.";
+        var exampleText = $"{{\n{string.Join(",\n", exampleLines)}\n}}";
+        if (explainedProps.Count != 0)
+        {
+            exampleText += $"\nWhere:\n{string.Join("\n", explainedProps)}";
+        }
+        exampleText += "\nONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.";
         ctx.Append(Log.Data.ExampleText, exampleText);
 
         // Create the dynamic type
@@ -153,6 +157,7 @@ public class McpTool : ITool
 
     private string GenerateUsage() => Log.Method(ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, _toolInfo.Name);
         if (_toolInfo.InputSchema == null)
         {
@@ -162,6 +167,7 @@ public class McpTool : ITool
 
         try
         {
+            ctx.Append(Log.Data.Schema, _toolInfo.InputSchema.ToString() ?? "<null>");
             var schema = _toolInfo.InputSchema.Value;
 
             if (schema.TryGetProperty("properties", out var properties))
@@ -187,12 +193,17 @@ public class McpTool : ITool
                     parameters.Add(paramInfo);
                 }
 
+                ctx.Succeeded();
                 if (parameters.Count > 0)
                 {
-                    ctx.Succeeded();
                     return $"{_toolInfo.Name} - Parameters: {string.Join(", ", parameters)}";
                 }
-            }
+                else
+                {
+                    ctx.Append(Log.Data.Message, "No parameters found in input schema.");
+                    return $"{_toolInfo.Name}() - No parameters required";
+                }
+            }        
         }
         catch (Exception ex)
         {
@@ -286,7 +297,7 @@ public class McpTool : ITool
             // Combine all content into a simple string representation
             ctx.Append(Log.Data.Response, responseText);
             ctx.Succeeded();
-            return ToolResult.Success(responseText, context, true);
+            return ToolResult.Success(responseText, context, false);
         }
         catch (Exception ex)
         {

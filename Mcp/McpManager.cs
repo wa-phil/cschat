@@ -187,7 +187,7 @@ public class McpManager
             // Register tools in the global tool registry
             foreach (var tool in tools)
             {
-                var toolName = $"mcp_{serverDef.Name}_{tool.ToolName}";
+                var toolName = $"{serverDef.Name}_{tool.ToolName}";
                 ToolRegistry.RegisterMcpTool(toolName, tool);
             }
             
@@ -223,7 +223,7 @@ public class McpManager
             {
                 foreach (var tool in tools)
                 {
-                    ToolRegistry.UnregisterMcpTool($"mcp_{serverName}_{tool.ToolName}");
+                    ToolRegistry.UnregisterMcpTool($"{serverName}_{tool.ToolName}");
                 }
             }
 

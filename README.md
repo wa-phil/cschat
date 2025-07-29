@@ -105,6 +105,18 @@ MCP (Model Context Protocol) is a protocol designed to facilitate communication 
 - **Extensibility:** Easily add new MCP servers and models without modifying the core application.
 - **Enhanced Features:** Leverage advanced capabilities provided by MCP servers, such as custom model operations and metadata management.
 
+### Getting started with MCP
+As most MCP servers have a dependency on NPX (node.js), 
+On Windows run: 
+```
+  winget install OpenJS.NodeJS
+```
+
+On MacOS run:
+```
+  brew install node
+```
+
 For more details on MCP, refer to [MCP for beginners](https://github.com/microsoft/mcp-for-beginners)
 
 ## Logging System

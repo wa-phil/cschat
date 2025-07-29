@@ -80,7 +80,7 @@ public static class Log
         {
             _items[Data.Level] = Level.Warning;
             _items[Data.Message] = message;
-            Succeeded(true);
+            Succeeded(false);
         }
 
         public void Failed(string message, Exception ex)
@@ -270,6 +270,7 @@ public static class Log
                     Data.Success,
                     Data.ErrorCode,
                     Data.IsRetry,
+                    Data.Name,
                     Data.TypeToParse,
                     Data.Input,
                     Data.Response,

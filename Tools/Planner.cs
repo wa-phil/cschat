@@ -20,17 +20,23 @@ public class Planner
 
     private async Task<PlanProgress> GetPlanProgress(Context context, string goal, string userInput) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         var references = context.GetContext().Select(c => $"{c.Reference}: {c.Chunk}").ToList();
         var working = new Context($"""
-You are a plan progress evaluator.
-The assistant has already replied to the user with one or more steps towards achieving the goal.
-Your task is to determine if additional steps are needed to achieve the goal (e.g. is taking further action required) based on the following:
-1. The goal: {goal}
-2. The user's input: {userInput}
-3. The current steps taken so far:
+You are helping evaluate whether the user's goal has been successfully achieved.
+
+### Goal
+{goal}
+
+### User Input
+{userInput}
+
+### Steps Taken So Far
 {string.Join("\n", results)}
-{(references.Count > 0 ? $"\n4. The current context:\n{string.Join("\n", references)}" : "")}
-Respond with ONLY JSON matching the PlanProgress class. No greetings, no commentary.
+
+Determine: Is the goal now complete? Respond ONLY with JSON matching the PlanProgress class.
+
+{(references.Count > 0 ? $"\nAdditional context:\n{string.Join("\n", references)}" : "")}
 """);
         // marshal Context context into working Context
         context.GetContext().ForEach(c => working.AddContext(c.Reference, c.Chunk));
@@ -84,6 +90,7 @@ Respond with ONLY the JSON object that matches {tool.InputType.Name}.
 
     private async Task<ToolSelection> GetToolSelection(string goal, Context history) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         var context = string.Join("\n", results.TakeLast(5));
         var tools = ToolRegistry.GetToolDescriptions();
 
@@ -172,7 +179,8 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
         // Conversation implies action on the part of the planner.
         int duplicatesAllowed = 3;
         bool planningFailed = false;
-        await foreach (var step in Steps(objective.Goal, Context, input, onPlanningFailure: reason => {
+        await foreach (var step in Steps(objective.Goal, Context, input, onPlanningFailure: reason =>
+        {
             planningFailed = true;
             ctx.Append(Log.Data.Reason, reason);
         }))
@@ -213,21 +221,49 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
 
             var result = await ToolRegistry.InvokeInternalAsync(step!.ToolName!, step!.ToolInput!, Context, objective.Goal!);
             var status = result.Succeeded ? "✅" : "❌";
-            var stepSummary = $"--- step {stepsTaken}: {step.ToolName}({step.ToolInput.ToJson()}) ---\n{result.Response}\n--- end step {stepsTaken} ---";
+            string stepSummaryForUser = result.Response; // raw or summarized depending on tool
+            string stepSummaryForPlanner;
+
+            if (!result.Summarize)
+            {
+                // Summarize internally for plan progress evaluation
+                var summaryContext = new Context($"""
+                    Summarize the following tool output to help evaluate whether the user's goal was met.
+
+                    Tool: {step.ToolName}
+                    Goal: {objective.Goal}
+
+                    Tool Output:
+                    {result.Response}
+
+                    Provide a brief one-paragraph summary of what this output tells us.
+                """);
+                summaryContext.AddUserMessage("Summarize the tool output.");
+                var summary = await Engine.Provider!.PostChatAsync(summaryContext, 0.2f);
+                stepSummaryForPlanner = $"--- step {stepsTaken}: output from {step.ToolName} ---\n{summary}\n--- end step {stepsTaken} ---";
+            }
+            else
+            {
+                // It's already summarized for both planner and user
+                stepSummaryForPlanner = $"--- step {stepsTaken}: output from {step.ToolName} ---\n{result.Response}\n--- end step {stepsTaken} ---";
+            }
+
+            Context = result.Context;
+            Context.AddToolMessage(stepSummaryForPlanner);
+            results.Add(stepSummaryForPlanner);
 
             if (result.Succeeded)
             {
-                // update Context with the result of the tool invocation
+                // Update context with the result of the tool invocation
                 Context = result.Context;
-                Context.AddToolMessage(stepSummary);
+                Context.AddToolMessage(stepSummaryForPlanner); // use summarized version
             }
 
             Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine($"{status}\n{result.Response}");
+            Console.WriteLine($"{status}\n{stepSummaryForUser}"); // show what user would see
             Console.ResetColor();
 
-            // update working and Context with the step summary
-            results.Add(stepSummary);
+            results.Add(stepSummaryForPlanner); // planner only sees summarized text
 
             // check progress towards the goal
             var progress = await GetPlanProgress(Context, objective.Goal, input);
@@ -235,8 +271,14 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
             {
                 throw new CsChatException($"Failed to get plan progress for goal '{objective.Goal}'.", Error.EmptyResponse);
             }
-            
+
             done = progress.GoalAchieved;
+            if (done && result.Summarize == false)
+            {
+                // Final tool output is the actual answer, no need to run final summary
+                ctx.Append(Log.Data.Message, "Returning raw tool output as final result.");
+                return (result.Response, Context);
+            }            
         }
 
         // Handle the case where planning failed, and bail out early with a summary of the results taken so far.
@@ -339,6 +381,7 @@ Use the following context to inform your response to the user's statement.
         shouldRetry: e => e is CsChatException cce && cce.ErrorCode == Error.EmptyResponse,
         func: async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Goal, goal);
         
         // Phase 1: Determine what tool to use

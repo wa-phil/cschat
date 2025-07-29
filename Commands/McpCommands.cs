@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
@@ -284,7 +285,20 @@ public partial class CommandManager : Command
                             Console.WriteLine($"\n{serverName} ({tools.Count} tools):");
                             foreach (var tool in tools)
                             {
-                                Console.WriteLine($"  - {tool.ToolName}: {tool.Description}");
+                                Console.ForegroundColor = ConsoleColor.Yellow;
+                                Console.Write($"  - {tool.ToolName}");
+                                Console.ForegroundColor = ConsoleColor.Gray;
+                                Console.WriteLine($": {tool.Description}");
+                                Console.ResetColor();
+                                var exmapleText = tool.InputType?.GetCustomAttribute<ExampleText>()?.Text ?? string.Empty;
+                                if (!string.IsNullOrEmpty(exmapleText))
+                                {
+                                    exmapleText = exmapleText.Replace("ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.", string.Empty);
+                                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                                    Console.WriteLine($"    Example input:\n{exmapleText}");
+                                    Console.ResetColor();
+                                }
+                                Console.WriteLine("---------------------------------------------------------");
                             }
                         }
                         

@@ -174,7 +174,7 @@ public partial class CommandManager : Command
         return new Command
         {
             Name = "tools", 
-            Description = "Tool commands",
+            Description = "Invoke/run tools",
             Action = async () =>
             {
                 // Dynamically create subcommands based on current registry state
