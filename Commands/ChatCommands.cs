@@ -18,7 +18,7 @@ public partial class CommandManager
                     Name = "show", Description = "Show chat history",
                     Action = () =>
                     {
-                        User.RenderChatHistory(Program.memory.Messages);
+                        User.RenderChatHistory(Program.Context.Messages);
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -27,8 +27,8 @@ public partial class CommandManager
                     Name = "clear", Description = "Clear chat history",
                     Action = () =>
                     {
-                        Program.memory.Clear();
-                        Program.memory.AddSystemMessage(Program.config.SystemPrompt);
+                        Program.Context.Clear();
+                        Program.Context.AddSystemMessage(Program.config.SystemPrompt);
                         Console.WriteLine("Chat history cleared.");
                         return Task.FromResult(Command.Result.Success);
                     }
@@ -44,7 +44,7 @@ public partial class CommandManager
                         {
                             try
                             {
-                                Program.memory.Load(filePath);
+                                Program.Context.Load(filePath);
                                 Console.WriteLine($"Chat history loaded from '{filePath}'.");
                             }
                             catch (Exception ex)
@@ -66,7 +66,7 @@ public partial class CommandManager
                         {
                             try
                             {
-                                Program.memory.Save(filePath);
+                                Program.Context.Save(filePath);
                                 Console.WriteLine($"Chat history saved to '{filePath}'.");
                             }
                             catch (Exception ex)

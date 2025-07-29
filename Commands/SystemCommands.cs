@@ -99,13 +99,13 @@ public partial class CommandManager
                         new Command
                         {
                             Name = "factory reset", Description = "Delete the current configuration and reset everything to defaults",
-                            Action = () =>
+                            Action = async () =>
                             {
                                 File.Delete(Program.ConfigFilePath);
                                 Program.config = new Config(); // Reset to default config
-                                Program.InitProgram();
+                                await Program.InitProgramAsync();
                                 Console.WriteLine("Configuration reset to default.");
-                                return Task.FromResult(Command.Result.Success);
+                                return Command.Result.Success;
                             }
                         }
                     }

@@ -19,6 +19,9 @@ public enum Error : UInt32
     InvalidInput,
     PlanningFailed,
     NoMatchesFound,
+    ConnectionFailed,
+    ProcessStartFailed,
+    InitializationFailed,
 }
 
 public class CsChatException : Exception

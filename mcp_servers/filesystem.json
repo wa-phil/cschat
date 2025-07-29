@@ -1,0 +1,9 @@
+{
+  "name": "filesystem",
+  "description": "File system operations MCP server",
+  "command": "npx",
+  "args": ["@modelcontextprotocol/server-filesystem", "./"],
+  "environment": {},
+  "workingDirectory": "",
+  "enabled": true
+}

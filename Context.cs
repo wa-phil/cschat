@@ -3,20 +3,20 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
-public class Memory
+public class Context
 {
     protected ChatMessage _systemMessage = new ChatMessage { Role = Roles.System, Content = string.Empty };
     protected List<ChatMessage> _messages = new List<ChatMessage>();
     protected List<(string Reference, string Chunk)> _context = new List<(string Reference, string Chunk)>();
     private DateTime _conversationStartTime = DateTime.Now;
     
-    public Memory(string? systemPrompt = null) 
+    public Context(string? systemPrompt = null) 
     {
         _conversationStartTime = DateTime.Now;
         AddSystemMessage(systemPrompt ?? Program.config.SystemPrompt);
     }
 
-    public Memory(IEnumerable<ChatMessage> messages)
+    public Context(IEnumerable<ChatMessage> messages)
     {
         _conversationStartTime = DateTime.Now;
         foreach (var msg in messages)
@@ -86,7 +86,7 @@ public class Memory
 
     public void Save(string filePath)
     {
-        var data = new MemoryData
+        var data = new ContextData
         {
             SystemMessage = _systemMessage,
             Messages = _messages,
@@ -105,11 +105,11 @@ public class Memory
         }
 
         var json = System.IO.File.ReadAllText(filePath);
-        var data = json.FromJson<MemoryData>();
+        var data = json.FromJson<ContextData>();
 
         if (data == null)
         {
-            throw new InvalidOperationException("Failed to deserialize memory data.");
+            throw new InvalidOperationException("Failed to deserialize Context data.");
         }
 
         _systemMessage = data.SystemMessage ?? new ChatMessage { Role = Roles.System, Content = string.Empty };
@@ -117,9 +117,9 @@ public class Memory
         _context = data.Context ?? new List<(string Reference, string Chunk)>();
     }
 
-    public Memory Clone()
+    public Context Clone()
     {
-        return new Memory
+        return new Context
         {
             _systemMessage = new ChatMessage 
             { 
@@ -133,7 +133,7 @@ public class Memory
         };
     }
 
-    private class MemoryData
+    private class ContextData
     {
         public ChatMessage? SystemMessage { get; set; }
         public List<ChatMessage>? Messages { get; set; }
@@ -141,84 +141,14 @@ public class Memory
     }
 }
 
-/// <summary>
-/// Naive in-memory vector store implementation.
-/// This is a simple implementation for demonstration purposes and should not be used in production systems.
-/// It stores vectors in memory and allows for basic search functionality using cosine similarity.
-/// It does not handle persistence, scaling, or advanced search features, or ANN (Approximate Nearest Neighbor) search.
-/// </summary>
-public class InMemoryVectorStore : IVectorStore
+public class ContextManager
 {
-    private readonly List<(string Reference, string Chunk, float[] Embedding)> _entries = new();
-
-    public void Add(List<(string Reference, string Chunk, float[] Embedding)> entries) =>
-        _entries.AddRange(entries.Select(e => (e.Reference, e.Chunk, Normalize(e.Embedding))));
-
-    public void Clear() => _entries.Clear();
-
-    public bool IsEmpty => _entries.Count == 0;
-    public int Count => _entries.Count;
-
-    public List<SearchResult> Search(float[] queryEmbedding, int topK = 3) =>
-        Log.Method(ctx =>
-    {
-        if (queryEmbedding == null || queryEmbedding.Length == 0)
-        {
-            return new();
-        }
-
-        var normalizedQuery = Normalize(queryEmbedding);
-
-        var results = _entries
-            .Select(entry => new SearchResult
-            {
-                Score = CosineSimilarity(normalizedQuery, entry.Embedding),
-                Reference = entry.Reference ?? string.Empty,
-                Content = entry.Chunk ?? string.Empty
-            })
-            .OrderByDescending(e => e.Score)
-            .Take(topK)
-            .ToList();
-
-        var topScores = results.Select(item => item.Score).ToList();
-        ctx.Append(Log.Data.Scores, topScores);
-        ctx.Append(Log.Data.Count, results.Count);
-        ctx.Succeeded();
-        return results;
-    });
-
-    private static float[] Normalize(float[] vector)
-    {
-        float norm = (float)Math.Sqrt(vector.Sum(v => v * v));
-        if (norm < 1e-8) return vector; // avoid divide-by-zero
-        return vector.Select(v => v / norm).ToArray();
-    }    
-
-    private static float CosineSimilarity(float[] a, float[] b)
-    {
-        if (a.Length != b.Length) throw new ArgumentException("Vector dimensions do not match.");
-
-        float dot = 0, normA = 0, normB = 0;
-
-        for (int i = 0; i < a.Length; i++)
-        {
-            dot += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
-        }
-
-        return (float)(dot / (Math.Sqrt(normA) * Math.Sqrt(normB) + 1e-8));
-    }
-}
-
-public class MemoryContextManager
-{
-    public static async Task InvokeAsync(string input, Memory memory) => await Log.MethodAsync(async ctx =>
+    public static async Task InvokeAsync(string input, Context Context) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        memory.ClearContext();
+        Context.ClearContext();
 
-        // Try to add context to memory first
+        // Try to add context to Context first
         var references = new List<string>();
         var results = await SearchVectorDB(input);
         if (results != null && results.Count > 0)
@@ -226,16 +156,16 @@ public class MemoryContextManager
             foreach (var result in results)
             {
                 references.Add(result.Reference);
-                memory.AddContext(result.Reference, result.Content);
+                Context.AddContext(result.Reference, result.Content);
             }
-            // Context was added, no summary response required, returning modified memory back to caller.
+            // Context was added, no summary response required, returning modified Context back to caller.
             ctx.Append(Log.Data.Result, references.ToArray());
             ctx.Succeeded();
             return;
         }
 
         // If no results found, return a message
-        memory.AddContext("Memory", "No special or relevant information about current context.");
+        Context.AddContext("Context", "No special or relevant information about current context.");
         ctx.Append(Log.Data.Message, "Nothing relevant in the knowledge base.");
         ctx.Succeeded();
         return;

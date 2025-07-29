@@ -21,7 +21,7 @@
 //         ctx.Succeeded();
 //         return 42;
 //     });
-// ================================================
+// ===============================================
 
 using System;
 using System.IO;
@@ -39,9 +39,10 @@ public static class Log
         Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, Response, Progress,
         Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered, Reason,
         ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step, Input, TypeToParse, PlanningFailed, 
+        Command, ServerName, Names, Schema, ExampleText
     }
 
-    public enum Level { Verbose, Information, Error }
+    public enum Level { Verbose, Information, Warning, Error }
 
     public static void SetOutput(Action<Dictionary<Data, object>> output) => _output = output;
     private static Action<Dictionary<Data, object>> _output = (_) => { };
@@ -75,15 +76,21 @@ public static class Log
             _items[Data.Timestamp] = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff");
         }
 
-        public void Failed(string message, Exception? ex)
+        public void Warn(string message)
+        {
+            _items[Data.Level] = Level.Warning;
+            _items[Data.Message] = message;
+            Succeeded(false);
+        }
+
+        public void Failed(string message, Exception ex)
         {
             _items[Data.Level] = Level.Error;
             _items[Data.Message] = message;
-            if (ex != null)
-            {
-                _items[Data.Threw] = $"{ex.GetType().Name}: {ex.Message}";
-                _items[Data.ErrorCode] = $"0x{ex.HResult:X8}";
-            }
+            _items[Data.Threw] = ex.StackTrace?.ToString() ?? "<no stack trace>";
+            _items[Data.Caught] = $"{ex.GetType().Name}: {ex.Message}";
+            _items[Data.ErrorCode] = $"0x{ex.HResult:X8}";
+
             Succeeded(false);
         }
 
@@ -263,6 +270,7 @@ public static class Log
                     Data.Success,
                     Data.ErrorCode,
                     Data.IsRetry,
+                    Data.Name,
                     Data.TypeToParse,
                     Data.Input,
                     Data.Response,

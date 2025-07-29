@@ -28,6 +28,7 @@ A simple, interactive C# console chat client for [Ollama](https://ollama.com/) a
 - **Retrieval-Augmented Generation (RAG):** Ingest, search, and use external documents or knowledge in chat context. RAG data can be added, listed, and cleared via commands.
 - **Interactive Menu System:** Press `Escape` to open a keyboard-navigable menu for commands, model/provider selection, and more. Supports filtering and quick selection.
 - **Advanced Tool System:** Register and invoke custom tools via the `tools` command or through model-suggested tool use. Tools can be used to extend the assistant with new capabilities (e.g., calculations, file operations, lookups, etc.).
+- **MCP support:** Easily add MCP server definitions to expand and extend tool functionality.
 - **Autonomous Planning:** Multi-step task execution with intelligent planning system that can break down complex goals into actionable steps.
 - **Comprehensive Logging:** Built-in logging system with retry logic, error handling, and detailed execution tracking for debugging and monitoring.
 
@@ -58,6 +59,65 @@ The planning system enables autonomous multi-step task execution by breaking dow
 - **Configurable Limits:** Maximum step count (default: 25) prevents infinite loops
 - **Retry Logic:** Built-in retry mechanisms for handling transient failures
 - **Visual Progress:** Real-time console output shows step execution with colored status indicators
+
+## MCP System
+MCP (Model Context Protocol) is a protocol designed to facilitate communication between clients and servers for managing and interacting with AI models. It provides a standardized way to define, query, and execute operations on models hosted on MCP-compatible servers.
+
+### How MCP Works with cschat
+- **Server Integration:** cschat can connect to MCP servers defined in the `mcp_servers` directory. Each server is described using a JSON configuration file (e.g., `gitmcp.json`).
+- **Dynamic Model Management:** MCP allows dynamic discovery and interaction with models hosted on the server.
+- **Command Extensions:** MCP commands are integrated into the `provider` and `rag` command categories, enabling users to leverage MCP-specific features.
+
+### Using MCP with cschat
+1. **Configure MCP Servers:**
+   - Add your MCP server configuration files to the `mcp_servers` directory. Each file should define the server's endpoint, available models, and other relevant details.
+   - Example configuration (`mcp_servers/gitmcp.json`):
+     ```json
+     {
+       "name": "GitMCP",
+       "endpoint": "http://localhost:5000",
+       "models": ["model1", "model2"]
+     }
+     ```
+
+2. **Select MCP as Provider:**
+   - Use the `provider select` command to choose MCP as the provider.
+   - Example:
+     ```
+     provider select MCP
+     ```
+
+3. **List Available Models:**
+   - Use the `provider model` command to list and select models available on the MCP server.
+   - Example:
+     ```
+     provider model
+     ```
+
+4. **Interact with Models:**
+   - Once a model is selected, you can interact with it just like any other provider in cschat.
+
+5. **RAG with MCP:**
+   - Use the `rag` commands to ingest, search, and clear external documents for use in chat context with MCP models.
+
+### Benefits of MCP Integration
+- **Standardized Protocol:** Simplifies interaction with AI models across different servers.
+- **Extensibility:** Easily add new MCP servers and models without modifying the core application.
+- **Enhanced Features:** Leverage advanced capabilities provided by MCP servers, such as custom model operations and metadata management.
+
+### Getting started with MCP
+As most MCP servers have a dependency on NPX (node.js), 
+On Windows run: 
+```
+  winget install OpenJS.NodeJS
+```
+
+On MacOS run:
+```
+  brew install node
+```
+
+For more details on MCP, refer to [MCP for beginners](https://github.com/microsoft/mcp-for-beginners)
 
 ## Logging System
 
@@ -159,7 +219,7 @@ system commands
 - `Engine.cs` - Core chat engine
 - `Json/` — Minimal JSON parser and writer
 - `Log.cs` — Logging utilities
-- `Memory.cs` - Memory implementations
+- `Context.cs` - Context implementations
 - `Program.cs` — Main application logic, chat loop, and command handling
 - `Providers/` — Provider implementations (Ollama, AzureAI)
 - `Tools.cs` - ToolRegistry and various simple tools
@@ -175,6 +235,10 @@ To add a new tool, implement the `ITool` interface and and mark it with the IsCo
 **Note:** This project is a simple example and does not persist chat history or RAG data between runs. For advanced features, consider extending the codebase.
 
 ## History
+
+### v.04 (July 28, 2025)
+#### MCP Support and code refactoring
+This version introduces a rather substantial refactoring to pave the way to add support for the Model Context Protocol (MCP), enabling seamless integration with MCP servers for enhanced functionality and extensibility.
 
 ### v0.3 (July 12, 2025)
 - **Enhanced Planning & Reliability:** Major improvements to planning system reliability with better error handling and retry logic
