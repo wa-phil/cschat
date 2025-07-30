@@ -268,7 +268,47 @@ public partial class CommandManager : Command
                 },
                 new Command
                 {
-                    Name = "tools",
+                    Name = "create documentation",
+                    Description = "Create documentation for all MCP servers and tools",
+                    Action = () =>
+                    {
+                        var connectedServers = McpManager.Instance.GetConnectedServers();
+                        if (connectedServers.Count == 0)
+                        {
+                            Console.WriteLine("No MCP servers are currently connected.");
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                        Console.WriteLine("Creating documentation for MCP servers and tools...");
+                        var docPath = Path.Combine(Program.config.McpServerDirectory, "mcp_documentation.md");
+                        using (var writer = new StreamWriter(docPath, false))
+                        {
+                            writer.WriteLine("# MCP Servers Documentation");
+                            writer.WriteLine();
+                            foreach (var (name, tools) in connectedServers)
+                            {
+                                writer.WriteLine($"## {name}");
+                                writer.WriteLine();
+                                foreach (var tool in tools)
+                                {
+                                    writer.WriteLine($"### {tool.ToolName}");
+                                    var exmapleText = tool.InputType?.GetCustomAttribute<ExampleText>()?.Text ?? string.Empty;
+                                    if (!string.IsNullOrEmpty(exmapleText))
+                                    {
+                                        exmapleText = exmapleText.Replace("ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.", string.Empty);
+                                        writer.WriteLine($"- **Description**: {tool.Description}");
+                                        writer.WriteLine($"- **Input Type**: {tool.InputType?.Name ?? "Unknown"}");
+                                        writer.WriteLine($"- **Example Input**:\n```json\n{exmapleText}\n```");
+                                    }
+                                }
+                                writer.WriteLine();
+                            }
+                        }
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "list tools",
                     Description = "List tools from connected MCP servers",
                     Action = () =>
                     {
@@ -301,7 +341,7 @@ public partial class CommandManager : Command
                                 Console.WriteLine("---------------------------------------------------------");
                             }
                         }
-                        
+
                         return Task.FromResult(Command.Result.Success);
                     }
                 }
