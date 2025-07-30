@@ -41,6 +41,7 @@ public class McpTool : ITool
 
     private Type GenerateDynamicInputType() => Log.Method(ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.ServerName, _serverName);
         ctx.Append(Log.Data.Name, _toolInfo.Name);
         var schemaText = _toolInfo.InputSchema?.ToString();
@@ -246,6 +247,7 @@ public class McpTool : ITool
 
     public async Task<ToolResult> InvokeAsync(object input, Context context) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, _toolInfo.Name);
         ctx.Append(Log.Data.Input, (null == input ? "<null>" : input.ToJson()));
         ctx.Append(Log.Data.ServerName, _serverName);

@@ -45,7 +45,7 @@ public class AzureLogEventListener : EventListener
                 var payload = string.Join(", ", eventData.Payload);
                 ctx.Append(Log.Data.Message, $"[{eventData.EventName}] {eventData.Message} - Payload: {payload}");
             }
-            ctx.Succeeded(eventData.Level != EventLevel.Error);
+            ctx.Succeeded(eventData.Level == EventLevel.Informational || eventData.Level == EventLevel.Verbose);
         }
     }
 }
@@ -61,6 +61,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
 
     public AzureAI(Config cfg) => Log.Method(ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         this.config = cfg ?? throw new ArgumentNullException(nameof(cfg));
 
         ctx.Append(Log.Data.Provider, "AzureAI");
@@ -108,6 +109,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
 
     public async Task<string> PostChatAsync(Context Context, float _ /* TODO: figure out how temp plumbs through here*/) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         await Task.CompletedTask; // Ensure we don't block the thread unnecessarily
         var chatHistory = Context.Messages.Select<ChatMessage, OpenAI.Chat.ChatMessage>(msg =>
             msg.Role switch

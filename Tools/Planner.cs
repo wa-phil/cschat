@@ -54,6 +54,7 @@ Determine: Is the goal now complete? Respond ONLY with JSON matching the PlanPro
 
     private async Task<object?> GetToolInput(string toolName, ITool tool, string goal) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, toolName);
         ctx.Append(Log.Data.TypeToParse, tool.InputType.Name);
 
@@ -127,6 +128,7 @@ Your task is to determine which tool to use based on the following:
 
     private async Task<PlanObjective> GetObjective(Context Context) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         var input = Context.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         var working = new Context($"""
 You are a goal planner.
@@ -147,6 +149,7 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
 
     public async Task<(string result, Context Context)> PostChatAsync(Context Context) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         // We're just getting started, reset results and actionsTaken for each session
         done = false;
         results = new List<string>(); 

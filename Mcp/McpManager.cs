@@ -134,6 +134,7 @@ public class McpManager
 
     private async Task<bool> ConnectToServerAsync(McpServerDefinition serverDef) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, serverDef.Name);
         ctx.Append(Log.Data.Command, serverDef.Command);
         

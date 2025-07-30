@@ -242,29 +242,36 @@ public class find_file : ITool
         var baseDir = string.IsNullOrEmpty(findInput.Path) ? Directory.GetCurrentDirectory() : findInput.Path;
         var supportedExtensions = Engine.supportedFileTypes;
 
-        var matching = Directory.GetFiles(baseDir, "*.*", SearchOption.AllDirectories)
-            .Where(f => supportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
-            .Select(f => Path.GetRelativePath(baseDir, f))
-            .Where(f => pattern.IsMatch(f))
-            .OrderBy(f => f)
-            .ToList();
-
-        stopwatch.Stop();
-        var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
-        Console.WriteLine($"{elapsedTime}ms required to find files that match '{findInput.Pattern}'.");
-
-
-        if (matching.Count == 0)
+        try
         {
-            ctx.Failed("No files matched.", Error.ToolFailed);
-            return Task.FromResult(ToolResult.Failure($"No files matched regex: `{findInput.Pattern}`", Context));
+            var matching = Directory.GetFiles(baseDir, "*.*", SearchOption.AllDirectories)
+                .Where(f => supportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+                .Select(f => Path.GetRelativePath(baseDir, f))
+                .Where(f => pattern.IsMatch(f))
+                .OrderBy(f => f)
+                .ToList();
+
+            stopwatch.Stop();
+            var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
+            Console.WriteLine($"{elapsedTime}ms required to find files that match '{findInput.Pattern}'.");
+
+            if (matching.Count == 0)
+            {
+                ctx.Failed("No files matched.", Error.ToolFailed);
+                return Task.FromResult(ToolResult.Failure($"No files matched regex: `{findInput.Pattern}`", Context));
+            }
+
+            var output = $"find_files({findInput.Pattern}):\n{string.Join("\n", matching)}\n";
+            Context.AddContext($"matched_files: {findInput.Pattern}", output);
+
+            ctx.Append(Log.Data.Count, matching.Count);
+            ctx.Succeeded();
+            return Task.FromResult(ToolResult.Success(output, Context, false));
         }
-
-        var output = $"find_files({findInput.Pattern}):\n{string.Join("\n", matching)}\n";
-        Context.AddContext($"matched_files: {findInput.Pattern}", output);
-
-        ctx.Append(Log.Data.Count, matching.Count);
-        ctx.Succeeded();
-        return Task.FromResult(ToolResult.Success(output, Context, false));
+        catch (Exception ex)
+        {
+            ctx.Failed($"Error searching for files: {ex.Message}", ex);
+            return Task.FromResult(ToolResult.Failure($"Error searching for files: {ex.Message}", Context));
+        }
     });
 }
