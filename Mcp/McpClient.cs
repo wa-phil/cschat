@@ -58,6 +58,7 @@ public class McpClient : IDisposable
 
     public async Task<List<McpClientTool>> ListToolsAsync() => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         if (_disposed)
             throw new ObjectDisposedException(nameof(McpClient));
 

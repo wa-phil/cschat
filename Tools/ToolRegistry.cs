@@ -63,7 +63,7 @@ public static class ToolRegistry
     internal static async Task<ToolResult> InvokeInternalAsync(string toolName, object toolInput, Context Context, string userInput) =>
         await Log.MethodAsync(async ctx =>
     {
-        ctx.OnlyEmitOnFailure();
+        //ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, toolName);
         ctx.Append(Log.Data.ToolInput, toolInput?.ToString() ?? "<null>");
 
@@ -86,13 +86,14 @@ public static class ToolRegistry
             return ToolResult.Failure($"ERROR: Tool '{toolName}' is not available.", Context);
         }
         var toolResult = await tool.InvokeAsync(toolInput, Context);
-        ctx.Append(Log.Data.Result, $"Summarize:{toolResult.Summarize}, ResponseText:{toolResult.Response}");
 
         if (null == toolResult)
         {
             ctx.Failed($"Tool '{toolName}' returned null result.", Error.ToolFailed);
             return ToolResult.Failure($"ERROR: Tool '{toolName}' returned null result.", Context);
         }
+
+        ctx.Append(Log.Data.Result, $"Succeeded: {toolResult.Succeeded}, ResponseText:{toolResult.Response}");
 
         if (!toolResult.Succeeded)
         {
@@ -102,30 +103,9 @@ public static class ToolRegistry
             return ToolResult.Failure(error, Context);
         }
 
-        if (!toolResult.Summarize)
-        {
-            ctx.Succeeded();
-            return toolResult;
-        }
-
-        Context toolContext = new Context(new[]
-        {
-            new ChatMessage { Role = Roles.System, Content= "Use the result of the invoked tool to answer the user's original question in natural language."},
-            new ChatMessage { Role = Roles.User,
-            Content = $"""
-                The user asked a question that required invoking a tool to help answer it.
-
-                {userInput}
-
-                A tool, {toolName}, was invoked to help answer the user's question, the result of which was: {toolResult.Response}.
-
-                Explain the answer succinctly.  You do not need to reference the tool or its output directly, just use it's result to inform your response.
-            """}
-        });
-
-        var formattedResponse = await Engine.Provider!.PostChatAsync(toolContext, Program.config.Temperature);
+        await ContextManager.AddContent(toolResult.Response, $"{toolName}({toolInput.ToJson()})");
         ctx.Succeeded();
-        return ToolResult.Success(formattedResponse, toolResult.context, toolResult.Summarize);
+        return ToolResult.Success(toolResult.Response, toolResult.context);
     });
     
     public static async Task<string> InvokeToolAsync(string toolName, object toolInput, Context ctx, string lastUserInput)

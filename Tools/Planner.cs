@@ -126,10 +126,16 @@ Your task is to determine which tool to use based on the following:
         return (ToolSelection)response;
     });
 
-    private async Task<PlanObjective> GetObjective(Context Context) => await Log.MethodAsync(async ctx =>
+    private async Task<PlanObjective> GetObjective(Context Context)
+    {
+        return await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        var input = Context.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
+        var input = Context.Messages
+            .TakeLast(5)
+            .Select(m => $"{m.Role.ToString()}: {m.Content}")
+            .Aggregate((current, next) => $"{current}\n{next}");
+
         var working = new Context($"""
 You are a goal planner.
 Your task is to decide if a tool should be used to answer the user's question, to provide a more accurate or personalized response.
@@ -146,12 +152,12 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
         ctx.Succeeded();
         return (PlanObjective)result;
     });
+    }
 
     public async Task<(string result, Context Context)> PostChatAsync(Context context) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         // We're just getting started, reset results and actionsTaken for each session
-        done = false;
         results = new List<string>(); 
         actionsTaken = new HashSet<string>();
 
@@ -224,50 +230,30 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
 
             var result = await ToolRegistry.InvokeInternalAsync(step!.ToolName!, step!.ToolInput!, context, objective.Goal!);
             var status = result.Succeeded ? "✅" : "❌";
-            string stepSummaryForUser = result.Response; // raw or summarized depending on tool
-            string stepSummaryForPlanner;
+            
+            // Summarize internally for plan progress evaluation
+            var summaryContext = new Context($"""
+                Summarize the following tool output to help evaluate whether the user's goal was met.
 
-            if (!result.Summarize)
-            {
-                await Engine.AddContentToVectorStore(result.Response, $"{step.ToolName}({step.ToolInput.ToJson()})");
-                // Summarize internally for plan progress evaluation
-                var summaryContext = new Context($"""
-                    Summarize the following tool output to help evaluate whether the user's goal was met.
+                Tool: {step.ToolName}
+                Goal: {objective.Goal}
 
-                    Tool: {step.ToolName}
-                    Goal: {objective.Goal}
+                Tool Output:
+                {result.Response}
 
-                    Tool Output:
-                    {result.Response}
-
-                    Provide a brief one-paragraph summary of what this output tells us.
-                """);
-                summaryContext.AddUserMessage("Summarize the tool output.");
-                var summary = await Engine.Provider!.PostChatAsync(summaryContext, 0.2f);
-                stepSummaryForPlanner = $"--- step {stepsTaken}: output from {step.ToolName} ---\n{summary}\n--- end step {stepsTaken} ---";
-            }
-            else
-            {
-                // It's already summarized for both planner and user
-                stepSummaryForPlanner = $"--- step {stepsTaken}: output from {step.ToolName} ---\n{result.Response}\n--- end step {stepsTaken} ---";
-            }
+                Provide a brief one-paragraph summary of what this output tells us.
+            """);
+            summaryContext.AddUserMessage("Summarize the tool output.");
+            var summary = await Engine.Provider!.PostChatAsync(summaryContext, 0.2f);
+            var stepSummaryForPlanner = $"--- step {stepsTaken}: output from {step.ToolName}({step.ToolInput.ToJson()}) ---\n{summary}\n--- end step {stepsTaken} ---";
 
             context = result.context;
             context.AddToolMessage(stepSummaryForPlanner);
             results.Add(stepSummaryForPlanner);
 
-            if (result.Succeeded)
-            {
-                // Update context with the result of the tool invocation
-                context = result.context;
-                context.AddToolMessage(stepSummaryForPlanner); // use summarized version
-            }
-
             Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine($"{status}\n{stepSummaryForUser}"); // show what user would see
+            Console.WriteLine($"{status}\n{summary}"); // show what user would see
             Console.ResetColor();
-
-            results.Add(stepSummaryForPlanner); // planner only sees summarized text
 
             // check progress towards the goal
             var progress = await GetPlanProgress(context, objective.Goal, input);
@@ -276,8 +262,7 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
                 throw new CsChatException($"Failed to get plan progress for goal '{objective.Goal}'.", Error.EmptyResponse);
             }
 
-            done = progress.GoalAchieved;
-            if (done && result.Summarize == false)
+            if (progress.GoalAchieved)
             {
                 // Final tool output is the actual answer, no need to run final summary
                 ctx.Append(Log.Data.Message, "Returning raw tool output as final result.");
@@ -295,14 +280,25 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
             return (finalResponse, context);
         }
 
-        // Final summarization with feedback loop
+        // If we're here, planning didn't fail, but we didn't achieve the goal either; so
+        // summarize the steps taken so far and return that as the final result.
+        var builder = new StringBuilder();
+        int lines = 0;
+        Log.GetOutput().ToList().Aggregate(builder, (sb, txt) => { sb.AppendLine(txt); lines++; return sb; });
+        var log = builder.ToString();
         var working = new Context($"""
 Below is a conversation leading up to and including the steps taken, and their results, to achieve that goal.
+Note that the goal very likely has not been achieved, and that very likely something during the planning or execution of the steps against the planned goal failed.
+
 The implied goal before action was taken was: {objective.Goal}
 
 The user stated: {input}.
 
+Explain the steps that were taken, the results of those steps, and hypothesize why the goal was not achieved.
 Use the following context to inform your response to the user's statement.
+--- log (lines: {lines}) ---
+{log}
+--- end log ---
 """);
         // marshal passed-in context into working context
         context.GetContext().ForEach(c => working.AddContext(c.Reference, c.Chunk));

@@ -171,6 +171,30 @@ public class ContextManager
         return;
     });
 
+    public static async Task AddContent(string content, string reference = "content") => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
+        IEmbeddingProvider? embeddingProvider = Engine.Provider as IEmbeddingProvider;
+        embeddingProvider.ThrowIfNull("Current configured provider does not support embeddings.");
+
+        ctx.Append(Log.Data.Reference, reference);
+        var embeddings = new List<(string Reference, string Chunk, float[] Embedding)>();
+        var chunks = Engine.TextChunker!.ChunkText(reference, content);
+        ctx.Append(Log.Data.Count, chunks.Count);
+
+        await Task.WhenAll(chunks.Select(async chunk =>
+            embeddings.Add((
+                Reference: chunk.Reference,
+                Chunk: chunk.Content,
+                Embedding: await embeddingProvider!.GetEmbeddingAsync(chunk.Content)
+            ))
+        ));
+
+        Engine.VectorStore.Add(embeddings);
+        ctx.Succeeded(embeddings.Count > 0);
+    });
+
     public static async Task<List<SearchResult>> SearchVectorDB(string userMessage)
     {
         var empty = new List<SearchResult>();

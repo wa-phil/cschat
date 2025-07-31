@@ -34,9 +34,9 @@ public class file_list : ITool
 
         var list = string.Join("\n", files.Select(f => Path.GetRelativePath(path, f)));
         Context.AddContext("file_list", list);
-        await Engine.AddContentToVectorStore(list, "file_list");
+        await ContextManager.AddContent(list, "file_list");
         ctx.Succeeded();
-        return ToolResult.Success($"Found {files.Count} files:\n{list}", Context, false);
+        return ToolResult.Success($"Found {files.Count} files:\n{list}", Context);
     });
 }
 
@@ -74,9 +74,9 @@ public class file_metadata : ITool
         sb.AppendLine($"Last Modified: {modified:u}");
 
         Context.AddContext("file_metadata", sb.ToString());
-        await Engine.AddContentToVectorStore(sb.ToString(), "file_metadata");
+        await ContextManager.AddContent(sb.ToString(), "file_metadata");
         ctx.Succeeded();
-        return ToolResult.Success(sb.ToString(), Context, false);
+        return ToolResult.Success(sb.ToString(), Context);
     });
 }
 
@@ -108,9 +108,9 @@ public class summarize_file : ITool
         }
 
         Context.AddContext($"file_summary: {pathInput.Path}", content);
-        await Engine.AddContentToVectorStore(content, $"file_summary: {pathInput.Path}");
+        await ContextManager.AddContent(content, $"file_summary: {pathInput.Path}");
         ctx.Succeeded();
-        return ToolResult.Success($"Contents of {pathInput.Path}:\n{content}", Context, true);
+        return ToolResult.Success($"Contents of {pathInput.Path}:\n{content}", Context);
     });
 }
 
@@ -141,7 +141,7 @@ public class grep_files : ITool
 
         Context.AddContext($"grep_files({regexInput.Pattern})", string.Join("\n", grepResult.Results));
         ctx.Succeeded(grepResult.Succeeded);
-        return ToolResult.Success($"{(grepResult.Succeeded?"Succeeded in finding":"Failed. Found")} {grepResult.Matches} files matching `{regexInput.Pattern}`:\n{grepResult.Results}", Context, false);
+        return ToolResult.Success($"{(grepResult.Succeeded?"Succeeded in finding":"Failed. Found")} {grepResult.Matches} files matching `{regexInput.Pattern}`:\n{grepResult.Results}", Context);
     });
 
     public static async Task<GrepResult> GrepFilesAsync(string regExPattern, string path = ".") => await Log.MethodAsync(async ctx =>
@@ -186,7 +186,7 @@ public class grep_files : ITool
             {
                 var stopwatch = System.Diagnostics.Stopwatch.StartNew();
                 Console.WriteLine($"Matched: {relativePath}");
-                await Engine.AddContentToVectorStore(content, relativePath);
+                await ContextManager.AddContent(content, relativePath);
                 stopwatch.Stop();
                 var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
                 Console.WriteLine($"{elapsedTime}ms required to read file '{file}' contents.");
@@ -207,7 +207,7 @@ public class grep_files : ITool
             .Select(r => $"--- {r.fileName} line number: {r.LineNumber} ---\n{r.TextBlock}\n--- end match ---")
             .ToList());
 
-        await Engine.AddContentToVectorStore(resultsString, $"grep_files({regExPattern})");
+        await ContextManager.AddContent(resultsString, $"grep_files({regExPattern})");
 
         ctx.Append(Log.Data.Count, results.Count);
         ctx.Succeeded();
@@ -271,7 +271,7 @@ public class find_file : ITool
 
             ctx.Append(Log.Data.Count, matching.Count);
             ctx.Succeeded();
-            return Task.FromResult(ToolResult.Success(output, Context, false));
+            return Task.FromResult(ToolResult.Success(output, Context));
         }
         catch (Exception ex)
         {

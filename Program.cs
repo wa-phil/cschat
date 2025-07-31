@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text;
 
 
 static class Program
@@ -40,7 +41,7 @@ static class Program
         return result;
     }
 
-    public static async Task InitProgramAsync()
+    public static void Startup()
     {
         config = Config.Load(ConfigFilePath);
         Log.Initialize();
@@ -52,26 +53,40 @@ static class Program
 
         // Register all IChatProvider implementations
         Providers = DictionaryOfTypesToNamesForInterface<IChatProvider>(serviceCollection, types);
-        Chunkers  = DictionaryOfTypesToNamesForInterface<ITextChunker>(serviceCollection, types);
-        Tools     = DictionaryOfTypesToNamesForInterface<ITool>(serviceCollection, types);
+        Chunkers = DictionaryOfTypesToNamesForInterface<ITextChunker>(serviceCollection, types);
+        Tools = DictionaryOfTypesToNamesForInterface<ITool>(serviceCollection, types);
 
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
+
+    }
+
+    public static async Task InitProgramAsync()
+    {
         Context = new Context(config.SystemPrompt);
         ToolRegistry.Initialize();
-        
+
         // Initialize MCP manager and load servers
         await McpManager.Instance.LoadAllServersAsync();
-        
+
         // Create command manager after all tools are registered
         commandManager = CommandManager.CreateDefaultCommands();
-                
-        // Provider and chunker initialization deferred until after config is loaded.
+
+        Engine.SetProvider(config.Provider);
+        Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
+
+        // Add all the tools to the context
+        var toolDescriptions = ToolRegistry.GetRegisteredTools()
+            .Select(tool => $"--- {tool.Name} ---\n{tool.Description}\nUsage:\n{tool.Usage}\n--- end {tool.Name} ---")
+            .Aggregate(new StringBuilder(), (sb, txt) => sb.AppendLine(txt))
+            .ToString();
+        
+        await ContextManager.AddContent(toolDescriptions, "tool_descriptions");            
     }
 
     static async Task Main(string[] args)
     {
         Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
-        await InitProgramAsync();
+        Startup();
 
         bool showHelp = false;
         var options = new OptionSet {
@@ -89,8 +104,7 @@ static class Program
             return;
         }
 
-        Engine.SetProvider(config.Provider);
-        Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
+        await InitProgramAsync();
 
         if (string.IsNullOrWhiteSpace(config.Model))
         {

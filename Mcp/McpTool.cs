@@ -276,7 +276,6 @@ public class McpTool : ITool
 
     public async Task<ToolResult> InvokeAsync(object input, Context context) => await Log.MethodAsync(async ctx =>
     {
-        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, _toolInfo.Name);
         ctx.Append(Log.Data.Input, (null == input ? "<null>" : input.ToJson()));
         ctx.Append(Log.Data.ServerName, _serverName);
@@ -328,7 +327,7 @@ public class McpTool : ITool
             // Combine all content into a simple string representation
             ctx.Append(Log.Data.Response, responseText);
             ctx.Succeeded();
-            return ToolResult.Success(responseText, context, false);
+            return ToolResult.Success(responseText, context);
         }
         catch (Exception ex)
         {

@@ -42,7 +42,7 @@ public static class Log
         Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, Response, Progress,
         Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered, Reason,
         ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step, Input, TypeToParse, PlanningFailed,
-        Command, ServerName, Names, Schema, ExampleText
+        Command, ServerName, Names, Schema, ExampleText, MenuTop, ConsoleHeight, ConsoleWidth, InputTop,
     }
 
     public enum Level { Verbose, Information, Warning, Error }
@@ -318,6 +318,7 @@ public class EventLogListener : EventListener
 {
     protected override void OnEventSourceCreated(EventSource eventSource) => Log.Method(ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, eventSource.Name);
         Program.config.EventSources.TryGetValue(eventSource.Name, out var enabled);
         if (Program.config.VerboseEventLoggingEnabled && enabled == true)

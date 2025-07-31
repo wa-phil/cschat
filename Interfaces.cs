@@ -52,13 +52,13 @@ public interface ITextChunker
     List<(string Reference, string Content)> ChunkText(string path, string text);
 }
 
-public record ToolResult(bool Succeeded, string Response, Context context, bool Summarize = true, string? Error = null)
+public record ToolResult(bool Succeeded, string Response, Context context, string? Error = null)
 {
-    public static ToolResult Success(string response, Context ctx, bool summarize = true) =>
-        new(true, response, ctx, summarize, null);
+    public static ToolResult Success(string response, Context ctx) =>
+        new(true, response, ctx, null);
 
     public static ToolResult Failure(string errorMessage, Context ctx) =>
-        new(false, $"ERROR: {errorMessage}", ctx, Summarize: false, Error: errorMessage);
+        new(false, $"ERROR: {errorMessage}", ctx, Error: errorMessage);
 }
 
 public interface ITool

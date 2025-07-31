@@ -107,6 +107,27 @@ public partial class CommandManager
                                 Console.WriteLine("Configuration reset to default.");
                                 return Command.Result.Success;
                             }
+                        },
+                        new Command
+                        {
+                            Name = "max menu items", Description = "Configure maximum number of menu items displayed at once",
+                            Action = () =>
+                            {
+                                Console.WriteLine($"Current max menu items: {Program.config.MaxMenuItems}");
+                                Console.Write("Enter new value (minimum 1): ");
+                                var input = User.ReadLineWithHistory();
+                                if (int.TryParse(input, out int value) && value >= 1)
+                                {
+                                    Program.config.MaxMenuItems = value;
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine($"Max menu items set to {value}");
+                                }
+                                else
+                                {
+                                    Console.WriteLine("Invalid input. Please enter a number >= 1.");
+                                }
+                                return Task.FromResult(Command.Result.Success);
+                            }
                         }
                     }
                 }

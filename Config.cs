@@ -25,6 +25,7 @@ public class Config
     public string McpServerDirectory { get; set; } = "./mcp_servers";
     public bool VerboseEventLoggingEnabled { get; set; } = false;
     public int MaxSteps { get; set; } = 25; // Maximum number of steps for planning
+    public int MaxMenuItems { get; set; } = 10; // Maximum number of menu items to display at once
 
     public Dictionary<string, bool> EventSources { get; set; } = new Dictionary<string, bool>
     {
