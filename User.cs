@@ -160,6 +160,7 @@ public class User
                     Console.SetCursorPosition(3 + filter.Length, inputTop);
                 }
             }
+            ctx.Succeeded();
         });
 
         DrawMenu();
