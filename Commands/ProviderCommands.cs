@@ -123,12 +123,12 @@ public partial class CommandManager
                     Action = () =>
                     {
                         var options = new List<string> { "true", "false" };
-                        var currentSetting = Program.config.AzureAuthVerboseLoggingEnabled ? "true" : "false";
+                        var currentSetting = Program.config.VerboseEventLoggingEnabled ? "true" : "false";
                         var selected = User.RenderMenu("Enable Azure Authentication verbose logging:", options, options.IndexOf(currentSetting));
 
                         if (!string.IsNullOrWhiteSpace(selected) && bool.TryParse(selected, out var result))
                         {
-                            Program.config.AzureAuthVerboseLoggingEnabled = result;
+                            Program.config.VerboseEventLoggingEnabled = result;
                             Console.WriteLine($"Azure Auth verbose logging set to {result}.");
                             Config.Save(Program.config, Program.ConfigFilePath);
                         }
@@ -137,6 +137,33 @@ public partial class CommandManager
                             Console.WriteLine("Invalid selection.");
                         }
 
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "toggle event sources",
+                    Description = "Toggle event sources for verbose logging",
+                    Action = () =>
+                    {
+                        Console.WriteLine("Select an event source to toggle:");
+                        var sources = Program.config.EventSources.Select(kvp => $"{kvp.Key} : {(kvp.Value ? "Enabled" : "Disabled")}").ToList();
+                        var selected = User.RenderMenu("Event sources:", sources, -1);
+                        if (selected != null)
+                        {
+                            selected = selected.Split(':')[0].Trim(); // Get the source name
+                            if (Program.config.EventSources.TryGetValue(selected, out var enabled))
+                            {
+                                Program.config.EventSources[selected] = !enabled;
+                                Console.WriteLine($"Event source '{selected}' toggled to {(Program.config.EventSources[selected] ? "Enabled" : "Disabled")}");
+                                Config.Save(Program.config, Program.ConfigFilePath);
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Event source '{selected}' not found.");
+                                return Task.FromResult(Command.Result.Failed);
+                            }
+                        }
                         return Task.FromResult(Command.Result.Success);
                     }
                 }

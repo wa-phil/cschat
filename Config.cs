@@ -23,8 +23,20 @@ public class Config
 
     public RagSettings RagSettings { get; set; } = new RagSettings();
     public string McpServerDirectory { get; set; } = "./mcp_servers";
-    public bool AzureAuthVerboseLoggingEnabled { get; set; } = false;
+    public bool VerboseEventLoggingEnabled { get; set; } = false;
     public int MaxSteps { get; set; } = 25; // Maximum number of steps for planning
+
+    public Dictionary<string, bool> EventSources { get; set; } = new Dictionary<string, bool>
+    {
+        { "Microsoft-Extensions-DependencyInjection", true },
+        { "System.Diagnostics.Eventing.FrameworkEventSource", true },
+        { "System.Threading.Tasks.TplEventSource", true },
+        { "Microsoft-Diagnostics-DiagnosticSource", true },
+        { "Private.InternalDiagnostics.System.Net.Sockets", true },
+        { "Private.InternalDiagnostics.System.Net.Http", true },
+        { "System.Net.NameResolution", true },
+        { "System.Net.Http", true },
+    };
 
     public static Config Load(string configFilePath)
     {

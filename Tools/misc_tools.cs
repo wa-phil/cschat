@@ -42,6 +42,7 @@ public class datetime_current : ITool
 
     public Task<ToolResult> InvokeAsync(object input, Context Context) => Log.Method(ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         var result = DateTime.Now.ToString("u");
         ctx.Succeeded();
         return Task.FromResult(ToolResult.Success(result, Context, true));

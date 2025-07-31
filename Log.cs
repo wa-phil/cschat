@@ -30,6 +30,9 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Diagnostics.Tracing;
+using System.Collections.Generic;
+using Microsoft.Extensions.Logging;
 
 public static class Log
 {
@@ -38,12 +41,13 @@ public static class Log
         Method, Level, Timestamp, Message, Success, ErrorCode, IsRetry, Threw, Caught, Exception, PlugIn, Count, Source,
         Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, Response, Progress,
         Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered, Reason,
-        ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step, Input, TypeToParse, PlanningFailed, 
+        ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step, Input, TypeToParse, PlanningFailed,
         Command, ServerName, Names, Schema, ExampleText
     }
 
     public enum Level { Verbose, Information, Warning, Error }
 
+    private static EventLogListener? eventListener = null;
     public static void SetOutput(Action<Dictionary<Data, object>> output) => _output = output;
     private static Action<Dictionary<Data, object>> _output = (_) => { };
 
@@ -251,6 +255,11 @@ public static class Log
 
     public static void Initialize()
     {
+        if (eventListener == null)
+        {
+            eventListener = new EventLogListener();
+        }
+
         var buffer = _buffer; // Use a local reference to avoid recursion
         SetOutput((obj) =>
         {
@@ -300,5 +309,47 @@ public static class Log
                 buffer.Add(result); // Use the local reference
             }
         });
+    }
+}
+
+
+// Custom EventSourceListener that bridges Azure SDK events to our Log class
+public class EventLogListener : EventListener
+{
+    protected override void OnEventSourceCreated(EventSource eventSource) => Log.Method(ctx =>
+    {
+        ctx.Append(Log.Data.Name, eventSource.Name);
+        Program.config.EventSources.TryGetValue(eventSource.Name, out var enabled);
+        if (Program.config.VerboseEventLoggingEnabled && enabled == true)
+        {
+            EnableEvents(eventSource, EventLevel.Verbose);
+        }
+        else
+        {
+            Program.config.EventSources[eventSource.Name] = false;
+        }
+        ctx.Append(Log.Data.Enabled, enabled);
+        ctx.Succeeded();
+    });
+
+    protected override void OnEventWritten(EventWrittenEventArgs eventData)
+    {
+        Program.config.EventSources.TryGetValue(eventData.EventSource.Name, out var enabled);
+        if (enabled == true)
+        {
+            var level = eventData.Level == EventLevel.Error ? Log.Level.Error : Log.Level.Information;
+
+            using var ctx = new Log.Context(level);
+            ctx.OnlyEmitOnFailure();
+            ctx.Append(Log.Data.Level, level);
+            ctx.Append(Log.Data.Source, $"Azure.{eventData.EventSource.Name}");
+            ctx.Append(Log.Data.Message, $"[{eventData.EventName}] {eventData.Message}");
+            if (eventData.Payload != null && eventData.Payload.Count > 0)
+            {
+                var payload = string.Join(", ", eventData.Payload);
+                ctx.Append(Log.Data.Message, $"[{eventData.EventName}] {eventData.Message} - Payload: {payload}");
+            }
+            ctx.Succeeded(eventData.Level == EventLevel.Informational || eventData.Level == EventLevel.Verbose);
+        }
     }
 }

@@ -68,21 +68,31 @@ public partial class CommandManager
                             Console.WriteLine("RAG store is empty. Please add files or directories first.");
                             return Task.FromResult(Command.Result.Failed);
                         }
-                        Console.WriteLine("Enter the range of entries to display:");
                         Console.WriteLine($"Total entries: {Engine.VectorStore.Count}");
-                        Console.Write("Enter start index: ");
-                        int startIndex = int.Parse(Console.ReadLine() ?? "0");
-                        if (startIndex < 0 || startIndex >= Engine.VectorStore.Count)
+                        int startIndex = 0, endIndex = Engine.VectorStore.Count - 1;
+                        if (Engine.VectorStore.Count > 10)
                         {
-                            Console.WriteLine("Invalid start index.");
-                            return Task.FromResult(Command.Result.Failed);
+                            Console.WriteLine("Enter the range of entries to display:");
+                            Console.Write("Enter start index: ");
+                            startIndex = int.Parse(Console.ReadLine() ?? "0");
+                            if (startIndex < 0 || startIndex >= Engine.VectorStore.Count)
+                            {
+                                Console.WriteLine("Invalid start index.");
+                                return Task.FromResult(Command.Result.Failed);
+                            }
+                            Console.Write("Enter end index: ");
+                            endIndex = int.Parse(Console.ReadLine() ?? "0");
+                            if (endIndex < 0 || endIndex >= Engine.VectorStore.Count)
+                            {
+                                Console.WriteLine("Invalid end index.");
+                                return Task.FromResult(Command.Result.Failed);
+                            }
                         }
-                        Console.Write("Enter end index: ");
-                        int endIndex = int.Parse(Console.ReadLine() ?? "0");
-                        if (endIndex < 0 || endIndex >= Engine.VectorStore.Count)
+                        else
                         {
-                            Console.WriteLine("Invalid end index.");
-                            return Task.FromResult(Command.Result.Failed);
+                            Console.WriteLine("Displaying all entries in the RAG store:");
+                            startIndex = 0;
+                            endIndex = Engine.VectorStore.Count - 1;
                         }
 
                         var entries = Engine.VectorStore.GetEntries(start: startIndex, count: endIndex - startIndex + 1);
