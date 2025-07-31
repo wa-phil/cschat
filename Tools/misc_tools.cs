@@ -45,6 +45,6 @@ public class datetime_current : ITool
         ctx.OnlyEmitOnFailure();
         var result = DateTime.Now.ToString("u");
         ctx.Succeeded();
-        return Task.FromResult(ToolResult.Success(result, Context, true));
+        return Task.FromResult(ToolResult.Success(result, Context, false));
     });
 }
