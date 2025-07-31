@@ -147,7 +147,7 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
         return (PlanObjective)result;
     });
 
-    public async Task<(string result, Context Context)> PostChatAsync(Context Context) => await Log.MethodAsync(async ctx =>
+    public async Task<(string result, Context Context)> PostChatAsync(Context context) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         // We're just getting started, reset results and actionsTaken for each session
@@ -155,7 +155,7 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
         results = new List<string>(); 
         actionsTaken = new HashSet<string>();
 
-        var objective = await GetObjective(Context);
+        var objective = await GetObjective(context);
         ctx.Append(Log.Data.Goal, objective != null ? objective.ToJson() : "<null>");
 
         // EARLY EXIT: If no action is needed, skip planning loop and just answer
@@ -164,15 +164,15 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
             string.IsNullOrEmpty(objective.Goal.Trim() ?? string.Empty) ||
             objective.Goal.Equals("No further action required", StringComparison.OrdinalIgnoreCase) == true)
         {
-            // Construct a user-facing natural language reply using the original Context
+            // Construct a user-facing natural language reply using the original context
             ctx.Append(Log.Data.Message, "No planning required, generating response directly.");
-            Context.SetSystemMessage(Program.config.SystemPrompt);
-            var finalResult = await Engine.Provider!.PostChatAsync(Context, Program.config.Temperature);
+            context.SetSystemMessage(Program.config.SystemPrompt);
+            var finalResult = await Engine.Provider!.PostChatAsync(context, Program.config.Temperature);
             ctx.Succeeded();
-            return (finalResult, Context); // Context is unchanged
+            return (finalResult, context); // context is unchanged
         }
 
-        var input = Context.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
+        var input = context.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         int stepsTaken = 0, maxAllowedSteps = Program.config.MaxSteps;
         Console.ForegroundColor = ConsoleColor.DarkYellow;
         Console.WriteLine($"working on: {objective.Goal}");
@@ -182,7 +182,7 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
         // Conversation implies action on the part of the planner.
         int duplicatesAllowed = 3;
         bool planningFailed = false;
-        await foreach (var step in Steps(objective.Goal, Context, input, onPlanningFailure: reason =>
+        await foreach (var step in Steps(objective.Goal, context, input, onPlanningFailure: reason =>
         {
             planningFailed = true;
             ctx.Append(Log.Data.Reason, reason);
@@ -206,12 +206,12 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
                 if (0 == --duplicatesAllowed)
                 {
                     ctx.Append(Log.Data.Message, $"Exceeded maximum allowed duplicates ({duplicatesAllowed}). Stopping planning.");
-                    Context.SetSystemMessage(Program.config.SystemPrompt);
-                    Context.AddUserMessage($"Planning failed for goal: {objective.Goal}. Please summarize the results of the steps taken so far.");
-                    var finalResponse = await Engine.Provider!.PostChatAsync(Context, Program.config.Temperature);
+                    context.SetSystemMessage(Program.config.SystemPrompt);
+                    context.AddUserMessage($"Planning failed for goal: {objective.Goal}. Please summarize the results of the steps taken so far.");
+                    var finalResponse = await Engine.Provider!.PostChatAsync(context, Program.config.Temperature);
 
                     ctx.Failed("Planning failed, summarizing results.", Error.PlanningFailed);
-                    return (finalResponse, Context);
+                    return (finalResponse, context);
                 }
                 continue; // skip duplicate steps
             }
@@ -222,13 +222,14 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
             Console.Write($"Step {stepsTaken}: {step.ToolName}...");
             Console.ResetColor();
 
-            var result = await ToolRegistry.InvokeInternalAsync(step!.ToolName!, step!.ToolInput!, Context, objective.Goal!);
+            var result = await ToolRegistry.InvokeInternalAsync(step!.ToolName!, step!.ToolInput!, context, objective.Goal!);
             var status = result.Succeeded ? "✅" : "❌";
             string stepSummaryForUser = result.Response; // raw or summarized depending on tool
             string stepSummaryForPlanner;
 
             if (!result.Summarize)
             {
+                await Engine.AddContentToVectorStore(result.Response, $"{step.ToolName}({step.ToolInput.ToJson()})");
                 // Summarize internally for plan progress evaluation
                 var summaryContext = new Context($"""
                     Summarize the following tool output to help evaluate whether the user's goal was met.
@@ -251,15 +252,15 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
                 stepSummaryForPlanner = $"--- step {stepsTaken}: output from {step.ToolName} ---\n{result.Response}\n--- end step {stepsTaken} ---";
             }
 
-            Context = result.Context;
-            Context.AddToolMessage(stepSummaryForPlanner);
+            context = result.context;
+            context.AddToolMessage(stepSummaryForPlanner);
             results.Add(stepSummaryForPlanner);
 
             if (result.Succeeded)
             {
                 // Update context with the result of the tool invocation
-                Context = result.Context;
-                Context.AddToolMessage(stepSummaryForPlanner); // use summarized version
+                context = result.context;
+                context.AddToolMessage(stepSummaryForPlanner); // use summarized version
             }
 
             Console.ForegroundColor = ConsoleColor.DarkGray;
@@ -269,7 +270,7 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
             results.Add(stepSummaryForPlanner); // planner only sees summarized text
 
             // check progress towards the goal
-            var progress = await GetPlanProgress(Context, objective.Goal, input);
+            var progress = await GetPlanProgress(context, objective.Goal, input);
             if (progress == null || progress is not PlanProgress)
             {
                 throw new CsChatException($"Failed to get plan progress for goal '{objective.Goal}'.", Error.EmptyResponse);
@@ -280,18 +281,18 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
             {
                 // Final tool output is the actual answer, no need to run final summary
                 ctx.Append(Log.Data.Message, "Returning raw tool output as final result.");
-                return (result.Response, Context);
+                return (result.Response, context);
             }            
         }
 
         // Handle the case where planning failed, and bail out early with a summary of the results taken so far.
         if (planningFailed)
         {
-            Context.SetSystemMessage(Program.config.SystemPrompt);
-            Context.AddUserMessage($"Planning failed for goal: {objective.Goal}. Please summarize the results of the steps taken so far.");
-            var finalResponse = await Engine.Provider!.PostChatAsync(Context, Program.config.Temperature);
+            context.SetSystemMessage(Program.config.SystemPrompt);
+            context.AddUserMessage($"Planning failed for goal: {objective.Goal}. Please summarize the results of the steps taken so far.");
+            var finalResponse = await Engine.Provider!.PostChatAsync(context, Program.config.Temperature);
             ctx.Failed("Planning failed, summarizing results.", Error.PlanningFailed);
-            return (finalResponse, Context);
+            return (finalResponse, context);
         }
 
         // Final summarization with feedback loop
@@ -303,14 +304,14 @@ The user stated: {input}.
 
 Use the following context to inform your response to the user's statement.
 """);
-        // marshal Context context into working Context
-        Context.GetContext().ForEach(c => working.AddContext(c.Reference, c.Chunk));
+        // marshal passed-in context into working context
+        context.GetContext().ForEach(c => working.AddContext(c.Reference, c.Chunk));
         results.ForEach(r => working.AddToolMessage(r));
         working.AddUserMessage($"Use the results of the steps taken to achieve the goal: '{objective.Goal}' to inform your response to the original statement: '{input}'");
         var final = await Engine.Provider!.PostChatAsync(working, Program.config.Temperature);
 
         ctx.Succeeded();
-        return (final, Context);
+        return (final, context);
     });
 
     private enum State { failed, success, noFurtherActionRequired };

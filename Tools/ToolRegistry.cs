@@ -125,12 +125,12 @@ public static class ToolRegistry
 
         var formattedResponse = await Engine.Provider!.PostChatAsync(toolContext, Program.config.Temperature);
         ctx.Succeeded();
-        return ToolResult.Success(formattedResponse, toolResult.Context, toolResult.Summarize);
+        return ToolResult.Success(formattedResponse, toolResult.context, toolResult.Summarize);
     });
     
-    public static async Task<string> InvokeToolAsync(string toolName, object toolInput, Context Context, string lastUserInput)
+    public static async Task<string> InvokeToolAsync(string toolName, object toolInput, Context ctx, string lastUserInput)
     {
-        var result = await InvokeInternalAsync(toolName, toolInput, Context, lastUserInput);
+        var result = await InvokeInternalAsync(toolName, toolInput, ctx, lastUserInput);
         return result.Response;
     }
 }

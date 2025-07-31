@@ -13,6 +13,7 @@ public class file_list : ITool
     public string Description => "Gets the names of supported source/text files in the specified directory recursively.";
     public string Usage => "Provide a directory path to list files from, or leave empty to use current directory. Only supported file types will be listed.";
     public Type InputType => typeof(PathInput);
+    public string InputSchema => "PathInput";
 
     public async Task<ToolResult> InvokeAsync(object input, Context Context) => await Log.MethodAsync(async ctx =>
     {
@@ -45,6 +46,7 @@ public class file_metadata : ITool
     public string Description => "Extracts key metrics (lines, words, size) and modification details for a given file. Useful for identifying complexity or recent changes.";
     public string Usage => "Provide the full or relative path to a file to analyze its metadata including size, line count, word count, and modification time.";
     public Type InputType => typeof(PathInput);
+    public string InputSchema => "PathInput";
 
     public async Task<ToolResult> InvokeAsync(object input, Context Context) => await Log.MethodAsync(async ctx =>
     {
@@ -85,6 +87,7 @@ public class summarize_file : ITool
     public string Description => "Reads and summarizes the contents in a specified file. Ideal for analyzing or explaining supported files like text (.txt, .log, etc), source code, project, or markdown (.md) files.";
     public string Usage => "Provide the path to a file to read and summarize. Large files will be truncated for processing.";
     public Type InputType => typeof(PathInput);
+    public string InputSchema => "PathInput";
 
     public async Task<ToolResult> InvokeAsync(object input, Context Context) => await Log.MethodAsync(async ctx =>
     {
@@ -117,6 +120,7 @@ public class grep_files : ITool
     public string Description => "Searches for a text pattern in all files in the current directory.";
     public string Usage => "Provide a .NET regex pattern to search for across all supported files. Returns matching lines with context.";
     public Type InputType => typeof(PathAndRegexInput);
+    public string InputSchema => "PathAndRegexInput";
 
     public record GrepResult(bool Succeeded, int Matches, string Results)
     {
@@ -217,6 +221,7 @@ public class find_file : ITool
     public string Description => "Lists files in the current project whose full path matches a provided regular expression.";
     public string Usage => "Provide a .NET regex pattern to match file paths. Only files with supported extensions will be searched.";
     public Type InputType => typeof(PathAndRegexInput);
+    public string InputSchema => "PathAndRegexInput";
 
     public Task<ToolResult> InvokeAsync(object input, Context Context) => Log.Method(ctx =>
     {

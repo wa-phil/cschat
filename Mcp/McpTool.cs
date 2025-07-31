@@ -38,6 +38,7 @@ public class McpTool : ITool
 
     public string ServerName => _serverName;
     public string ToolName => _toolInfo.Name;
+    public string InputSchema => _toolInfo.InputSchema?.ToString() ?? string.Empty;
 
     private Type GenerateDynamicInputType() => Log.Method(ctx =>
     {
@@ -76,23 +77,51 @@ public class McpTool : ITool
             var name = kvp.Key;
             var desc = "";
             var type = "string";
+            var itemsType = "number";
 
             if (kvp.Value is Dictionary<string, object> propDict)
             {
                 if (propDict.TryGetValue("type", out var typeVal)) type = typeVal?.ToString() ?? "string";
                 if (propDict.TryGetValue("description", out var descVal)) desc = descVal?.ToString() ?? "";
+                if (((propDict.TryGetValue("items", out var items)) && items is Dictionary<string, object> itemsDict) && itemsDict.TryGetValue("type", out var itemsTypeVal))
+                {
+                    itemsType = itemsTypeVal?.ToString() ?? "number";
+                }
             }
 
-            propMap[name] = type switch
+            var propType = type switch
             {
                 "string" => typeof(string),
-                "number" => typeof(double),
+                "number" => typeof(int),
                 "integer" => typeof(int),
                 "boolean" => typeof(bool),
+                "array" => itemsType switch
+                {
+                    "string" => typeof(List<string>),
+                    "number" => typeof(List<int>), // technically this should be List<double>, but ADO's MCP server is wrongly stating number instead of integer.
+                    "integer" => typeof(List<int>),
+                    "boolean" => typeof(List<bool>),
+                    _ => typeof(List<object>)
+                },
                 _ => typeof(object)
             };
+            
+            propMap[name] = propType;
+            // TODO: maybe use the LLM provider to generate more meaningful examples based on the type + description?
+            var exampleValue = propType switch
+            {
+                Type t when t == typeof(string) => $"\"<{name}>\"",
+                Type t when t == typeof(double) => "<number>",
+                Type t when t == typeof(int) => "<number>",
+                Type t when t == typeof(bool) => "<boolean>",
+                Type t when t == typeof(List<string>) => $"[\"<{name}1>\", \"<{name}2>\", ...]",
+                Type t when t == typeof(List<double>) => $"[<number1>, <number2>, ...]",
+                Type t when t == typeof(List<int>) => $"[<number1>, <number2>, ...]",
+                Type t when t == typeof(List<bool>) => $"[<boolean1>, <boolean2>, ...]",
+                _ => "null"
+            };
 
-            exampleLines.Add($"  \"{name}\": \"<{name}>\"");
+            exampleLines.Add($"  \"{name}\": {exampleValue}");
 
             if (!string.IsNullOrEmpty(desc))
             {

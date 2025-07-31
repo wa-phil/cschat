@@ -60,6 +60,41 @@ public partial class CommandManager
                 },
                 new Command
                 {
+                    Name = "dump", Description = "display a range of entries from the RAG store",
+                    Action = () =>
+                    {
+                        if (Engine.VectorStore.IsEmpty)
+                        {
+                            Console.WriteLine("RAG store is empty. Please add files or directories first.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+                        Console.WriteLine("Enter the range of entries to display:");
+                        Console.WriteLine($"Total entries: {Engine.VectorStore.Count}");
+                        Console.Write("Enter start index: ");
+                        int startIndex = int.Parse(Console.ReadLine() ?? "0");
+                        if (startIndex < 0 || startIndex >= Engine.VectorStore.Count)
+                        {
+                            Console.WriteLine("Invalid start index.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+                        Console.Write("Enter end index: ");
+                        int endIndex = int.Parse(Console.ReadLine() ?? "0");
+                        if (endIndex < 0 || endIndex >= Engine.VectorStore.Count)
+                        {
+                            Console.WriteLine("Invalid end index.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+
+                        var entries = Engine.VectorStore.GetEntries(start: startIndex, count: endIndex - startIndex + 1);
+                        foreach (var entry in entries)
+                        {
+                            Console.WriteLine($"--- start {entry.Reference} ---\n{entry.Content}\n--- end {entry.Reference} ---");
+                        }
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
                     Name = "clear", Description = "Clear all RAG data",
                     Action = () =>
                     {
@@ -70,7 +105,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "search", Description = "Search RAG store",
+                    Name = "search", Description = "Search RAG store based on a query",
                     Action = async () =>
                     {
                         if (Engine.VectorStore.IsEmpty)

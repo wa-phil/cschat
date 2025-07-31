@@ -296,7 +296,7 @@ public partial class CommandManager : Command
                                     {
                                         exmapleText = exmapleText.Replace("ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.", string.Empty);
                                         writer.WriteLine($"- **Description**: {tool.Description}");
-                                        writer.WriteLine($"- **Input Type**: {tool.InputType?.Name ?? "Unknown"}");
+                                        writer.WriteLine($"- **Input Schema**: {tool.InputSchema}");
                                         writer.WriteLine($"- **Example Input**:\n```json\n{exmapleText}\n```");
                                     }
                                 }

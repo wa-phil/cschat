@@ -13,6 +13,7 @@ public class CalculatorTool : ITool
     public string Description => "Evaluates basic math expressions.";
     public string Usage => "Provide a mathematical expression to evaluate. Supports basic arithmetic operations, such as addition (+), subtraction (-), multiplication (*), division (/), and parentheses (()).";
     public Type InputType => typeof(string);
+    public string InputSchema => "string";
 
     public Task<ToolResult> InvokeAsync(object input, Context Context) => Log.Method(ctx =>
     {
@@ -37,6 +38,7 @@ public class datetime_current : ITool
     public string Description => "Returns the current local date and time in UTC format.";
     public string Usage => "No input required. Simply returns the current date and time.";
     public Type InputType => typeof(NoInput);
+    public string InputSchema => "NoInput";
 
     public Task<ToolResult> InvokeAsync(object input, Context Context) => Log.Method(ctx =>
     {
