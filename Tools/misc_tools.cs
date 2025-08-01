@@ -34,6 +34,35 @@ public class SummarizeText : ITool
     });
 }
 
+[IsConfigurable("search_knowledge_base")]
+public class SearchVectorStore : ITool
+{
+    public string Description => "Searches the local knowledge base for relevant information.";
+    public string Usage => "Provide a semantic query to search the knowledge base.";
+    public Type InputType => typeof(string);
+    public string InputSchema => "string";
+
+    public async Task<ToolResult> InvokeAsync(object input, Context Context) => await Log.MethodAsync(async ctx =>
+    {
+        try
+        {
+            var stringInput = input as string ?? throw new ArgumentException("Expected string as input");
+            ctx.Append(Log.Data.Input, stringInput);
+            var results = await ContextManager.SearchVectorDB(stringInput);
+            var resultText = results != null && results.Count > 0
+                ? string.Join("\n", results.Select(r => $"---begin {r.Reference}---\n{r.Content}\n---end {r.Reference}---"))
+                : "No relevant information found.";
+            ctx.Succeeded();
+            return ToolResult.Success(resultText, Context);
+        }
+        catch (Exception ex)
+        {
+            ctx.Failed($"Error searching knowledge base", ex);
+            return ToolResult.Failure($"Error searching knowledge base", Context);
+        }
+    });
+}
+
 [IsConfigurable("Calculator")]
 public class CalculatorTool : ITool
 {

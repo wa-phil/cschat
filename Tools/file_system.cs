@@ -10,8 +10,8 @@ using System.Text.RegularExpressions;
 [IsConfigurable("file_list")]
 public class file_list : ITool
 {
-    public string Description => "Gets the names of supported source/text files in the specified directory recursively.";
-    public string Usage => "Provide a directory path to list files from, or leave empty to use current directory. Only supported file types will be listed.";
+    public string Description => "Gets the names of files in the specified directory recursively.";
+    public string Usage => "Provide a directory path to list files from, or leave empty to use current directory.";
     public Type InputType => typeof(PathInput);
     public string InputSchema => "PathInput";
 

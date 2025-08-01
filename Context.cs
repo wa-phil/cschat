@@ -195,7 +195,7 @@ public class ContextManager
         ctx.Succeeded(embeddings.Count > 0);
     });
 
-    public static async Task<List<SearchResult>> SearchVectorDB(string userMessage)
+    public static async Task<List<SearchResult>> SearchVectorDB(string userMessage) => await Log.MethodAsync(async ctx =>
     {
         var empty = new List<SearchResult>();
         if (string.IsNullOrEmpty(userMessage) || null == Engine.VectorStore || Engine.VectorStore.IsEmpty) { return empty; }
@@ -210,6 +210,16 @@ public class ContextManager
         // filter out below average results
         var average = items.Average(i => i.Score);
 
-        return items.Where(i => i.Score >= average).ToList();
-    }
+        var results = items.Where(i => i.Score >= average).ToList();
+        if (results.Count == 0)
+        {
+            ctx.Append(Log.Data.Message, "No relevant results found in the vector store.");
+        }
+        else
+        {
+            ctx.Append(Log.Data.Result, results.Select(r => r.Reference).ToArray());
+        }
+        ctx.Succeeded();
+        return results;
+    });
 }

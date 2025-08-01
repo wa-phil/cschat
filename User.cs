@@ -9,7 +9,6 @@ public class User
     // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
     public static string? RenderMenu(string header, List<string> choices, int selected = 0) // Allow nullable return type to handle null cases
     {
-        // Use config value if not specified
         int actualMaxVisibleItems = Program.config.MaxMenuItems;
         // Store original choices for scrolling
         var originalChoices = new List<string>(choices);
@@ -92,7 +91,8 @@ public class User
             {
                 Console.SetCursorPosition(0, currentRow);
                 Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write("^^^ more items above ^^^".PadRight(Console.WindowWidth - 1));
+                var countAbove = Math.Min(scrollOffset, filteredChoices.Count);
+                Console.Write($"^^^ {countAbove} items above ^^^".PadRight(Console.WindowWidth - 1));
                 Console.ResetColor();
                 currentRow++;
             }
@@ -136,7 +136,8 @@ public class User
             {
                 Console.SetCursorPosition(0, currentRow);
                 Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write("vvv more items below vvv".PadRight(Console.WindowWidth - 1));
+                var countBelow = Math.Max(0, filteredChoices.Count - (scrollOffset + visibleItems));
+                Console.Write($"vvv {countBelow} items below vvv".PadRight(Console.WindowWidth - 1));
                 Console.ResetColor();
                 currentRow++;
             }
@@ -154,10 +155,11 @@ public class User
             {
                 ctx.Append(Log.Data.InputTop, inputTop);
                 Console.SetCursorPosition(0, inputTop);
-                Console.Write($"|> {filter}".PadRight(Console.WindowWidth - 1));
-                if (3 + filter.Length < Console.WindowWidth && inputTop < maxRow)
+                var inputHeader = "[filter]> ";
+                Console.Write($"{inputHeader}{filter}".PadRight(Console.WindowWidth - 1));
+                if (inputHeader.Length + filter.Length < Console.WindowWidth && inputTop < maxRow)
                 {
-                    Console.SetCursorPosition(3 + filter.Length, inputTop);
+                    Console.SetCursorPosition(inputHeader.Length + filter.Length, inputTop);
                 }
             }
             ctx.Succeeded();
@@ -173,7 +175,7 @@ public class User
                 if (filteredSelected > 0) filteredSelected--;
                 DrawMenu();
             }
-            else if (key.Key == ConsoleKey.PageUp)
+            else if (key.Key == ConsoleKey.PageUp || (key.Key == ConsoleKey.UpArrow && key.Modifiers.HasFlag(ConsoleModifiers.Shift)))
             {
                 if (filteredSelected > 0)
                 {
@@ -181,12 +183,24 @@ public class User
                 }
                 DrawMenu();
             }
+            else if (key.Key == ConsoleKey.Home)
+            {
+                filteredSelected = 0;
+                scrollOffset = 0; // Reset scroll when going to home
+                DrawMenu();
+            }
+            else if (key.Key == ConsoleKey.End)
+            {
+                filteredSelected = Math.Max(0, filteredChoices.Count - 1);
+                scrollOffset = Math.Max(0, filteredChoices.Count - actualMaxVisibleItems); // Reset scroll when going to end
+                DrawMenu();
+            }
             else if (key.Key == ConsoleKey.DownArrow)
             {
                 if (filteredSelected < filteredChoices.Count - 1) filteredSelected++;
                 DrawMenu();
             }
-            else if (key.Key == ConsoleKey.PageDown)
+            else if (key.Key == ConsoleKey.PageDown || (key.Key == ConsoleKey.DownArrow && key.Modifiers.HasFlag(ConsoleModifiers.Shift)))
             {
                 if (filteredSelected < filteredChoices.Count - 1)
                 {
@@ -212,7 +226,7 @@ public class User
                 Console.WriteLine("Selection cancelled.");
                 return null;
             }
-            else if (filteredChoices.Count <= 9 && key.KeyChar >= '1' && key.KeyChar <= (char)('0' + filteredChoices.Count))
+            else if (filteredChoices.Count <= 10 && key.KeyChar >= '1' && key.KeyChar <= (char)('0' + filteredChoices.Count))
             {
                 int idx = key.KeyChar - '1';
                 // Safe cursor positioning for exit

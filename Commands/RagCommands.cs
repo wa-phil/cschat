@@ -14,7 +14,7 @@ public partial class CommandManager
             {
                 new Command
                 {
-                    Name = "file", Description = "Add a file to the RAG store",
+                    Name = "add file", Description = "Add a single file's contents to the RAG store",
                     Action = async () =>
                     {
                         Console.Write("Enter file path: ");
@@ -29,7 +29,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "directory", Description = "Add a directory to the RAG store",
+                    Name = "add directory", Description = "Add a directory to the RAG store",
                     Action = async () =>
                     {
                         Console.Write("Enter directory path: ");
@@ -44,62 +44,51 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "status", Description = "Show RAG store status",
-                    Action = () =>
+                    Name = "add zip contents", Description = "Add contents of a zip file to the RAG store",
+                    Action = async () =>
                     {
-                        if (Engine.VectorStore.IsEmpty)
+                        Console.Write("Enter zip file path: ");
+                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: false);
+                        if (!string.IsNullOrWhiteSpace(input))
                         {
-                            Console.WriteLine("RAG store is empty.");
+                            await Engine.AddZipFileToVectorStore(input);
+                            Console.WriteLine($"Added contents of zip file '{input}' to RAG.");
                         }
-                        else
-                        {
-                            Console.WriteLine($"RAG store contains {Engine.VectorStore.Count} entries.");
-                        }
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
                 {
-                    Name = "dump", Description = "display a range of entries from the RAG store",
+                    Name = "display", Description = "display an entry from the RAG store",
                     Action = () =>
                     {
                         if (Engine.VectorStore.IsEmpty)
                         {
                             Console.WriteLine("RAG store is empty. Please add files or directories first.");
-                            return Task.FromResult(Command.Result.Failed);
-                        }
-                        Console.WriteLine($"Total entries: {Engine.VectorStore.Count}");
-                        int startIndex = 0, endIndex = Engine.VectorStore.Count - 1;
-                        if (Engine.VectorStore.Count > 10)
-                        {
-                            Console.WriteLine("Enter the range of entries to display:");
-                            Console.Write("Enter start index: ");
-                            startIndex = int.Parse(Console.ReadLine() ?? "0");
-                            if (startIndex < 0 || startIndex >= Engine.VectorStore.Count)
-                            {
-                                Console.WriteLine("Invalid start index.");
-                                return Task.FromResult(Command.Result.Failed);
-                            }
-                            Console.Write("Enter end index: ");
-                            endIndex = int.Parse(Console.ReadLine() ?? "0");
-                            if (endIndex < 0 || endIndex >= Engine.VectorStore.Count)
-                            {
-                                Console.WriteLine("Invalid end index.");
-                                return Task.FromResult(Command.Result.Failed);
-                            }
-                        }
-                        else
-                        {
-                            Console.WriteLine("Displaying all entries in the RAG store:");
-                            startIndex = 0;
-                            endIndex = Engine.VectorStore.Count - 1;
+                            return Task.FromResult(Command.Result.Success);
                         }
 
-                        var entries = Engine.VectorStore.GetEntries(start: startIndex, count: endIndex - startIndex + 1);
-                        foreach (var entry in entries)
+                        Console.WriteLine("Select an entry to display:");
+                        var entries = Engine.VectorStore.GetEntries();
+                        var choices = entries.Select((entry, index) => $"{index}: {entry.Reference}").ToList();
+
+                        var selected = User.RenderMenu($"Select one of {Engine.VectorStore.Count} RAG Store Entries", choices);
+                        if (selected == null)
                         {
-                            Console.WriteLine($"--- start {entry.Reference} ---\n{entry.Content}\n--- end {entry.Reference} ---");
+                            Console.WriteLine("No entry selected.");
+                            return Task.FromResult(Command.Result.Cancelled);
                         }
+
+                        int selectedIndex = int.Parse(selected.Split(':')[0]);
+                        if (selectedIndex < 0 || selectedIndex >= entries.Count)
+                        {
+                            Console.WriteLine("Invalid selection.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+
+                        var entry = entries[selectedIndex];
+                        Console.WriteLine($"--- start {entry.Reference} ---\n{entry.Content}\n--- end {entry.Reference} ---");
+
                         return Task.FromResult(Command.Result.Success);
                     }
                 },

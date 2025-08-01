@@ -74,13 +74,19 @@ static class Program
         Engine.SetProvider(config.Provider);
         Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
 
-        // Add all the tools to the context
-        var toolDescriptions = ToolRegistry.GetRegisteredTools()
-            .Select(tool => $"--- {tool.Name} ---\n{tool.Description}\nUsage:\n{tool.Usage}\n--- end {tool.Name} ---")
+        // Add all the tools to the context        
+        var toolDescriptions = $"Available Tools:\n{ToolRegistry.GetRegisteredTools()
+            .Select(tool => $"{tool.Name}: {tool.Description}")
             .Aggregate(new StringBuilder(), (sb, txt) => sb.AppendLine(txt))
-            .ToString();
-        
-        await ContextManager.AddContent(toolDescriptions, "tool_descriptions");            
+            .ToString()}";
+        await ContextManager.AddContent(toolDescriptions, "tool_descriptions");
+
+        // Add supported file types to the context
+        var supportedFileTypes = $"Supported File Types:\n{Engine.supportedFileTypes
+            .Select(ext => ext.ToUpperInvariant())
+            .Aggregate(new StringBuilder(), (sb, txt) => sb.AppendLine(txt))
+            .ToString()}";
+        await ContextManager.AddContent(supportedFileTypes, "supported_file_types");
     }
 
     static async Task Main(string[] args)
