@@ -21,6 +21,12 @@ public partial class CommandManager
                         var input = await User.ReadPathWithAutocompleteAsync(isDirectory: false);
                         if (!string.IsNullOrWhiteSpace(input))
                         {
+                            if (!File.Exists(input))
+                            {
+                                Console.WriteLine($"File '{input}' does not exist.");
+                                return Command.Result.Failed;
+                            }
+                            
                             await Engine.AddFileToVectorStore(input);
                             Console.WriteLine($"Added file '{input}' to RAG.");
                         }

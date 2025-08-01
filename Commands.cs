@@ -146,17 +146,18 @@ public partial class CommandManager : Command
             new Command
             {
                 Name = "restart", Description = "Reset chat history, RAG state, logs, and clear the console",
-                Action = () =>
+                Action = async () =>
                 {
                     Program.Context.Clear();
                     Program.Context.AddSystemMessage(Program.config.SystemPrompt);   
                     Engine.VectorStore.Clear();
                     Log.ClearOutput();
+                    await Program.InitProgramAsync();
                     Console.Clear();
                     Console.WriteLine("Chat history, RAG state, and logs have been reset.");
                     Console.WriteLine("Current Configuration:");
                     Console.WriteLine(Program.config.ToJson());
-                    return Task.FromResult(Command.Result.Success);
+                    return Command.Result.Success;
                 }
             },
             new Command
