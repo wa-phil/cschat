@@ -42,7 +42,7 @@ public static class Log
         Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, Response, Progress,
         Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered, Reason,
         ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step, Input, TypeToParse, PlanningFailed,
-        Command, ServerName, Names, Schema, ExampleText, MenuTop, ConsoleHeight, ConsoleWidth, InputTop,
+        Command, ServerName, Names, Schema, ExampleText, MenuTop, ConsoleHeight, ConsoleWidth, InputTop, Host,
     }
 
     public enum Level { Verbose, Information, Warning, Error }
@@ -325,7 +325,7 @@ public class EventLogListener : EventListener
         {
             EnableEvents(eventSource, EventLevel.Verbose);
         }
-        else
+        else if (!Program.config.EventSources.ContainsKey(eventSource.Name))
         {
             Program.config.EventSources[eventSource.Name] = false;
         }

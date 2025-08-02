@@ -14,7 +14,7 @@ public static class Engine
     public static ITextChunker? TextChunker = null;
     public static Planner Planner = new Planner();
 
-    public static List<string> supportedFileTypes = new List<string>
+    public static List<string> SupportedFileTypes = new List<string>
     {
         ".bash", ".bat",
         ".c", ".cpp", ".cs", ".csproj", ".csv",
@@ -70,7 +70,7 @@ public static class Engine
             yield break;
 
         var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
-            .Where(f => supportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase));
+            .Where(f => SupportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase));
 
         foreach (var file in files)
         {
@@ -89,7 +89,7 @@ public static class Engine
         foreach (var entry in archive.Entries)
         {
             var ext = Path.GetExtension(entry.FullName);
-            if (string.IsNullOrWhiteSpace(ext) || !supportedFileTypes.Contains(ext, StringComparer.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(ext) || !SupportedFileTypes.Contains(ext, StringComparer.OrdinalIgnoreCase))
                 continue;
 
             using var stream = entry.Open();

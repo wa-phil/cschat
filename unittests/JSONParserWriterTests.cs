@@ -7,6 +7,21 @@ namespace unittests
 {
     public class JSONParserWriterTests
     {
+        [Fact]
+        public void JSONParser_ShouldHonorDataMemberAttributes1()
+        {
+            var obj = new DataMemberTestClass
+            {
+                OriginalName = 5,
+                Ignored = "should not appear",
+                Normal = "normal"
+            };
+            var json = obj.ToJson();
+            Assert.Contains("\"renamed\":5", json); // DataMember(Name)
+            Assert.DoesNotContain("Ignored", json);    // IgnoreDataMember
+            Assert.Contains("\"Normal\":\"normal\"", json); // Normal property
+        }
+
         public class TestClass
         {
             public int IntValue { get; set; }
@@ -148,7 +163,7 @@ namespace unittests
         }
 
         [Fact]
-        public void JSONParser_ShouldHonorDataMemberAttributes()
+        public void JSONParser_ShouldHonorDataMemberAttributes2()
         {
             var json = "{\"renamed\":42,\"Ignored\":\"no\",\"Normal\":\"ok\"}";
             var obj = json.FromJson<DataMemberTestClass>();
@@ -309,7 +324,7 @@ namespace unittests
             Assert.NotNull(result);
             Assert.Equal("07/03/2025 04:29:08", result["Timestamp"]);
             Assert.Equal("Information", result["Level"]);
-            Assert.Equal("Engine.SetProvider", result["Method"]); 
+            Assert.Equal("Engine.SetProvider", result["Method"]);
             Assert.Equal("IChatProvider.cs:232", result["Source"]);
             Assert.True((bool)result["Success"]);
             Assert.Equal("AzureAI", result["Provider"]);
@@ -329,5 +344,74 @@ namespace unittests
             var output = obj.ToJson();
             Assert.Equal("{\"Timestamp\":\"07/03/2025 04:29:08\",\"Level\":\"Information\",\"Method\":\"Engine.SetProvider\",\"Source\":\"IChatProvider.cs:232\",\"Success\":true,\"Provider\":\"AzureAI\",\"ProviderSet\":true}", output);
         }
+        
+        [Fact]
+        public void JSONParser_ShouldParseConfigFromComplexJSON()
+        {
+            // This JSON blob was failing to parse with a substring out of range exception
+            var json = @"{""Provider"":""Ollama"",""Model"":""llama3.2:latest"",""Host"":""http://localhost:11434"",""MaxTokens"":32000,""Temperature"":0.7,""SystemPrompt"":""You are a helpful system agent.  When answering questions, if you do not know the answer, tell the user as much. Always strive to be honest and truthful.  You have access to an array of tools that you can use to get the information you need to help the user. These tools can list the contents of a directory, read metadata about files, read file contents, etc..."",""RagSettings"":{""ChunkingStrategy"":""SmartChunk"",""ChunkSize"":100,""Overlap"":5,""NormalizeEmbeddings"":true,""TopK"":3,""EmbeddingModel"":""nomic-embed-text"",""MaxTokensPerChunk"":8000,""MaxLineLength"":1600,""SupportedFileTypes"":["".bash"","".bat"","".c"","".cpp"","".cs"","".csproj"","".csv"","".h"","".html"","".ignore"","".js"","".log"","".md"","".py"","".sh"","".sln"","".ts"","".txt"","".xml"","".yml""],""FileFilters"":{"".log"":{""ExcludeRegexPatterns"":[""DetachedActivity_Leaked"",""DroppedAggregatedActivity""],""IncludeRegexPatterns"":[]}}},""McpServerDirectory"":""./mcp_servers"",""VerboseEventLoggingEnabled"":false,""MaxSteps"":25,""MaxMenuItems"":10,""EventSources"":{""Microsoft-Extensions-DependencyInjection"":true,""System.Diagnostics.Eventing.FrameworkEventSource"":true,""System.Threading.Tasks.TplEventSource"":true,""Microsoft-Diagnostics-DiagnosticSource"":true,""Private.InternalDiagnostics.System.Net.Sockets"":true,""Private.InternalDiagnostics.System.Net.Http"":true,""System.Net.NameResolution"":true,""System.Net.Http"":true,""Microsoft-Windows-DotNETRuntime"":false,""System.Runtime"":false,""System.Diagnostics.Metrics"":false,""System.Net.Sockets"":false,""System.Collections.Concurrent.ConcurrentCollectionsEventSource"":false}}";
+
+            // This should not throw an exception
+            var config = json.FromJson<Config>();
+
+            // Verify the config was parsed correctly
+            Assert.NotNull(config);
+            Assert.Equal("Ollama", config.Provider);
+            Assert.Equal("llama3.2:latest", config.Model);
+            Assert.Equal("http://localhost:11434", config.Host);
+            Assert.Equal(32000, config.MaxTokens);
+            Assert.Equal(0.7f, config.Temperature);
+            
+            // Verify RagSettings
+            Assert.NotNull(config.RagSettings);
+            Assert.Equal("SmartChunk", config.RagSettings.ChunkingStrategy);
+            Assert.Equal(100, config.RagSettings.ChunkSize);
+            Assert.Equal(5, config.RagSettings.Overlap);
+            Assert.True(config.RagSettings.NormalizeEmbeddings);
+            Assert.Equal(3, config.RagSettings.TopK);
+            Assert.Equal("nomic-embed-text", config.RagSettings.EmbeddingModel);
+            Assert.Equal(8000, config.RagSettings.MaxTokensPerChunk);
+            Assert.Equal(1600, config.RagSettings.MaxLineLength);
+
+            // Verify SupportedFileTypes array
+            Assert.Contains(".cs", config.RagSettings.SupportedFileTypes);
+            Assert.Contains(".log", config.RagSettings.SupportedFileTypes);
+            Assert.Contains(".md", config.RagSettings.SupportedFileTypes);
+
+            // Verify FileFilters dictionary
+            Assert.NotNull(config.RagSettings.FileFilters);
+            Assert.True(config.RagSettings.FileFilters.ContainsKey(".log"));
+            var logFilter = config.RagSettings.FileFilters[".log"];
+            Assert.Contains("DetachedActivity_Leaked", logFilter.ExcludeRegexPatterns);
+            Assert.Contains("DroppedAggregatedActivity", logFilter.ExcludeRegexPatterns);
+
+            // Verify other config properties
+            Assert.Equal("./mcp_servers", config.McpServerDirectory);
+            Assert.False(config.VerboseEventLoggingEnabled);
+            Assert.Equal(25, config.MaxSteps);
+            Assert.Equal(10, config.MaxMenuItems);
+
+            // Verify EventSources dictionary
+            Assert.NotNull(config.EventSources);
+            Assert.True(config.EventSources["Microsoft-Extensions-DependencyInjection"]);
+            Assert.True(config.EventSources["System.Net.Http"]);
+            Assert.False(config.EventSources["Microsoft-Windows-DotNETRuntime"]);
+            Assert.False(config.EventSources["System.Runtime"]);
+        }
+
+        [Fact]
+        public void JSONParser_ShouldHandleEmptyStringsGracefully()
+        {
+            // Previously this would throw ArgumentOutOfRangeException, now it should handle it gracefully
+            var result = "".FromJson<string>();
+            Assert.Equal(string.Empty, result);
+            
+            // Test other edge cases
+            var shortResult = "\"".FromJson<string>();
+            Assert.Equal(string.Empty, shortResult);
+            
+            var validResult = "\"hello\"".FromJson<string>();
+            Assert.Equal("hello", validResult);
+        }        
     }
 }

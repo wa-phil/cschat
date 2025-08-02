@@ -126,9 +126,7 @@ Your task is to determine which tool to use based on the following:
         return (ToolSelection)response;
     });
 
-    private async Task<PlanObjective> GetObjective(Context Context)
-    {
-        return await Log.MethodAsync(async ctx =>
+    private async Task<PlanObjective> GetObjective(Context Context) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         var input = Context.Messages
@@ -152,7 +150,6 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
         ctx.Succeeded();
         return (PlanObjective)result;
     });
-    }
 
     public async Task<(string result, Context Context)> PostChatAsync(Context context) => await Log.MethodAsync(async ctx =>
     {

@@ -57,7 +57,6 @@ static class Program
         Tools = DictionaryOfTypesToNamesForInterface<ITool>(serviceCollection, types);
 
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
-
     }
 
     public static async Task InitProgramAsync()
@@ -71,22 +70,39 @@ static class Program
         // Create command manager after all tools are registered
         commandManager = CommandManager.CreateDefaultCommands();
 
+        Engine.SupportedFileTypes = config.RagSettings.SupportedFileTypes;
         Engine.SetProvider(config.Provider);
         Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
+        Engine.VectorStore.Clear();
 
         // Add all the tools to the context        
         var toolDescriptions = $"Available Tools:\n{ToolRegistry.GetRegisteredTools()
             .Select(tool => $"{tool.Name}: {tool.Description}")
             .Aggregate(new StringBuilder(), (sb, txt) => sb.AppendLine(txt))
             .ToString()}";
-        await ContextManager.AddContent(toolDescriptions, "tool_descriptions");
+        if (!string.IsNullOrWhiteSpace(toolDescriptions))
+        {
+            await ContextManager.AddContent(toolDescriptions, "tool_descriptions");
+        }
+        else
+        {
+            Console.WriteLine("No tools registered. Please check your configuration.");
+        }
 
         // Add supported file types to the context
-        var supportedFileTypes = $"Supported File Types:\n{Engine.supportedFileTypes
+        var supportedFileTypes = $"Supported File Types:\n{Engine.SupportedFileTypes
             .Select(ext => ext.ToUpperInvariant())
             .Aggregate(new StringBuilder(), (sb, txt) => sb.AppendLine(txt))
             .ToString()}";
-        await ContextManager.AddContent(supportedFileTypes, "supported_file_types");
+
+        if (!string.IsNullOrWhiteSpace(supportedFileTypes))
+        {
+            await ContextManager.AddContent(supportedFileTypes, "supported_file_types");
+        }
+        else
+        {
+            Console.WriteLine("No supported file types configured. Please check your configuration.");
+        }
     }
 
     static async Task Main(string[] args)
@@ -110,22 +126,23 @@ static class Program
             return;
         }
 
-        await InitProgramAsync();
-
-        if (string.IsNullOrWhiteSpace(config.Model))
-        {
-            var selected = await Engine.SelectModelAsync();
-            if (selected == null) return;
-            config.Model = selected;
-        }
-
-        Config.Save(config, ConfigFilePath);
-
-        Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-        Console.WriteLine("Type your message and press Enter. Press the escape key for the menu. (Shift+Enter for new line)");
-        Console.WriteLine();
         try
         {
+            await InitProgramAsync();
+
+            if (string.IsNullOrWhiteSpace(config.Model))
+            {
+                var selected = await Engine.SelectModelAsync();
+                if (selected == null) return;
+                config.Model = selected;
+            }
+
+            Config.Save(config, ConfigFilePath);
+
+            Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
+            Console.WriteLine("Type your message and press Enter. Press the escape key for the menu. (Shift+Enter for new line)");
+            Console.WriteLine();
+
             while (true)
             {
                 Console.Write("> ");

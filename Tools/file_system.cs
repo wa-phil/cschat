@@ -27,7 +27,7 @@ public class file_list : ITool
             return ToolResult.Failure($"ERROR: Directory not found: {path}", Context);
         }
 
-        var supportedTypes = Engine.supportedFileTypes;
+        var supportedTypes = Engine.SupportedFileTypes;
         var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
             .Where(f => supportedTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
             .ToList();
@@ -162,7 +162,7 @@ public class grep_files : ITool
         var pattern = new Regex(regExPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
-            .Where(f => Engine.supportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+            .Where(f => Engine.SupportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
             .ToList();
 
         // return all the line numbers, and the at most MaxBlockAtMatch lines of text after the line of each match as a tuple of (line number, text block)
@@ -245,12 +245,11 @@ public class find_file : ITool
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var baseDir = string.IsNullOrEmpty(findInput.Path) ? Directory.GetCurrentDirectory() : findInput.Path;
-        var supportedExtensions = Engine.supportedFileTypes;
 
         try
         {
             var matching = Directory.GetFiles(baseDir, "*.*", SearchOption.AllDirectories)
-                .Where(f => supportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+                .Where(f => Engine.SupportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
                 .Select(f => Path.GetRelativePath(baseDir, f))
                 .Where(f => pattern.IsMatch(f))
                 .OrderBy(f => f)
