@@ -68,8 +68,9 @@ class TypeParser
             func: async ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        var lastMessage = Context.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
+        var lastMessage = Context.Messages().LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         ctx.Append(Log.Data.TypeToParse, typeof(T).Name);
+        ctx.Append(Log.Data.Input, Context.Messages().ToJson());
 
         // Send Context to the provider's PostChatAsync method
         var response = await Engine.Provider!.PostChatAsync(Context, 0.05f);
@@ -101,10 +102,9 @@ class TypeParser
         var parsedObject = response.FromJson<T>();
         if (null == parsedObject)
         {
-            ctx.Append(Log.Data.Response, response);
             throw new CsChatException($"Failed to parse response into type {typeof(T).Name}.", Error.FailedToParseResponse);
         }
-        ctx.Append(Log.Data.Result, $"Successfully parsed {typeof(T).Name}");
+
         ctx.Succeeded();
         return parsedObject;
     });    

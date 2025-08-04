@@ -12,13 +12,13 @@ public partial class CommandManager : Command
         return new Command
         {
             Name = "mcp",
-            Description = "MCP (Model Context Protocol) server management",
+            Description = () => "MCP (Model Context Protocol) server management",
             SubCommands = new List<Command>
             {
                 new Command
                 {
                     Name = "mcp directory",
-                    Description = "Set the directory for MCP server configurations",
+                    Description = () => $"Set the directory for MCP server configurations [currently: {Program.config.McpServerDirectory}]",
                     Action = () =>
                     {
                         Console.Write("Enter the path to the MCP server directory (default: ./mcp_servers): ");
@@ -41,7 +41,7 @@ public partial class CommandManager : Command
                 new Command
                 {
                     Name = "list",
-                    Description = "List configured MCP servers",
+                    Description = () => "List configured MCP servers",
                     Action = () =>
                     {
                         var servers = McpManager.Instance.GetServerDefinitions();
@@ -75,7 +75,7 @@ public partial class CommandManager : Command
                 new Command
                 {
                     Name = "add",
-                    Description = "Add a new MCP server from a configuration file",
+                    Description = () => "Add a new MCP server from a configuration file",
                     Action = async () =>
                     {
                         Console.WriteLine("Adding new MCP server configuration...");
@@ -180,7 +180,7 @@ public partial class CommandManager : Command
                 new Command
                 {
                     Name = "remove",
-                    Description = "Remove an MCP server configuration",
+                    Description = () => "Remove an MCP server configuration",
                     Action = async () =>
                     {
                         var servers = McpManager.Instance.GetServerDefinitions();
@@ -235,7 +235,7 @@ public partial class CommandManager : Command
                 new Command
                 {
                     Name = "reload",
-                    Description = "Reload and reconnect to all configured MCP servers",
+                    Description = () => "Reload and reconnect to all configured MCP servers",
                     Action = async () =>
                     {
                         Console.WriteLine("Reloading MCP servers...");
@@ -268,8 +268,48 @@ public partial class CommandManager : Command
                 },
                 new Command
                 {
-                    Name = "tools",
-                    Description = "List tools from connected MCP servers",
+                    Name = "create documentation",
+                    Description = () => "Create documentation for all MCP servers and tools",
+                    Action = () =>
+                    {
+                        var connectedServers = McpManager.Instance.GetConnectedServers();
+                        if (connectedServers.Count == 0)
+                        {
+                            Console.WriteLine("No MCP servers are currently connected.");
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                        Console.WriteLine("Creating documentation for MCP servers and tools...");
+                        var docPath = Path.Combine(Program.config.McpServerDirectory, "mcp_documentation.md");
+                        using (var writer = new StreamWriter(docPath, false))
+                        {
+                            writer.WriteLine("# MCP Servers Documentation");
+                            writer.WriteLine();
+                            foreach (var (name, tools) in connectedServers)
+                            {
+                                writer.WriteLine($"## {name}");
+                                writer.WriteLine();
+                                foreach (var tool in tools)
+                                {
+                                    writer.WriteLine($"### {tool.ToolName}");
+                                    var exmapleText = tool.InputType?.GetCustomAttribute<ExampleText>()?.Text ?? string.Empty;
+                                    if (!string.IsNullOrEmpty(exmapleText))
+                                    {
+                                        exmapleText = exmapleText.Replace("ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.", string.Empty);
+                                        writer.WriteLine($"- **Description**: {tool.Description}");
+                                        writer.WriteLine($"- **Input Schema**: {tool.InputSchema}");
+                                        writer.WriteLine($"- **Example Input**:\n```json\n{exmapleText}\n```");
+                                    }
+                                }
+                                writer.WriteLine();
+                            }
+                        }
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "list tools",
+                    Description = () => "List tools from connected MCP servers",
                     Action = () =>
                     {
                         var connectedServers = McpManager.Instance.GetConnectedServers();
@@ -286,9 +326,10 @@ public partial class CommandManager : Command
                             foreach (var tool in tools)
                             {
                                 Console.ForegroundColor = ConsoleColor.Yellow;
-                                Console.Write($"  - {tool.ToolName}");
+                                Console.WriteLine($"{tool.ToolName}");
                                 Console.ForegroundColor = ConsoleColor.Gray;
-                                Console.WriteLine($": {tool.Description}");
+                                Console.WriteLine($"    Usage: {tool.Usage}");
+                                Console.WriteLine($"    Description: {tool.Description}");
                                 Console.ResetColor();
                                 var exmapleText = tool.InputType?.GetCustomAttribute<ExampleText>()?.Text ?? string.Empty;
                                 if (!string.IsNullOrEmpty(exmapleText))
@@ -301,7 +342,7 @@ public partial class CommandManager : Command
                                 Console.WriteLine("---------------------------------------------------------");
                             }
                         }
-                        
+
                         return Task.FromResult(Command.Result.Success);
                     }
                 }

@@ -10,9 +10,10 @@ using System.Text.RegularExpressions;
 [IsConfigurable("file_list")]
 public class file_list : ITool
 {
-    public string Description => "Gets the names of supported source/text files in the specified directory recursively.";
-    public string Usage => "Provide a directory path to list files from, or leave empty to use current directory. Only supported file types will be listed.";
+    public string Description => "Gets the names of files in the specified directory recursively.";
+    public string Usage => "Provide a directory path to list files from, or leave empty to use current directory.";
     public Type InputType => typeof(PathInput);
+    public string InputSchema => "PathInput";
 
     public async Task<ToolResult> InvokeAsync(object input, Context Context) => await Log.MethodAsync(async ctx =>
     {
@@ -26,16 +27,16 @@ public class file_list : ITool
             return ToolResult.Failure($"ERROR: Directory not found: {path}", Context);
         }
 
-        var supportedTypes = Engine.supportedFileTypes;
+        var supportedTypes = Engine.SupportedFileTypes;
         var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
             .Where(f => supportedTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
             .ToList();
 
         var list = string.Join("\n", files.Select(f => Path.GetRelativePath(path, f)));
         Context.AddContext("file_list", list);
-        await Engine.AddContentToVectorStore(list, "file_list");
+        await ContextManager.AddContent(list, "file_list");
         ctx.Succeeded();
-        return ToolResult.Success($"Found {files.Count} files:\n{list}", Context, false);
+        return ToolResult.Success($"Found {files.Count} files:\n{list}", Context);
     });
 }
 
@@ -45,6 +46,7 @@ public class file_metadata : ITool
     public string Description => "Extracts key metrics (lines, words, size) and modification details for a given file. Useful for identifying complexity or recent changes.";
     public string Usage => "Provide the full or relative path to a file to analyze its metadata including size, line count, word count, and modification time.";
     public Type InputType => typeof(PathInput);
+    public string InputSchema => "PathInput";
 
     public async Task<ToolResult> InvokeAsync(object input, Context Context) => await Log.MethodAsync(async ctx =>
     {
@@ -72,9 +74,9 @@ public class file_metadata : ITool
         sb.AppendLine($"Last Modified: {modified:u}");
 
         Context.AddContext("file_metadata", sb.ToString());
-        await Engine.AddContentToVectorStore(sb.ToString(), "file_metadata");
+        await ContextManager.AddContent(sb.ToString(), "file_metadata");
         ctx.Succeeded();
-        return ToolResult.Success(sb.ToString(), Context, false);
+        return ToolResult.Success(sb.ToString(), Context);
     });
 }
 
@@ -85,6 +87,7 @@ public class summarize_file : ITool
     public string Description => "Reads and summarizes the contents in a specified file. Ideal for analyzing or explaining supported files like text (.txt, .log, etc), source code, project, or markdown (.md) files.";
     public string Usage => "Provide the path to a file to read and summarize. Large files will be truncated for processing.";
     public Type InputType => typeof(PathInput);
+    public string InputSchema => "PathInput";
 
     public async Task<ToolResult> InvokeAsync(object input, Context Context) => await Log.MethodAsync(async ctx =>
     {
@@ -105,9 +108,9 @@ public class summarize_file : ITool
         }
 
         Context.AddContext($"file_summary: {pathInput.Path}", content);
-        await Engine.AddContentToVectorStore(content, $"file_summary: {pathInput.Path}");
+        await ContextManager.AddContent(content, $"file_summary: {pathInput.Path}");
         ctx.Succeeded();
-        return ToolResult.Success($"Contents of {pathInput.Path}:\n{content}", Context, true);
+        return ToolResult.Success($"Contents of {pathInput.Path}:\n{content}", Context);
     });
 }
 
@@ -117,6 +120,7 @@ public class grep_files : ITool
     public string Description => "Searches for a text pattern in all files in the current directory.";
     public string Usage => "Provide a .NET regex pattern to search for across all supported files. Returns matching lines with context.";
     public Type InputType => typeof(PathAndRegexInput);
+    public string InputSchema => "PathAndRegexInput";
 
     public record GrepResult(bool Succeeded, int Matches, string Results)
     {
@@ -137,7 +141,7 @@ public class grep_files : ITool
 
         Context.AddContext($"grep_files({regexInput.Pattern})", string.Join("\n", grepResult.Results));
         ctx.Succeeded(grepResult.Succeeded);
-        return ToolResult.Success($"{(grepResult.Succeeded?"Succeeded in finding":"Failed. Found")} {grepResult.Matches} files matching `{regexInput.Pattern}`:\n{grepResult.Results}", Context, false);
+        return ToolResult.Success($"{(grepResult.Succeeded?"Succeeded in finding":"Failed. Found")} {grepResult.Matches} files matching `{regexInput.Pattern}`:\n{grepResult.Results}", Context);
     });
 
     public static async Task<GrepResult> GrepFilesAsync(string regExPattern, string path = ".") => await Log.MethodAsync(async ctx =>
@@ -158,7 +162,7 @@ public class grep_files : ITool
         var pattern = new Regex(regExPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
-            .Where(f => Engine.supportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+            .Where(f => Engine.SupportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
             .ToList();
 
         // return all the line numbers, and the at most MaxBlockAtMatch lines of text after the line of each match as a tuple of (line number, text block)
@@ -182,7 +186,7 @@ public class grep_files : ITool
             {
                 var stopwatch = System.Diagnostics.Stopwatch.StartNew();
                 Console.WriteLine($"Matched: {relativePath}");
-                await Engine.AddContentToVectorStore(content, relativePath);
+                await ContextManager.AddContent(content, relativePath);
                 stopwatch.Stop();
                 var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
                 Console.WriteLine($"{elapsedTime}ms required to read file '{file}' contents.");
@@ -203,7 +207,7 @@ public class grep_files : ITool
             .Select(r => $"--- {r.fileName} line number: {r.LineNumber} ---\n{r.TextBlock}\n--- end match ---")
             .ToList());
 
-        await Engine.AddContentToVectorStore(resultsString, $"grep_files({regExPattern})");
+        await ContextManager.AddContent(resultsString, $"grep_files({regExPattern})");
 
         ctx.Append(Log.Data.Count, results.Count);
         ctx.Succeeded();
@@ -217,6 +221,7 @@ public class find_file : ITool
     public string Description => "Lists files in the current project whose full path matches a provided regular expression.";
     public string Usage => "Provide a .NET regex pattern to match file paths. Only files with supported extensions will be searched.";
     public Type InputType => typeof(PathAndRegexInput);
+    public string InputSchema => "PathAndRegexInput";
 
     public Task<ToolResult> InvokeAsync(object input, Context Context) => Log.Method(ctx =>
     {
@@ -240,31 +245,37 @@ public class find_file : ITool
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var baseDir = string.IsNullOrEmpty(findInput.Path) ? Directory.GetCurrentDirectory() : findInput.Path;
-        var supportedExtensions = Engine.supportedFileTypes;
 
-        var matching = Directory.GetFiles(baseDir, "*.*", SearchOption.AllDirectories)
-            .Where(f => supportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
-            .Select(f => Path.GetRelativePath(baseDir, f))
-            .Where(f => pattern.IsMatch(f))
-            .OrderBy(f => f)
-            .ToList();
-
-        stopwatch.Stop();
-        var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
-        Console.WriteLine($"{elapsedTime}ms required to find files that match '{findInput.Pattern}'.");
-
-
-        if (matching.Count == 0)
+        try
         {
-            ctx.Failed("No files matched.", Error.ToolFailed);
-            return Task.FromResult(ToolResult.Failure($"No files matched regex: `{findInput.Pattern}`", Context));
+            var matching = Directory.GetFiles(baseDir, "*.*", SearchOption.AllDirectories)
+                .Where(f => Engine.SupportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+                .Select(f => Path.GetRelativePath(baseDir, f))
+                .Where(f => pattern.IsMatch(f))
+                .OrderBy(f => f)
+                .ToList();
+
+            stopwatch.Stop();
+            var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
+            Console.WriteLine($"{elapsedTime}ms required to find files that match '{findInput.Pattern}'.");
+
+            if (matching.Count == 0)
+            {
+                ctx.Failed("No files matched.", Error.ToolFailed);
+                return Task.FromResult(ToolResult.Failure($"No files matched regex: `{findInput.Pattern}`", Context));
+            }
+
+            var output = $"find_files({findInput.Pattern}):\n{string.Join("\n", matching)}\n";
+            Context.AddContext($"matched_files: {findInput.Pattern}", output);
+
+            ctx.Append(Log.Data.Count, matching.Count);
+            ctx.Succeeded();
+            return Task.FromResult(ToolResult.Success(output, Context));
         }
-
-        var output = $"find_files({findInput.Pattern}):\n{string.Join("\n", matching)}\n";
-        Context.AddContext($"matched_files: {findInput.Pattern}", output);
-
-        ctx.Append(Log.Data.Count, matching.Count);
-        ctx.Succeeded();
-        return Task.FromResult(ToolResult.Success(output, Context, false));
+        catch (Exception ex)
+        {
+            ctx.Failed($"Error searching for files: {ex.Message}", ex);
+            return Task.FromResult(ToolResult.Failure($"Error searching for files: {ex.Message}", Context));
+        }
     });
 }

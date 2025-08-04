@@ -9,87 +9,145 @@ public class User
     // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
     public static string? RenderMenu(string header, List<string> choices, int selected = 0) // Allow nullable return type to handle null cases
     {
-        // Check if we have enough console space
-        int requiredLines = choices.Count + 3; // menu items + header + input line + buffer
-        int availableLines = Console.BufferHeight - Console.CursorTop;
-        
-        if (requiredLines > availableLines)
-        {
-            // If we don't have enough space, scroll or clear the console
-            if (Console.CursorTop > 0)
-            {
-                Console.Clear();
-                Console.SetCursorPosition(0, 0);
-            }
-        }
-        
-        // Always print enough newlines to ensure space for the menu
+        // Store original choices for scrolling
+        var originalChoices = new List<string>(choices);
+        int actualMaxVisibleItems = Program.config.MaxMenuItems, originalSelected = selected;
+    
+        // always position the menu at the top, and print the header
+        Console.Clear();
+        Console.SetCursorPosition(0, 0);
+        Console.ForegroundColor = ConsoleColor.Green;
         Console.WriteLine(header);
-        int menuLines = choices.Count;
-        for (int i = 0; i < menuLines; i++)
+        Console.ResetColor();
+
+        // Calculate scrolling parameters
+        int scrollOffset = 0, visibleItems = Math.Min(originalChoices.Count, actualMaxVisibleItems);
+        bool hasMoreAbove = false, hasMoreBelow = false;
+        
+        // Reserve space for menu lines, indicators, and input
+        int indicatorLines = 2; // up to 2 lines for "more above/below" indicators
+        int inputLines = 1; // input line
+        int menuLines = visibleItems + indicatorLines;
+        
+        // Print placeholder lines for the menu area
+        for (int i = 0; i < menuLines + inputLines; i++)
         {
             Console.WriteLine();
         }
-        int menuTop = Console.CursorTop - menuLines;
+        
+        int menuStartRow = Console.CursorTop - (menuLines + inputLines);
+        int inputTop = Console.CursorTop - inputLines;
 
         string filter = "";
-        int inputTop = Math.Min(menuTop + choices.Count + 1, Console.BufferHeight - 2);
-        List<string> filteredChoices = new List<string>(choices);
-        int filteredSelected = selected;
+        List<string> filteredChoices = new List<string>(originalChoices);
+        int filteredSelected = originalSelected;
 
-        void DrawMenu()
+        void DrawMenu() => Log.Method(ctx =>
         {
+            ctx.OnlyEmitOnFailure();
+            ctx.Append(Log.Data.ConsoleHeight, Console.BufferHeight);
+            ctx.Append(Log.Data.ConsoleWidth, Console.WindowWidth);
+            
+            // Calculate which items to show and update scroll indicators
+            visibleItems = Math.Min(filteredChoices.Count, actualMaxVisibleItems);
+            
+            // Adjust scroll offset to keep selected item visible
+            if (filteredSelected < scrollOffset)
+            {
+                scrollOffset = filteredSelected;
+            }
+            else if (filteredSelected >= scrollOffset + visibleItems)
+            {
+                scrollOffset = filteredSelected - visibleItems + 1;
+            }
+            
+            // Ensure scroll offset is within bounds
+            scrollOffset = Math.Max(0, Math.Min(scrollOffset, Math.Max(0, filteredChoices.Count - visibleItems)));            
+            hasMoreAbove = scrollOffset > 0;
+            hasMoreBelow = scrollOffset + visibleItems < filteredChoices.Count;
+            
             // Ensure we don't exceed console buffer bounds
             int maxRow = Console.BufferHeight - 1;
-            
-            for (int i = 0; i < filteredChoices.Count; i++)
+            int currentRow = menuStartRow;
+
+            // Draw "more above" indicator if needed
+            if (hasMoreAbove && currentRow < maxRow)
             {
-                int rowPosition = menuTop + i;
-                if (rowPosition >= maxRow) break; // Skip if we would exceed buffer
-                
-                Console.SetCursorPosition(0, rowPosition);
+                Console.SetCursorPosition(0, currentRow);
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                var countAbove = Math.Min(scrollOffset, filteredChoices.Count);
+                Console.Write($"^^^ {countAbove} items above ^^^".PadRight(Console.WindowWidth - 1));
+                Console.ResetColor();
+                currentRow++;
+            }
+
+            // Draw visible menu items
+            for (int i = 0; i < visibleItems && currentRow < maxRow; i++)
+            {
+                int choiceIndex = scrollOffset + i;
+                if (choiceIndex >= filteredChoices.Count) break;
+
+                ctx.Append(Log.Data.MenuTop, currentRow);
+                Console.SetCursorPosition(0, currentRow);
                 string line;
-                if (i == filteredSelected)
+                
+                bool isSelected = choiceIndex == filteredSelected;
+                if (isSelected)
                 {
                     Console.ForegroundColor = ConsoleColor.Black;
                     Console.BackgroundColor = ConsoleColor.White;
                     if (filteredChoices.Count <= 9)
-                        line = $"> [{i + 1}] {filteredChoices[i]} ";
+                        line = $"> [{choiceIndex + 1}] {filteredChoices[choiceIndex]} ";
                     else
-                        line = $"> {filteredChoices[i]} ";
+                        line = $"> {filteredChoices[choiceIndex]} ";
                 }
                 else
                 {
                     Console.ForegroundColor = ConsoleColor.Gray;
                     Console.BackgroundColor = ConsoleColor.Black;
                     if (filteredChoices.Count <= 9)
-                        line = $"  [{i + 1}] {filteredChoices[i]} ";
+                        line = $"  [{choiceIndex + 1}] {filteredChoices[choiceIndex]} ";
                     else
-                        line = $"  {filteredChoices[i]} ";
+                        line = $"  {filteredChoices[choiceIndex]} ";
                 }
                 Console.Write(line.PadRight(Console.WindowWidth - 1));
                 Console.ResetColor();
+                currentRow++;
             }
-            // Clear any leftover menu lines
-            for (int i = filteredChoices.Count; i < menuLines; i++)
+
+            // Draw "more below" indicator if needed
+            if (hasMoreBelow && currentRow < maxRow)
             {
-                int rowPosition = menuTop + i;
-                if (rowPosition >= maxRow) break; // Skip if we would exceed buffer
-                
-                Console.SetCursorPosition(0, rowPosition);
-                Console.Write(new string(' ', Console.WindowWidth - 1));
+                Console.SetCursorPosition(0, currentRow);
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                var countBelow = Math.Max(0, filteredChoices.Count - (scrollOffset + visibleItems));
+                Console.Write($"vvv {countBelow} items below vvv".PadRight(Console.WindowWidth - 1));
+                Console.ResetColor();
+                currentRow++;
             }
+
+            // Clear any leftover lines in the menu area
+            while (currentRow < inputTop && currentRow < maxRow)
+            {
+                Console.SetCursorPosition(0, currentRow);
+                Console.Write(new string(' ', Console.WindowWidth - 1));
+                currentRow++;
+            }
+
             // Draw input header only if it fits in the buffer
             if (inputTop < maxRow)
             {
+                ctx.Append(Log.Data.InputTop, inputTop);
                 Console.SetCursorPosition(0, inputTop);
-                Console.Write($"|> {filter}".PadRight(Console.WindowWidth - 1));
-                if (3 + filter.Length < Console.WindowWidth && inputTop < maxRow)
+                var inputHeader = "[filter]> ";
+                Console.Write($"{inputHeader}{filter}".PadRight(Console.WindowWidth - 1));
+                if (inputHeader.Length + filter.Length < Console.WindowWidth && inputTop < maxRow)
                 {
-                    Console.SetCursorPosition(3 + filter.Length, inputTop);
+                    Console.SetCursorPosition(inputHeader.Length + filter.Length, inputTop);
                 }
             }
-        }
+            ctx.Succeeded();
+        });
 
         DrawMenu();
         ConsoleKeyInfo key;
@@ -101,9 +159,37 @@ public class User
                 if (filteredSelected > 0) filteredSelected--;
                 DrawMenu();
             }
+            else if (key.Key == ConsoleKey.PageUp || (key.Key == ConsoleKey.UpArrow && key.Modifiers.HasFlag(ConsoleModifiers.Shift)))
+            {
+                if (filteredSelected > 0)
+                {
+                    filteredSelected -= Math.Min(actualMaxVisibleItems, filteredSelected);
+                }
+                DrawMenu();
+            }
+            else if (key.Key == ConsoleKey.Home)
+            {
+                filteredSelected = 0;
+                scrollOffset = 0; // Reset scroll when going to home
+                DrawMenu();
+            }
+            else if (key.Key == ConsoleKey.End)
+            {
+                filteredSelected = Math.Max(0, filteredChoices.Count - 1);
+                scrollOffset = Math.Max(0, filteredChoices.Count - actualMaxVisibleItems); // Reset scroll when going to end
+                DrawMenu();
+            }
             else if (key.Key == ConsoleKey.DownArrow)
             {
                 if (filteredSelected < filteredChoices.Count - 1) filteredSelected++;
+                DrawMenu();
+            }
+            else if (key.Key == ConsoleKey.PageDown || (key.Key == ConsoleKey.DownArrow && key.Modifiers.HasFlag(ConsoleModifiers.Shift)))
+            {
+                if (filteredSelected < filteredChoices.Count - 1)
+                {
+                    filteredSelected += Math.Min(actualMaxVisibleItems, filteredChoices.Count - 1 - filteredSelected);
+                }
                 DrawMenu();
             }
             else if (key.Key == ConsoleKey.Enter)
@@ -124,7 +210,7 @@ public class User
                 Console.WriteLine("Selection cancelled.");
                 return null;
             }
-            else if (filteredChoices.Count <= 9 && key.KeyChar >= '1' && key.KeyChar <= (char)('0' + filteredChoices.Count))
+            else if (filteredChoices.Count <= 10 && key.KeyChar >= '1' && key.KeyChar <= (char)('0' + filteredChoices.Count))
             {
                 int idx = key.KeyChar - '1';
                 // Safe cursor positioning for exit
@@ -137,20 +223,22 @@ public class User
                 if (filter.Length > 0)
                 {
                     filter = filter.Substring(0, filter.Length - 1);
-                    filteredChoices = choices.Where(c => c.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+                    filteredChoices = originalChoices.Where(c => c.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
                     if (filteredSelected >= filteredChoices.Count) filteredSelected = Math.Max(0, filteredChoices.Count - 1);
+                    scrollOffset = 0; // Reset scroll when filtering
                     DrawMenu();
                 }
             }
             else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
             {
                 string newFilter = filter + key.KeyChar;
-                var newFiltered = choices.Where(c => c.IndexOf(newFilter, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+                var newFiltered = originalChoices.Where(c => c.IndexOf(newFilter, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
                 if (newFiltered.Count > 0)
                 {
                     filter = newFilter;
                     filteredChoices = newFiltered;
                     filteredSelected = 0;
+                    scrollOffset = 0; // Reset scroll when filtering
                     DrawMenu();
                 }
                 // else: ignore input that would result in no options
@@ -202,7 +290,7 @@ public class User
                 {
                     Console.WriteLine("Command failed.");
                 }
-                Console.Write("> ");
+                Console.Write("[press ESC to open menu]\n> ");
                 buffer.Clear();
                 cursor = 0;
                 continue;

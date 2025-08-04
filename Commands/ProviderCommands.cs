@@ -8,12 +8,12 @@ public partial class CommandManager
     {
         return new Command
         {
-            Name = "provider", Description = "Provider-related commands",
+            Name = "provider", Description = () => "provider related configuration settings",
             SubCommands = new List<Command>
             {
                 new Command
                 {
-                    Name = "select", Description = "Select the LLM Provider",
+                    Name = "select", Description = () => $"Select the LLM Provider [currently: {Program.config.Provider}]",
                     Action = () =>
                     {
                         var providers = Program.Providers.Keys.ToList();
@@ -29,7 +29,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "model", Description = "List and select available models",
+                    Name = "model", Description = () => $"List and select available models [currently: {Program.config.Model}]",
                     Action = async () =>
                     {
                         Console.WriteLine($"Current model: {Program.config.Model}");
@@ -45,7 +45,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "host", Description = "Change Ollama host",
+                    Name = "host", Description = () => $"Change Ollama host [currently: {Program.config.Host}]",
                     Action = () =>
                     {
                         Console.Write("Enter new Ollama host: ");
@@ -61,7 +61,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "system", Description = "Change system prompt",
+                    Name = "system", Description = () => "Change system prompt",
                     Action = () =>
                     {
                         Console.WriteLine($"Current system prompt: {Program.config.SystemPrompt}");
@@ -78,7 +78,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "temp", Description = "Set response temperature",
+                    Name = "temp", Description = () => $"Set response temperature [currently: {Program.config.Temperature}]",
                     Action = () =>
                     {
                         Console.Write($"Current temperature: {Program.config.Temperature}. Enter new value (0.0 to 1.0): ");
@@ -98,7 +98,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "max tokens", Description = "Set maximum tokens for response",
+                    Name = "max tokens", Description = () => $"Set maximum tokens for response [currently: {Program.config.MaxTokens}]",
                     Action = () =>
                     {
                         Console.Write($"Current max tokens: {Program.config.MaxTokens}. Enter new value (1 to 10000): ");
@@ -119,16 +119,16 @@ public partial class CommandManager
                 new Command
                 {
                     Name = "azure auth logging enabled",
-                    Description = "Enable or disable verbose Azure logging",
+                    Description = () => $"Enable or disable verbose Azure logging [currently: {(Program.config.VerboseEventLoggingEnabled? "Enabled" : "Disabled")}]",
                     Action = () =>
                     {
                         var options = new List<string> { "true", "false" };
-                        var currentSetting = Program.config.AzureAuthVerboseLoggingEnabled ? "true" : "false";
+                        var currentSetting = Program.config.VerboseEventLoggingEnabled ? "true" : "false";
                         var selected = User.RenderMenu("Enable Azure Authentication verbose logging:", options, options.IndexOf(currentSetting));
 
                         if (!string.IsNullOrWhiteSpace(selected) && bool.TryParse(selected, out var result))
                         {
-                            Program.config.AzureAuthVerboseLoggingEnabled = result;
+                            Program.config.VerboseEventLoggingEnabled = result;
                             Console.WriteLine($"Azure Auth verbose logging set to {result}.");
                             Config.Save(Program.config, Program.ConfigFilePath);
                         }
@@ -137,6 +137,33 @@ public partial class CommandManager
                             Console.WriteLine("Invalid selection.");
                         }
 
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "toggle event sources",
+                    Description = () => "Toggle event sources for verbose logging",
+                    Action = () =>
+                    {
+                        Console.WriteLine("Select an event source to toggle:");
+                        var sources = Program.config.EventSources.Select(kvp => $"{kvp.Key} : {(kvp.Value ? "Enabled" : "Disabled")}").ToList();
+                        var selected = User.RenderMenu("Event sources:", sources, -1);
+                        if (selected != null)
+                        {
+                            selected = selected.Split(':')[0].Trim(); // Get the source name
+                            if (Program.config.EventSources.TryGetValue(selected, out var enabled))
+                            {
+                                Program.config.EventSources[selected] = !enabled;
+                                Console.WriteLine($"Event source '{selected}' toggled to {(Program.config.EventSources[selected] ? "Enabled" : "Disabled")}");
+                                Config.Save(Program.config, Program.ConfigFilePath);
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Event source '{selected}' not found.");
+                                return Task.FromResult(Command.Result.Failed);
+                            }
+                        }
                         return Task.FromResult(Command.Result.Success);
                     }
                 }

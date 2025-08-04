@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text;
 
 
 static class Program
@@ -40,7 +41,7 @@ static class Program
         return result;
     }
 
-    public static async Task InitProgramAsync()
+    public static void Startup()
     {
         config = Config.Load(ConfigFilePath);
         Log.Initialize();
@@ -52,26 +53,53 @@ static class Program
 
         // Register all IChatProvider implementations
         Providers = DictionaryOfTypesToNamesForInterface<IChatProvider>(serviceCollection, types);
-        Chunkers  = DictionaryOfTypesToNamesForInterface<ITextChunker>(serviceCollection, types);
-        Tools     = DictionaryOfTypesToNamesForInterface<ITool>(serviceCollection, types);
+        Chunkers = DictionaryOfTypesToNamesForInterface<ITextChunker>(serviceCollection, types);
+        Tools = DictionaryOfTypesToNamesForInterface<ITool>(serviceCollection, types);
 
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
+    }
+
+    public static async Task InitProgramAsync()
+    {
         Context = new Context(config.SystemPrompt);
         ToolRegistry.Initialize();
-        
+
         // Initialize MCP manager and load servers
         await McpManager.Instance.LoadAllServersAsync();
-        
+
         // Create command manager after all tools are registered
         commandManager = CommandManager.CreateDefaultCommands();
-                
-        // Provider and chunker initialization deferred until after config is loaded.
+
+        Engine.SupportedFileTypes = config.RagSettings.SupportedFileTypes;
+        Engine.SetProvider(config.Provider);
+        Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
+        Engine.VectorStore.Clear();
+
+        // Add all the tools to the context
+        var toolNames = $"You can use the following tools to help the user:\n{ToolRegistry.GetRegisteredTools()
+            .Select(tool => $"{tool.Name}")
+            .Aggregate(new StringBuilder(), (sb, txt) => sb.AppendLine(txt))
+            .ToString()}";
+        if (!string.IsNullOrWhiteSpace(toolNames))
+        {
+            await ContextManager.AddContent(toolNames, "tool_names");
+        }
+        else
+        {
+            Console.WriteLine("No tools registered. Please check your configuration.");
+        }
+
+        foreach (var tool in ToolRegistry.GetRegisteredTools())
+        {
+            var toolDetails = $"Tool: {tool.Name}\nDescription: {tool.Description}\nUsage: {tool.Usage}";
+            await ContextManager.AddContent(toolDetails, tool.Name);
+        }
     }
 
     static async Task Main(string[] args)
     {
         Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
-        await InitProgramAsync();
+        Startup();
 
         bool showHelp = false;
         var options = new OptionSet {
@@ -89,23 +117,23 @@ static class Program
             return;
         }
 
-        Engine.SetProvider(config.Provider);
-        Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
-
-        if (string.IsNullOrWhiteSpace(config.Model))
-        {
-            var selected = await Engine.SelectModelAsync();
-            if (selected == null) return;
-            config.Model = selected;
-        }
-
-        Config.Save(config, ConfigFilePath);
-
-        Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-        Console.WriteLine("Type your message and press Enter. Press the escape key for the menu. (Shift+Enter for new line)");
-        Console.WriteLine();
         try
         {
+            await InitProgramAsync();
+
+            if (string.IsNullOrWhiteSpace(config.Model))
+            {
+                var selected = await Engine.SelectModelAsync();
+                if (selected == null) return;
+                config.Model = selected;
+            }
+
+            Config.Save(config, ConfigFilePath);
+
+            Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
+            Console.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
+            Console.WriteLine();
+
             while (true)
             {
                 Console.Write("> ");
@@ -114,7 +142,7 @@ static class Program
 
                 // Add and render user message with proper formatting
                 Context.AddUserMessage(userInput);
-                var userMessage = Context.Messages.Last(); // Get the message we just added
+                var userMessage = Context.Messages().Last(); // Get the message we just added
                 User.RenderChatMessage(userMessage);
 
                 var (response, updatedContext) = await Engine.PostChatAsync(Context);
@@ -132,7 +160,7 @@ static class Program
             Console.WriteLine($"Log Entries [{entries.Count}]:");
             entries.ToList().ForEach(entry => Console.WriteLine(entry));
             Console.WriteLine("Chat History:");
-            User.RenderChatHistory(Context.Messages);
+            User.RenderChatHistory(Context.Messages());
             throw; // unhandled exceptions result in a stack trace in the console.
         }
         finally

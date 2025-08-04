@@ -60,77 +60,57 @@ public static class ToolRegistry
 
     public static ITool? GetTool(string toolName) => _tools.TryGetValue(toolName, out var tool) ? tool : null;
 
-    internal static async Task<ToolResult> InvokeInternalAsync(string toolName, object toolInput, Context Context, string userInput) =>
+    internal static async Task<ToolResult> InvokeInternalAsync(string toolName, object toolInput, Context context) =>
         await Log.MethodAsync(async ctx =>
     {
-        ctx.OnlyEmitOnFailure();
+        //ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, toolName);
         ctx.Append(Log.Data.ToolInput, toolInput?.ToString() ?? "<null>");
 
         if (_tools == null || string.IsNullOrEmpty(toolName) || !_tools.ContainsKey(toolName))
         {
             ctx.Failed($"Tool '{toolName}' is not registered.", Error.ToolNotAvailable);
-            return ToolResult.Failure($"ERROR: Tool '{toolName}' is not registered.", Context);
+            return ToolResult.Failure($"ERROR: Tool '{toolName}' is not registered.", context);
         }
 
         if (null == toolInput)
         {
             ctx.Failed($"Tool '{toolName}' requires input, but received null.", Error.InvalidInput);
-            return ToolResult.Failure($"ERROR: Tool '{toolName}' requires input, but received null.", Context);
+            return ToolResult.Failure($"ERROR: Tool '{toolName}' requires input, but received null.", context);
         }
 
         var tool = _tools[toolName];
         if (tool == null)
         {
             ctx.Failed($"Tool '{toolName}' is not available.", Error.ToolNotAvailable);
-            return ToolResult.Failure($"ERROR: Tool '{toolName}' is not available.", Context);
+            return ToolResult.Failure($"ERROR: Tool '{toolName}' is not available.", context);
         }
-        var toolResult = await tool.InvokeAsync(toolInput, Context);
-        ctx.Append(Log.Data.Result, $"Summarize:{toolResult.Summarize}, ResponseText:{toolResult.Response}");
+        var toolResult = await tool.InvokeAsync(toolInput, context);
 
         if (null == toolResult)
         {
             ctx.Failed($"Tool '{toolName}' returned null result.", Error.ToolFailed);
-            return ToolResult.Failure($"ERROR: Tool '{toolName}' returned null result.", Context);
+            return ToolResult.Failure($"ERROR: Tool '{toolName}' returned null result.", context);
         }
+
+        ctx.Append(Log.Data.Result, $"Succeeded: {toolResult.Succeeded}, ResponseText:{toolResult.Response}");
 
         if (!toolResult.Succeeded)
         {
             var error = toolResult.Error ?? "Unknown error";
             ctx.Append(Log.Data.Error, error);
             ctx.Failed($"Tool '{toolName}' failed: {error}", Error.ToolFailed);
-            return ToolResult.Failure(error, Context);
+            return ToolResult.Failure(error, context);
         }
 
-        if (!toolResult.Summarize)
-        {
-            ctx.Succeeded();
-            return toolResult;
-        }
-
-        Context toolContext = new Context(new[]
-        {
-            new ChatMessage { Role = Roles.System, Content= "Use the result of the invoked tool to answer the user's original question in natural language."},
-            new ChatMessage { Role = Roles.User,
-            Content = $"""
-                The user asked a question that required invoking a tool to help answer it.
-
-                {userInput}
-
-                A tool, {toolName}, was invoked to help answer the user's question, the result of which was: {toolResult.Response}.
-
-                Explain the answer succinctly.  You do not need to reference the tool or its output directly, just use it's result to inform your response.
-            """}
-        });
-
-        var formattedResponse = await Engine.Provider!.PostChatAsync(toolContext, Program.config.Temperature);
+        await ContextManager.AddContent(toolResult.Response, $"{toolName}({toolInput.ToJson()})");
         ctx.Succeeded();
-        return ToolResult.Success(formattedResponse, toolResult.Context, toolResult.Summarize);
+        return ToolResult.Success(toolResult.Response, toolResult.context);
     });
-    
-    public static async Task<string> InvokeToolAsync(string toolName, object toolInput, Context Context, string lastUserInput)
+
+    public static async Task<string> InvokeToolAsync(string toolName, object toolInput, Context? context = null)
     {
-        var result = await InvokeInternalAsync(toolName, toolInput, Context, lastUserInput);
+        var result = await InvokeInternalAsync(toolName, toolInput, context ?? new Context(Program.config.SystemPrompt));
         return result.Response;
     }
 }

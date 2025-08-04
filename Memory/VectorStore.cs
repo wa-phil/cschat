@@ -21,6 +21,16 @@ public class SimpleVectorStore : IVectorStore
     public bool IsEmpty => _entries.Count == 0;
     public int Count => _entries.Count;
 
+    public List<SearchResult> SearchReferences(string reference) => _entries
+        .Where(e => e.Reference.Equals(reference, StringComparison.OrdinalIgnoreCase))
+        .Select(e => new SearchResult
+        {
+            Score = 1.0f, // Exact match, so score is 1.0
+            Reference = e.Reference,
+            Content = e.Chunk
+        })
+        .ToList();
+
     public List<SearchResult> Search(float[] queryEmbedding, int topK = 3) =>
         Log.Method(ctx =>
     {
@@ -54,7 +64,7 @@ public class SimpleVectorStore : IVectorStore
         float norm = (float)Math.Sqrt(vector.Sum(v => v * v));
         if (norm < 1e-8) return vector; // avoid divide-by-zero
         return vector.Select(v => v / norm).ToArray();
-    }    
+    }
 
     private static float CosineSimilarity(float[] a, float[] b)
     {
@@ -71,4 +81,11 @@ public class SimpleVectorStore : IVectorStore
 
         return (float)(dot / (Math.Sqrt(normA) * Math.Sqrt(normB) + 1e-8));
     }
+
+    public List<(string Reference, string Content)> GetEntries(Func<string, string, bool>? filter = null, int start = 0, int count = 100) => _entries
+        .Where(e => filter == null || filter(e.Reference, e.Chunk))
+        .Skip(start)
+        .Take(count)
+        .Select(e => (e.Reference, e.Chunk))
+        .ToList();
 }

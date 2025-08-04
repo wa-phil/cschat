@@ -27,7 +27,13 @@ public static class JSONParser
         json = json.Trim();
         if (json == "null") return null;
 
-        if (type == typeof(string)) return Unescape(json.Substring(1, json.Length - 2));
+        if (type == typeof(string)) 
+        {
+            // Check if the string is properly quoted and has enough length
+            if (json.Length < 2 || json[0] != '"' || json[json.Length - 1] != '"')
+                return string.Empty; // Handle malformed strings gracefully
+            return Unescape(json.Substring(1, json.Length - 2));
+        }
         if (type == typeof(int)) return int.TryParse(json, out var i) ? i : 0;
         if (type == typeof(float)) return float.TryParse(json, out var f) ? f : 0f;
         if (type == typeof(double)) return double.TryParse(json, out var d) ? d : 0.0;
@@ -38,6 +44,8 @@ public static class JSONParser
         {
             Type? elementType = type.GetElementType();
             if (elementType == null) return null;
+            if (json.Length < 2 || json[0] != '[' || json[json.Length - 1] != ']')
+                return Array.CreateInstance(elementType, 0); // Return empty array for malformed input
             string content = json.Substring(1, json.Length - 2);
             List<string> elems = Split(content);
             Array array = Array.CreateInstance(elementType, elems.Count);
@@ -52,6 +60,8 @@ public static class JSONParser
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
         {
             Type elementType = type.GetGenericArguments()[0];
+            if (json.Length < 2 || json[0] != '[' || json[json.Length - 1] != ']')
+                return Activator.CreateInstance(type)!; // Return empty list for malformed input
             string content = json.Substring(1, json.Length - 2);
             List<string> elems = Split(content);
             IList list = (IList)Activator.CreateInstance(type)!;
@@ -66,6 +76,8 @@ public static class JSONParser
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>) && type.GetGenericArguments()[0] == typeof(string))
         {
             Type valueType = type.GetGenericArguments()[1];
+            if (json.Length < 2 || json[0] != '{' || json[json.Length - 1] != '}')
+                return Activator.CreateInstance(type)!; // Return empty dictionary for malformed input
             string content = json.Substring(1, json.Length - 2);
             List<string> elems = Split(content);
             IDictionary dict = (IDictionary)Activator.CreateInstance(type)!;
@@ -75,6 +87,8 @@ public static class JSONParser
                 if (colonIndex == -1) continue;
                 string key = pair.Substring(0, colonIndex).Trim();
                 string valStr = pair.Substring(colonIndex + 1).Trim();
+                if (key.Length < 2 || key[0] != '"' || key[key.Length - 1] != '"')
+                    continue; // Skip malformed keys
                 key = Unescape(key.Substring(1, key.Length - 2));
                 object? val = ParseValue(valueType, valStr);
                 dict[key] = val;
@@ -82,9 +96,11 @@ public static class JSONParser
             return dict;
         }
 
-        if (json[0] == '{')
+        if (json.Length > 0 && json[0] == '{')
         {
             object obj = Activator.CreateInstance(type)!;
+            if (json.Length < 2)
+                return obj; // Return empty object for malformed input
             string content = json.Substring(1, json.Length - 2);
             List<string> elems = Split(content);
 
@@ -120,6 +136,8 @@ public static class JSONParser
                 if (colonIndex == -1) continue;
                 string key = pair.Substring(0, colonIndex).Trim();
                 string valStr = pair.Substring(colonIndex + 1).Trim();
+                if (key.Length < 2 || key[0] != '"' || key[key.Length - 1] != '"')
+                    continue; // Skip malformed keys
                 key = Unescape(key.Substring(1, key.Length - 2));
 
                 if (fields.TryGetValue(key, out var field))
@@ -143,7 +161,11 @@ public static class JSONParser
     {
         json = json.Trim();
         if (json == "null") return null;
-        if (json.StartsWith("\"")) return Unescape(json.Substring(1, json.Length - 2));
+        if (json.StartsWith("\"")) 
+        {
+            if (json.Length < 2) return string.Empty;
+            return Unescape(json.Substring(1, json.Length - 2));
+        }
         if (json == "true") return true;
         if (json == "false") return false;
         if (json.IndexOf('.') >= 0 && double.TryParse(json, out var dbl)) return dbl;
@@ -152,24 +174,32 @@ public static class JSONParser
         if (json.StartsWith("["))
         {
             var list = new List<object?>();
-            var elements = Split(json.Substring(1, json.Length - 2));
-            foreach (var elem in elements)
-                list.Add(ParseDynamic(elem));
+            if (json.Length >= 2)
+            {
+                var elements = Split(json.Substring(1, json.Length - 2));
+                foreach (var elem in elements)
+                    list.Add(ParseDynamic(elem));
+            }
             return list;
         }
 
         if (json.StartsWith("{"))
         {
             var dict = new Dictionary<string, object?>();
-            var pairs = Split(json.Substring(1, json.Length - 2));
-            foreach (var pair in pairs)
+            if (json.Length >= 2)
             {
-                int colonIndex = pair.IndexOf(':');
-                if (colonIndex == -1) continue;
-                string key = pair.Substring(0, colonIndex).Trim();
-                string valStr = pair.Substring(colonIndex + 1).Trim();
-                key = Unescape(key.Substring(1, key.Length - 2));
-                dict[key] = ParseDynamic(valStr);
+                var pairs = Split(json.Substring(1, json.Length - 2));
+                foreach (var pair in pairs)
+                {
+                    int colonIndex = pair.IndexOf(':');
+                    if (colonIndex == -1) continue;
+                    string key = pair.Substring(0, colonIndex).Trim();
+                    string valStr = pair.Substring(colonIndex + 1).Trim();
+                    if (key.Length < 2 || key[0] != '"' || key[key.Length - 1] != '"')
+                        continue; // Skip malformed keys
+                    key = Unescape(key.Substring(1, key.Length - 2));
+                    dict[key] = ParseDynamic(valStr);
+                }
             }
             return dict;
         }

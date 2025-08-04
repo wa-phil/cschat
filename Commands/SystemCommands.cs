@@ -9,17 +9,17 @@ public partial class CommandManager
     {
         return new Command
         {
-            Name = "system", Description = "System commands",
+            Name = "system", Description = () => "System commands",
             SubCommands = new List<Command>
             {
                 new Command
                 {
-                    Name = "log", Description = "Logging commands",
+                    Name = "log", Description = () => "Logging commands",
                     SubCommands = new List<Command>
                     {
                         new Command
                         {
-                            Name = "show", Description = "Show the contents of the log",
+                            Name = "show", Description = () => "Show the contents of the log",
                             Action = () =>
                             {
 								Log.PrintColorizedOutput();
@@ -28,7 +28,7 @@ public partial class CommandManager
                         },
                         new Command
                         {
-                            Name = "clear", Description = "Clear the log entries",
+                            Name = "clear", Description = () => "Clear the log entries",
                             Action = () =>
                             {
                                 Log.ClearOutput();
@@ -38,7 +38,7 @@ public partial class CommandManager
                         },
                         new Command
                         {
-                            Name = "save", Description = "Save the contents of the log to a file",
+                            Name = "save", Description = () => "Save the contents of the log to a file",
                             Action = () =>
                             {
                                 Console.Write("Enter file path to save the log: ");
@@ -63,7 +63,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "clear", Description = "Clear the console screen",
+                    Name = "clear", Description = () => "Clear the console screen",
                     Action = () =>
                     {
                         Console.Clear();
@@ -71,12 +71,12 @@ public partial class CommandManager
                     }
                 },
                 new Command {
-                    Name = "config", Description = "Configuration commands",
+                    Name = "config", Description = () => "Configuration commands",
                     SubCommands = new List<Command>
                     {
                         new Command
                         {
-                            Name = "show", Description = "Show current system configuration",
+                            Name = "show", Description = () => "Show current system configuration",
                             Action = () =>
                             {
                                 Console.WriteLine("Current Configuration:");
@@ -86,7 +86,7 @@ public partial class CommandManager
                         },
                         new Command
                         {
-                            Name = "save", Description = "Save the current configuration",
+                            Name = "save", Description = () => "Save the current configuration",
                             Action = () =>
                             {
                                 Config.Save(Program.config, Program.ConfigFilePath);
@@ -96,7 +96,7 @@ public partial class CommandManager
                         },
                         new Command
                         {
-                            Name = "factory reset", Description = "Delete the current configuration and reset everything to defaults",
+                            Name = "factory reset", Description = () => "Delete the current configuration and reset everything to defaults",
                             Action = async () =>
                             {
                                 File.Delete(Program.ConfigFilePath);
@@ -105,7 +105,32 @@ public partial class CommandManager
                                 Console.WriteLine("Configuration reset to default.");
                                 return Command.Result.Success;
                             }
-                        }
+                        },
+                        new Command
+                        {
+                            Name = "max menu items", Description = () => $"Configure maximum number of menu items displayed at once [currently: {Program.config.MaxMenuItems}]",
+                            Action = () =>
+                            {
+                                Console.WriteLine($"Current max menu items: {Program.config.MaxMenuItems}");
+                                Console.Write("Enter new value (minimum 1): ");
+                                var input = User.ReadLineWithHistory();
+                                if (int.TryParse(input, out int value) && value >= 1)
+                                {
+                                    Program.config.MaxMenuItems = value;
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine($"Max menu items set to {value}");
+                                }
+                                else
+                                {
+                                    Console.WriteLine("Invalid input. Please enter a number >= 1.");
+                                }
+                                return Task.FromResult(Command.Result.Success);
+                            }
+                        },
+                        CreateProviderCommands(),
+                        CreateRagConfigCommands(),
+                        CreateRagFileTypeCommands(),
+                        CreateMcpCommands()
                     }
                 }
             }

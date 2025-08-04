@@ -13,43 +13,6 @@ using System.Diagnostics.Tracing;
 using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 
-// Custom EventSourceListener that bridges Azure SDK events to our Log class
-public class AzureLogEventListener : EventListener
-{
-    protected override void OnEventSourceCreated(EventSource eventSource) => Log.Method(ctx =>
-    {
-        ctx.Append(Log.Data.Name, eventSource.Name);
-        bool enabled = false;
-        if (Program.config.AzureAuthVerboseLoggingEnabled && eventSource.Name.StartsWith("Azure-"))
-        {
-            EnableEvents(eventSource, EventLevel.Verbose);
-            enabled = true;
-        }
-        ctx.Append(Log.Data.Enabled, enabled);
-        ctx.Succeeded();
-    });
-
-    protected override void OnEventWritten(EventWrittenEventArgs eventData)
-    {        
-        if (eventData.EventSource.Name.StartsWith("Azure-"))
-        {
-            var level = eventData.Level == EventLevel.Error ? Log.Level.Error : Log.Level.Information;
-
-            using var ctx = new Log.Context(level);
-            ctx.OnlyEmitOnFailure();
-            ctx.Append(Log.Data.Level, level);
-            ctx.Append(Log.Data.Source, $"Azure.{eventData.EventSource.Name}");
-            ctx.Append(Log.Data.Message, $"[{eventData.EventName}] {eventData.Message}");
-            if (eventData.Payload != null && eventData.Payload.Count > 0)
-            {
-                var payload = string.Join(", ", eventData.Payload);
-                ctx.Append(Log.Data.Message, $"[{eventData.EventName}] {eventData.Message} - Payload: {payload}");
-            }
-            ctx.Succeeded(eventData.Level != EventLevel.Error);
-        }
-    }
-}
-
 [IsConfigurable("AzureAI")]
 public class AzureAI : IChatProvider, IEmbeddingProvider
 {
@@ -57,22 +20,16 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
     private AzureOpenAIClient azureClient = null!;
     private ChatClient chatClient = null!;
     private EmbeddingClient embeddingClient = null!;
-    private static AzureLogEventListener? _eventSourceListener;
+    
 
     public AzureAI(Config cfg) => Log.Method(ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         this.config = cfg ?? throw new ArgumentNullException(nameof(cfg));
 
         ctx.Append(Log.Data.Provider, "AzureAI");
         ctx.Append(Log.Data.Model, config.Model);
         ctx.Append(Log.Data.Message, $"Initializing Azure OpenAI client for {config.Host}");
-        
-        // Create and configure our custom event listener to capture Azure SDK events
-        if (_eventSourceListener == null)
-        {
-            _eventSourceListener = new AzureLogEventListener();
-            ctx.Append(Log.Data.Message, "Azure event source listener initialized");
-        }
 
         // Enable Azure Core diagnostics logging based on configuration
         using (AzureEventSourceListener.CreateConsoleLogger(EventLevel.Verbose))
@@ -108,8 +65,9 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
 
     public async Task<string> PostChatAsync(Context Context, float _ /* TODO: figure out how temp plumbs through here*/) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         await Task.CompletedTask; // Ensure we don't block the thread unnecessarily
-        var chatHistory = Context.Messages.Select<ChatMessage, OpenAI.Chat.ChatMessage>(msg =>
+        var chatHistory = Context.Messages().Select<ChatMessage, OpenAI.Chat.ChatMessage>(msg =>
             msg.Role switch
             {
                 Roles.User => new UserChatMessage(msg.Content),

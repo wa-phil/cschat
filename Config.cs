@@ -1,15 +1,40 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
+
+public class FileFilterRules
+{
+    public List<string> ExcludeRegexPatterns { get; set; } = new();
+    public List<string> IncludeRegexPatterns { get; set; } = new(); // optional
+}
 
 public class RagSettings
 {
-    public string ChunkingStrategy { get; set; } = "LineChunk";
+    public string ChunkingStrategy { get; set; } = "SmartChunk";
     public int ChunkSize { get; set; } = 100;
     public int Overlap { get; set; } = 5;
-    public string QueryPrompt { get; set; } = "Extract a concise list of keywords that would appear in relevant documents to answer this question.";
     public bool NormalizeEmbeddings { get; set; } = true;
     public int TopK { get; set; } = 3; // as in k-nearest neighbors
+    public bool UseEmbeddings { get; set; } = true; // whether to use embeddings for RAG
     public string EmbeddingModel { get; set; } = "nomic-embed-text"; // Default embedding model
+    public int MaxTokensPerChunk { get; set; } = 8000;
+    public int MaxLineLength { get; set; } = 1600; // because there should be a limit, approximately 400 tokens in a line is a LOT.
+    public List<string> SupportedFileTypes { get; set; } = new List<string>
+    {
+        ".bash", ".bat",
+        ".c", ".cpp", ".cs", ".csproj", ".csv",
+        ".h", ".html",
+        ".ignore",
+        ".js",
+        ".log",
+        ".md",
+        ".py",
+        ".sh", ".sln",
+        ".ts", ".txt",
+        ".xml",
+        ".yml"
+    };    
+    public Dictionary<string, FileFilterRules> FileFilters { get; set; } = new();
 }
 
 public class Config
@@ -23,8 +48,21 @@ public class Config
 
     public RagSettings RagSettings { get; set; } = new RagSettings();
     public string McpServerDirectory { get; set; } = "./mcp_servers";
-    public bool AzureAuthVerboseLoggingEnabled { get; set; } = false;
+    public bool VerboseEventLoggingEnabled { get; set; } = false;
     public int MaxSteps { get; set; } = 25; // Maximum number of steps for planning
+    public int MaxMenuItems { get; set; } = 10; // Maximum number of menu items to display at once
+
+    public Dictionary<string, bool> EventSources { get; set; } = new Dictionary<string, bool>
+    {
+        { "Microsoft-Extensions-DependencyInjection", true },
+        { "System.Diagnostics.Eventing.FrameworkEventSource", true },
+        { "System.Threading.Tasks.TplEventSource", true },
+        { "Microsoft-Diagnostics-DiagnosticSource", true },
+        { "Private.InternalDiagnostics.System.Net.Sockets", true },
+        { "Private.InternalDiagnostics.System.Net.Http", true },
+        { "System.Net.NameResolution", true },
+        { "System.Net.Http", true },
+    };
 
     public static Config Load(string configFilePath)
     {
