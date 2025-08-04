@@ -261,8 +261,8 @@ public static class Log
 		Console.ResetColor();
 
 		_buffer.OfType<Dictionary<string, object>>()
-			   .Select(dict => dict.Where(kv => Enum.TryParse<Data>(kv.Key, out _))
-								  .ToDictionary(kv => Enum.Parse<Data>(kv.Key), kv => kv.Value))
+               .Select(dict => dict.Where(kv => Enum.TryParse<Data>(kv.Key, out _))
+               .ToDictionary(kv => Enum.Parse<Data>(kv.Key), kv => kv.Value))
 			   .ToList()
 			   .ForEach(ColorizedConsoleLogger.WriteColorizedLog);
 	}
