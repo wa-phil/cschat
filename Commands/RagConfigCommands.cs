@@ -149,7 +149,7 @@ public partial class CommandManager
                                         Console.WriteLine("Invalid regex pattern.");
                                         return Task.FromResult(Command.Result.Failed);
                                     }
-                                    rules.ExcludeRegexPatterns.Add(pattern);
+                                    rules.Exclude.Add(pattern);
                                     Config.Save(Program.config, Program.ConfigFilePath);
                                     Console.WriteLine($"Added exclude rule '{pattern}' for file type '{type}'.");
                                 }
@@ -198,7 +198,7 @@ public partial class CommandManager
                                         Console.WriteLine("Invalid regex pattern.");
                                         return Task.FromResult(Command.Result.Failed);
                                     }
-                                    rules.IncludeRegexPatterns.Add(pattern);
+                                    rules.Include.Add(pattern);
                                     Config.Save(Program.config, Program.ConfigFilePath);
                                     Console.WriteLine($"Added include rule '{pattern}' for file type '{type}'.");
                                 }
@@ -218,8 +218,8 @@ public partial class CommandManager
                                 var fileTypes = Program.config.RagSettings.SupportedFileTypes
                                     .Where(ft=>
                                         Program.config.RagSettings.FileFilters.ContainsKey(ft) &&
-                                        (Program.config.RagSettings.FileFilters[ft].IncludeRegexPatterns.Count +
-                                         Program.config.RagSettings.FileFilters[ft].ExcludeRegexPatterns.Count) > 0)
+                                        (Program.config.RagSettings.FileFilters[ft].Include.Count +
+                                         Program.config.RagSettings.FileFilters[ft].Exclude.Count) > 0)
                                     .ToList();
                                 if (fileTypes.Count == 0)
                                 {
@@ -237,12 +237,12 @@ public partial class CommandManager
                                 {
                                     Console.WriteLine($"Rules for file type '{type}':");
                                     Console.WriteLine("Include Patterns:");
-                                    foreach (var include in rules.IncludeRegexPatterns)
+                                    foreach (var include in rules.Include)
                                     {
                                         Console.WriteLine($"- {include}");
                                     }
                                     Console.WriteLine("Exclude Patterns:");
-                                    foreach (var exclude in rules.ExcludeRegexPatterns)
+                                    foreach (var exclude in rules.Exclude)
                                     {
                                         Console.WriteLine($"- {exclude}");
                                     }
@@ -263,8 +263,8 @@ public partial class CommandManager
                                 var fileTypes = Program.config.RagSettings.SupportedFileTypes
                                     .Where(ft=>
                                         Program.config.RagSettings.FileFilters.ContainsKey(ft) &&
-                                        (Program.config.RagSettings.FileFilters[ft].IncludeRegexPatterns.Count +
-                                         Program.config.RagSettings.FileFilters[ft].ExcludeRegexPatterns.Count) > 0)
+                                        (Program.config.RagSettings.FileFilters[ft].Include.Count +
+                                         Program.config.RagSettings.FileFilters[ft].Exclude.Count) > 0)
                                     .ToList();
                                 if (fileTypes.Count == 0)
                                 {
@@ -285,8 +285,8 @@ public partial class CommandManager
                                 }
                                 Console.WriteLine("Select a rule to remove:");
                                 var choices = new List<string>();
-                                choices.AddRange(rules.IncludeRegexPatterns.Where(p=>!string.IsNullOrWhiteSpace(p)).Select(p => $"Include: {p}"));
-                                choices.AddRange(rules.ExcludeRegexPatterns.Where(p=>!string.IsNullOrWhiteSpace(p)).Select(p => $"Exclude: {p}"));
+                                choices.AddRange(rules.Include.Where(p=>!string.IsNullOrWhiteSpace(p)).Select(p => $"Include: {p}"));
+                                choices.AddRange(rules.Exclude.Where(p=>!string.IsNullOrWhiteSpace(p)).Select(p => $"Exclude: {p}"));
                                 if (choices.Count == 0)
                                 {
                                     Program.config.RagSettings.FileFilters.Remove(type);
@@ -304,7 +304,7 @@ public partial class CommandManager
                                 if (selectedRule.StartsWith("Include: "))
                                 {
                                     var rule = selectedRule.Substring("Include: ".Length);
-                                    if (rules.IncludeRegexPatterns.Remove(rule))
+                                    if (rules.Include.Remove(rule))
                                     {
                                         Console.WriteLine($"Removed include rule '{rule}' from file type '{type}'.");
                                     }
@@ -316,7 +316,7 @@ public partial class CommandManager
                                 else if (selectedRule.StartsWith("Exclude: "))
                                 {
                                     var rule = selectedRule.Substring("Exclude: ".Length);
-                                    if (rules.ExcludeRegexPatterns.Remove(rule))
+                                    if (rules.Exclude.Remove(rule))
                                     {
                                         Console.WriteLine($"Removed exclude rule '{rule}' from file type '{type}'.");
                                     }

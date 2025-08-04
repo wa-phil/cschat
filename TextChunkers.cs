@@ -122,6 +122,18 @@ public class SmartChunk : ITextChunker
         return chunks;
     }
 
+    private static readonly Dictionary<string, Regex> RegexCache = new();
+
+    private Regex GetOrAddRegex(string pattern)
+    {
+        if (!RegexCache.TryGetValue(pattern, out var regex))
+        {
+            regex = new Regex(pattern, RegexOptions.Compiled);
+            RegexCache[pattern] = regex;
+        }
+        return regex;
+    }
+
     private List<string> PreprocessLines(string text, string? extension)
     {
         var rawLines = text.Split('\n').Where(l => l.Length <= maxLineLength);
@@ -135,14 +147,14 @@ public class SmartChunk : ITextChunker
         //  * If include rules are present, only include lines that match at least one of the include rules.
         //  * If exclude rules are present, exclude lines that match any of the exclude rules.
         //  * If neither, include all lines.
-        var includeRules = rules.IncludeRegexPatterns.Select(p => new Regex(p)).ToList();
-        var excludeRules = rules.ExcludeRegexPatterns.Select(p => new Regex(p)).ToList();
+        var includeRules = rules.Include.Where(p=>!string.IsNullOrEmpty(p)).Select(p=>GetOrAddRegex(p)).ToList();
+        var excludeRules = rules.Exclude.Where(p=>!string.IsNullOrEmpty(p)).Select(p=>GetOrAddRegex(p)).ToList();
         return rawLines.Where(line =>
             (includeRules.Count > 0, excludeRules.Count > 0) switch
             {
-                (true, _)       => includeRules.Any(r => r.IsMatch(line)),
-                (false, true)   => !(excludeRules.Any(r => r.IsMatch(line))),
-                (false, false)  => true
+                (true, _)      => includeRules.Any(r => r.IsMatch(line)),
+                (false, true)  => !(excludeRules.Any(r => r.IsMatch(line))),
+                (false, false) => true
             }
         ).ToList();
     }
@@ -161,5 +173,5 @@ public class SmartChunk : ITextChunker
         }
     }
 
-    private int ApproximateTokenCount(string line) => Math.Max(1, line.Length / 4); // crude approximation
+    private int ApproximateTokenCount(string line) => Math.Max(1, line.Length / 3); // crude approximation
 }

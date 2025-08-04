@@ -4,8 +4,8 @@ using System.Collections.Generic;
 
 public class FileFilterRules
 {
-    public List<string> ExcludeRegexPatterns { get; set; } = new();
-    public List<string> IncludeRegexPatterns { get; set; } = new(); // optional
+    public List<string> Exclude { get; set; } = new();
+    public List<string> Include { get; set; } = new(); // optional
 }
 
 public class RagSettings
