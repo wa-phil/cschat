@@ -22,9 +22,7 @@ public partial class CommandManager
                             Name = "show", Description = () => "Show the contents of the log",
                             Action = () =>
                             {
-                                var entries = Log.GetOutput().ToList();
-                                Console.WriteLine($"Log Entries [{entries.Count}]:");
-                                entries.ToList().ForEach(entry => Console.WriteLine(entry));
+                                Log.PrintColorizedOutput();
                                 return Task.FromResult(Command.Result.Success);
                             }
                         },
