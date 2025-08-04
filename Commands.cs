@@ -27,7 +27,7 @@ public class Command
     }
 
     public string Name { get; set; } = string.Empty; // Ensure non-nullable property is initialized
-    public string Description { get; set; } = string.Empty; // Ensure non-nullable property is initialized
+    public Func<string> Description { get; set; } = () => string.Empty; // Ensure non-nullable property is initialized
 
     private async Task<Result> DefaultAction()
     {
@@ -37,7 +37,7 @@ public class Command
         {
             // render the menu of subcommands, the text passed in should be a concatenation of the subcommand names with their descriptions,
             // formatted such that the descriptions are aligned with the command names
-            var selected = User.RenderMenu($"{GetFullPath()} commands", SubCommands.Select(c => $"{c.Name} - {c.Description}").ToList());
+            var selected = User.RenderMenu($"{GetFullPath()} commands", SubCommands.Select(c => $"{c.Name} - {c.Description()}").ToList());
             if (string.IsNullOrEmpty(selected))
             {
                 return Result.Cancelled;
@@ -172,15 +172,16 @@ public partial class CommandManager : Command
             CreateSystemCommands(),
             new Command
             {
-                Name = "restart", Description = "Reset chat history, RAG state, logs, and clear the console",
+                Name = "restart", Description = () => "Reset chat history, RAG state, logs, and clear the console",
                 Action = async () =>
                 {
+                    Console.ResetColor();
+                    Console.Clear();
                     Program.Context.Clear();
                     Program.Context.AddSystemMessage(Program.config.SystemPrompt);
                     Engine.VectorStore.Clear();
                     Log.ClearOutput();
                     await Program.InitProgramAsync();
-                    Console.Clear();
                     Console.WriteLine("Chat history, RAG state, and logs have been reset.");
                     Console.WriteLine("Current Configuration:");
                     Console.WriteLine(Program.config.ToJson());
@@ -190,7 +191,7 @@ public partial class CommandManager : Command
             new Command
             {
                 Name = "help",
-                Description = "Generate help text summarizing available commands",
+                Description = () => "Generate help text summarizing available commands",
                 Action = async () =>
                 {
                     Console.WriteLine("Menu structure and layout:");
@@ -210,7 +211,7 @@ public partial class CommandManager : Command
             },
             new Command
             {
-                Name = "about", Description = "Show information about Console# Chat",
+                Name = "about", Description = () => "Show information about Console# Chat",
                 Action = () =>
                 {
                     Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
@@ -221,7 +222,7 @@ public partial class CommandManager : Command
             },
             new Command
             {
-                Name = "exit", Description = "Quit the application",
+                Name = "exit", Description = () => "Quit the application",
                 Action = () => { Environment.Exit(0); return Task.FromResult(Command.Result.Success); }
             }
         });
@@ -235,7 +236,7 @@ public partial class CommandManager : Command
             new Command
             {
                 Name = tool.Name,
-                Description = tool.Description,
+                Description = () => tool.Description,
                 Action = async () =>
                 {
                     Console.WriteLine($"Using tool: {tool.Name}");
@@ -286,14 +287,14 @@ public partial class CommandManager : Command
         return new Command
         {
             Name = "tools",
-            Description = "Invoke/run tools",
+            Description = () => "Invoke/run tools",
             SubCommands = toolSubcommands,
             Action = async () =>
             {
                 return await new Command
                 {
                     Name = "tools",
-                    Description = "Invoke/run tools",
+                    Description = () => "Invoke/run tools",
                     SubCommands = toolSubcommands
                 }.Action.Invoke();
             }

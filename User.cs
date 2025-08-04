@@ -9,23 +9,20 @@ public class User
     // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
     public static string? RenderMenu(string header, List<string> choices, int selected = 0) // Allow nullable return type to handle null cases
     {
-        int actualMaxVisibleItems = Program.config.MaxMenuItems;
         // Store original choices for scrolling
         var originalChoices = new List<string>(choices);
-        int originalSelected = selected;
+        int actualMaxVisibleItems = Program.config.MaxMenuItems, originalSelected = selected;
     
-        // always position the menu at the top    
+        // always position the menu at the top, and print the header
         Console.Clear();
         Console.SetCursorPosition(0, 0);
-        
-        // Print header
+        Console.ForegroundColor = ConsoleColor.Green;
         Console.WriteLine(header);
-        
+        Console.ResetColor();
+
         // Calculate scrolling parameters
-        int scrollOffset = 0;
-        int visibleItems = Math.Min(originalChoices.Count, actualMaxVisibleItems);
-        bool hasMoreAbove = false;
-        bool hasMoreBelow = false;
+        int scrollOffset = 0, visibleItems = Math.Min(originalChoices.Count, actualMaxVisibleItems);
+        bool hasMoreAbove = false, hasMoreBelow = false;
         
         // Reserve space for menu lines, indicators, and input
         int indicatorLines = 2; // up to 2 lines for "more above/below" indicators
@@ -45,9 +42,13 @@ public class User
         List<string> filteredChoices = new List<string>(originalChoices);
         int filteredSelected = originalSelected;
 
-        // Function to calculate which items to show and update scroll indicators
-        void UpdateScrollView()
+        void DrawMenu() => Log.Method(ctx =>
         {
+            ctx.OnlyEmitOnFailure();
+            ctx.Append(Log.Data.ConsoleHeight, Console.BufferHeight);
+            ctx.Append(Log.Data.ConsoleWidth, Console.WindowWidth);
+            
+            // Calculate which items to show and update scroll indicators
             visibleItems = Math.Min(filteredChoices.Count, actualMaxVisibleItems);
             
             // Adjust scroll offset to keep selected item visible
@@ -61,19 +62,9 @@ public class User
             }
             
             // Ensure scroll offset is within bounds
-            scrollOffset = Math.Max(0, Math.Min(scrollOffset, Math.Max(0, filteredChoices.Count - visibleItems)));
-            
+            scrollOffset = Math.Max(0, Math.Min(scrollOffset, Math.Max(0, filteredChoices.Count - visibleItems)));            
             hasMoreAbove = scrollOffset > 0;
             hasMoreBelow = scrollOffset + visibleItems < filteredChoices.Count;
-        }
-
-        void DrawMenu() => Log.Method(ctx =>
-        {
-            ctx.OnlyEmitOnFailure();
-            ctx.Append(Log.Data.ConsoleHeight, Console.BufferHeight);
-            ctx.Append(Log.Data.ConsoleWidth, Console.WindowWidth);
-            
-            UpdateScrollView();
             
             // Ensure we don't exceed console buffer bounds
             int maxRow = Console.BufferHeight - 1;

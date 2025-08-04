@@ -50,7 +50,7 @@ public static class Engine
             }
 
             var line = $"{indent}{(isLast ? "└── " : "├── ")}{command.Name} - ";
-            var description = command.Description ?? string.Empty;
+            var description = command.Description() ?? string.Empty;
             var maxWidth = Console.WindowWidth - line.Length - 4; // 4 for ellipses
             if (description.Length > maxWidth)
             {

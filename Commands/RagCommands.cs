@@ -9,12 +9,12 @@ public partial class CommandManager
     {
         return new Command
         {
-            Name = "rag", Description = "Retrieval-Augmented Generation commands",
+            Name = "rag", Description = () => "Retrieval-Augmented Generation commands",
             SubCommands = new List<Command>
             {
                 new Command
                 {
-                    Name = "add file", Description = "Add a single file's contents to the RAG store",
+                    Name = "add file", Description = () => "Add a single file's contents to the RAG store",
                     Action = async () =>
                     {
                         Console.Write("Enter file path: ");
@@ -35,7 +35,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "add directory", Description = "Add a directory to the RAG store",
+                    Name = "add directory", Description = () => "Add a directory to the RAG store",
                     Action = async () =>
                     {
                         Console.Write("Enter directory path: ");
@@ -50,7 +50,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "add zip contents", Description = "Add contents of a zip file to the RAG store",
+                    Name = "add zip contents", Description = () => "Add contents of a zip file to the RAG store",
                     Action = async () =>
                     {
                         Console.Write("Enter zip file path: ");
@@ -65,7 +65,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "display", Description = "display an entry from the RAG store",
+                    Name = "display", Description = () => "Display an entry from the RAG store",
                     Action = () =>
                     {
                         if (Engine.VectorStore.IsEmpty)
@@ -100,7 +100,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "clear", Description = "Clear all RAG data",
+                    Name = "clear", Description = () => "Clear all RAG data",
                     Action = () =>
                     {
                         Engine.VectorStore.Clear();
@@ -110,7 +110,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "search", Description = "Search RAG store based on a query",
+                    Name = "search", Description = () =>"Search RAG store based on a query",
                     Action = async () =>
                     {
                         if (Engine.VectorStore.IsEmpty)

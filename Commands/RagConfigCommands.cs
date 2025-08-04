@@ -11,12 +11,12 @@ public partial class CommandManager
         return new Command
         {
             Name = "supported file types",
-            Description = "manage and configure RAG related settings for supported file types",
+            Description = () => "manage and configure RAG related settings for supported file types",
             SubCommands = new List<Command>
             {
                 new Command
                 {
-                    Name = "list", Description = "List all supported file types",
+                    Name = "list", Description = () => "List all supported file types",
                     Action = () =>
                     {
                         var fileTypes = Program.config.RagSettings.SupportedFileTypes;
@@ -37,7 +37,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "add", Description = "Add a new supported file type",
+                    Name = "add", Description = () => "Add a new supported file type",
                     Action = () =>
                     {
                         Console.Write("Enter new file type (e.g., .txt, .md): ");
@@ -57,7 +57,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "remove", Description = "Remove a supported file type",
+                    Name = "remove", Description = () => "Remove a supported file type",
                     Action = () =>
                     {
                         Console.Write("Enter file type to remove: ");
@@ -76,7 +76,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "clear", Description = "Clear all supported file types",
+                    Name = "clear", Description = () => "Clear all supported file types",
                     Action = () =>
                     {
                         Program.config.RagSettings.SupportedFileTypes.Clear();
@@ -87,7 +87,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "set", Description = "Set the supported file types from a comma-separated list",
+                    Name = "set", Description = () => "Set the supported file types from a comma-separated list",
                     Action = () =>
                     {
                         Console.Write("Enter comma-separated file types (e.g., .txt, .md): ");
@@ -108,12 +108,12 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "rules", Description = "Manage file filter rules for supported file types",
+                    Name = "rules", Description = () => "Manage file filter rules for supported file types",
                     SubCommands = new List<Command>
                     {
                         new Command
                         {
-                            Name = "add exclude rule", Description = "Add an exclude rule for a file type",
+                            Name = "add exclude rule", Description = () => "Add an exclude rule for a file type",
                             Action = () =>
                             {
                                 // use menu to select file type to add exclude rule for
@@ -162,7 +162,7 @@ public partial class CommandManager
                         },
                         new Command
                         {
-                            Name = "add include rule", Description = "Add an include rule for a file type",
+                            Name = "add include rule", Description = () => "Add an include rule for a file type",
                             Action = () =>
                             {
                                 // use menu to select file type to add include rule for
@@ -211,7 +211,7 @@ public partial class CommandManager
                         },
                         new Command
                         {
-                            Name = "list rules", Description = "List all rules for a file type",
+                            Name = "list rules", Description = () => "List all rules for a file type",
                             Action = () =>
                             {
                                 // use menu to select file type to list rules for
@@ -256,7 +256,7 @@ public partial class CommandManager
                         },
                         new Command
                         {
-                            Name = "remove rule", Description = "Remove a rule from a file type",
+                            Name = "remove rule", Description = () => "Remove a rule from a file type",
                             Action = () =>
                             {
                                 // use menu to select file type to remove rule from
@@ -350,12 +350,12 @@ public partial class CommandManager
         return new Command
         {
             Name = "RAG",
-            Description = "RAG (Retrieval-Augmented Generation) configuration settings",
+            Description = () => "RAG (Retrieval-Augmented Generation) configuration settings",
             SubCommands = new List<Command>
             {
                 new Command
                 {
-                    Name = "use embeddings", Description = "Toggle the use of embeddings for RAG",
+                    Name = "use embeddings", Description = () => $"Toggle the use of embeddings for RAG [currently: {(Program.config.RagSettings.UseEmbeddings ? "Enabled" : "Disabled")}]",
                     Action = () =>
                     {
                         var selected = User.RenderMenu("Use embeddings:", new List<string> { "true", "false" }, Program.config.RagSettings.UseEmbeddings ? 0 : 1);
@@ -377,7 +377,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "embedding model", Description = "Set the embedding model for RAG",
+                    Name = "embedding model", Description = () => $"Set the embedding model for RAG [currently: {Program.config.RagSettings.EmbeddingModel}]",
                     Action = () =>
                     {
                         Console.WriteLine($"Current embedding model: {Program.config.RagSettings.EmbeddingModel}");
@@ -394,7 +394,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "chunking method", Description = "Select the text chunker for RAG",
+                    Name = "chunking method", Description = () => $"Select the text chunker for RAG [currently: {Program.config.RagSettings.ChunkingStrategy}]",
                     Action = () =>
                     {
                         var chunkers = Program.Chunkers.Keys.ToList();
@@ -410,7 +410,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "chunk size", Description = "Set the chunk size for RAG",
+                    Name = "chunk size", Description = () => $"Set the chunk size for RAG [currently: {Program.config.RagSettings.ChunkSize}]",
                     Action = () =>
                     {
                         Console.Write($"Current chunk size: {Program.config.RagSettings.ChunkSize}. Enter new value (1 to 10000): ");
@@ -430,7 +430,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "max tokens per chunk", Description = "Set the maximum tokens per chunk for RAG",
+                    Name = "max tokens per chunk", Description = () => $"Set the maximum tokens per chunk for RAG [currently: {Program.config.RagSettings.MaxTokensPerChunk}]",
                     Action = () =>
                     {
                         Console.Write($"Current MaxTokensPerChunk: {Program.config.RagSettings.MaxTokensPerChunk}. Enter new value (1 to 32000): ");
@@ -446,7 +446,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "max line length", Description = "Set the maximum line length for RAG",
+                    Name = "max line length", Description = () => $"Set the maximum line length for RAG [currently: {Program.config.RagSettings.MaxLineLength}]",
                     Action = () =>
                     {
                         Console.Write($"Current MaxLineLength: {Program.config.RagSettings.MaxLineLength}. Enter new value (1 to 32000): ");
@@ -462,7 +462,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "overlap", Description = "Set the overlap size for RAG chunks",
+                    Name = "overlap", Description = () => $"Set the overlap size for RAG chunks [currently: {Program.config.RagSettings.Overlap}]",
                     Action = () =>
                     {
                         Console.Write($"Current overlap size: {Program.config.RagSettings.Overlap}. Enter new value (0 to 100): ");
@@ -482,7 +482,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "TopK", Description = "Set the number of top results to return from RAG queries",
+                    Name = "TopK", Description = () => $"Set the number of top results to return from RAG queries [currently: {Program.config.RagSettings.TopK}]",
                     Action = () =>
                     {
                         const int maxK = 25;

@@ -10,12 +10,12 @@ public partial class CommandManager
         return new Command
         {
             Name = "chat",
-            Description = "chat-related commands",
+            Description = () => "chat-related commands",
             SubCommands = new List<Command>
             {
                 new Command
                 {
-                    Name = "show", Description = "Show chat history",
+                    Name = "show", Description = () => "Show chat history",
                     Action = () =>
                     {
                         User.RenderChatHistory(Program.Context.Messages());
@@ -24,7 +24,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "clear", Description = "Clear chat history",
+                    Name = "clear", Description = () => "Clear chat history",
                     Action = () =>
                     {
                         Program.Context.Clear();
@@ -35,7 +35,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "load", Description = "Load chat history from a file",
+                    Name = "load", Description = () => "Load chat history from a file",
                     Action = () =>
                     {
                         Console.Write("Enter file path to load chat history: ");
@@ -57,7 +57,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "save", Description = "Save chat history to a file",
+                    Name = "save", Description = () => "Save chat history to a file",
                     Action = () =>
                     {
                         Console.Write("Enter file path to save chat history: ");
@@ -79,7 +79,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "set max steps", Description = "Set maximum steps for planning",
+                    Name = "set max steps", Description = () => "Set maximum steps for planning",
                     Action = () =>
                     {
                         Console.Write("Enter maximum steps (default 25): ");
