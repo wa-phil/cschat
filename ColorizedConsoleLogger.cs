@@ -14,7 +14,7 @@ namespace cschat
 			[Log.Level.Error] = (ConsoleColor.Red, "ERRO")
 		};
 
-		private static readonly Dictionary<Log.Data, ConsoleColor> PropertyStyles = new()
+		private static readonly Dictionary<Log.Data, ConsoleColor> PropertyColor = new()
 		{
 			[Log.Data.Timestamp] = ConsoleColor.Blue,
 			[Log.Data.GitHash] = ConsoleColor.DarkGray,
@@ -32,12 +32,8 @@ namespace cschat
 
 		public static void WriteColorizedLog(Dictionary<Log.Data, object> data)
 		{
-			//var success = (bool)(data.GetValueOrDefault(Log.Data.Success) ?? false);
-
 			// Write core log elements
 			WriteOrderedProperties(data);
-			//WriteColored(success ? ConsoleColor.Green : ConsoleColor.Red, success ? "✓" : "✗");
-			//Console.Write(" | ");
 
 			// Write message if present
 			if (data.TryGetValue(Log.Data.Message, out var message))
@@ -75,7 +71,7 @@ namespace cschat
 					var success = (bool)(data.GetValueOrDefault(Log.Data.Success) ?? false);
 					WriteColored(success ? ConsoleColor.Green : ConsoleColor.Red, success ? "✓" : "✗");
 				}
-				else if (PropertyStyles.TryGetValue(key, out var style))
+				else if (PropertyColor.TryGetValue(key, out var style))
 				{
 					WriteColored(style, value.ToString() ?? string.Empty);
 				}
@@ -95,7 +91,7 @@ namespace cschat
 			{
 				WriteColored(ConsoleColor.Cyan, $"{kv.Key}:");
 
-				if (PropertyStyles.TryGetValue(kv.Key, out var style))
+				if (PropertyColor.TryGetValue(kv.Key, out var style))
 				{
 					WriteColored(style, kv.Value?.ToString() ?? "null");
 				}
