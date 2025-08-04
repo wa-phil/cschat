@@ -23,22 +23,22 @@
 //     });
 // ===============================================
 
+using cschat;
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Diagnostics;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 
 public static class Log
 {
     public enum Data : UInt32
     {
-        Method, Level, Timestamp, Message, Success, ErrorCode, IsRetry, Threw, Caught, Exception, PlugIn, Count, Source,
-        Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, Response, Progress,
-        Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered, Reason,
-        ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step, Input, TypeToParse, PlanningFailed, 
+        Method, Level, Timestamp, Message, Success, ErrorCode, IsRetry, Threw, Caught, Count, Source,
+        Path, Response, Progress, Provider, Model, GitHash, ProviderSet, Result, FilePath, Name, 
+        Scores, Registered, Reason, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Input, TypeToParse, 
         Command, ServerName, Names, Schema, ExampleText
     }
 
@@ -249,7 +249,20 @@ public static class Log
     public static IEnumerable<string> GetOutput() => _buffer.Select(item => item.ToJson());
     public static void ClearOutput() => _buffer.Clear();
 
-    public static void Initialize()
+	public static void PrintColorizedOutput()
+	{
+		Console.ForegroundColor = ConsoleColor.Blue;
+		Console.WriteLine($"Log Entries [{_buffer.Count}]:");
+		Console.ResetColor();
+
+		_buffer.OfType<Dictionary<string, object>>()
+			   .Select(dict => dict.Where(kv => Enum.TryParse<Data>(kv.Key, out _))
+								  .ToDictionary(kv => Enum.Parse<Data>(kv.Key), kv => kv.Value))
+			   .ToList()
+			   .ForEach(ColorizedConsoleLogger.WriteColorizedLog);
+	}
+
+	public static void Initialize()
     {
         var buffer = _buffer; // Use a local reference to avoid recursion
         SetOutput((obj) =>
