@@ -60,7 +60,7 @@ public static class ToolRegistry
 
     public static ITool? GetTool(string toolName) => _tools.TryGetValue(toolName, out var tool) ? tool : null;
 
-    internal static async Task<ToolResult> InvokeInternalAsync(string toolName, object toolInput, Context Context, string userInput) =>
+    internal static async Task<ToolResult> InvokeInternalAsync(string toolName, object toolInput, Context context) =>
         await Log.MethodAsync(async ctx =>
     {
         //ctx.OnlyEmitOnFailure();
@@ -70,27 +70,27 @@ public static class ToolRegistry
         if (_tools == null || string.IsNullOrEmpty(toolName) || !_tools.ContainsKey(toolName))
         {
             ctx.Failed($"Tool '{toolName}' is not registered.", Error.ToolNotAvailable);
-            return ToolResult.Failure($"ERROR: Tool '{toolName}' is not registered.", Context);
+            return ToolResult.Failure($"ERROR: Tool '{toolName}' is not registered.", context);
         }
 
         if (null == toolInput)
         {
             ctx.Failed($"Tool '{toolName}' requires input, but received null.", Error.InvalidInput);
-            return ToolResult.Failure($"ERROR: Tool '{toolName}' requires input, but received null.", Context);
+            return ToolResult.Failure($"ERROR: Tool '{toolName}' requires input, but received null.", context);
         }
 
         var tool = _tools[toolName];
         if (tool == null)
         {
             ctx.Failed($"Tool '{toolName}' is not available.", Error.ToolNotAvailable);
-            return ToolResult.Failure($"ERROR: Tool '{toolName}' is not available.", Context);
+            return ToolResult.Failure($"ERROR: Tool '{toolName}' is not available.", context);
         }
-        var toolResult = await tool.InvokeAsync(toolInput, Context);
+        var toolResult = await tool.InvokeAsync(toolInput, context);
 
         if (null == toolResult)
         {
             ctx.Failed($"Tool '{toolName}' returned null result.", Error.ToolFailed);
-            return ToolResult.Failure($"ERROR: Tool '{toolName}' returned null result.", Context);
+            return ToolResult.Failure($"ERROR: Tool '{toolName}' returned null result.", context);
         }
 
         ctx.Append(Log.Data.Result, $"Succeeded: {toolResult.Succeeded}, ResponseText:{toolResult.Response}");
@@ -100,17 +100,17 @@ public static class ToolRegistry
             var error = toolResult.Error ?? "Unknown error";
             ctx.Append(Log.Data.Error, error);
             ctx.Failed($"Tool '{toolName}' failed: {error}", Error.ToolFailed);
-            return ToolResult.Failure(error, Context);
+            return ToolResult.Failure(error, context);
         }
 
         await ContextManager.AddContent(toolResult.Response, $"{toolName}({toolInput.ToJson()})");
         ctx.Succeeded();
         return ToolResult.Success(toolResult.Response, toolResult.context);
     });
-    
-    public static async Task<string> InvokeToolAsync(string toolName, object toolInput, Context ctx, string lastUserInput)
+
+    public static async Task<string> InvokeToolAsync(string toolName, object toolInput, Context? context = null)
     {
-        var result = await InvokeInternalAsync(toolName, toolInput, ctx, lastUserInput);
+        var result = await InvokeInternalAsync(toolName, toolInput, context ?? new Context(Program.config.SystemPrompt));
         return result.Response;
     }
 }

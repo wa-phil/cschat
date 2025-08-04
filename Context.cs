@@ -28,15 +28,12 @@ public class Context
         }
     }
 
-    public IEnumerable<ChatMessage> Messages
+    public IEnumerable<ChatMessage> Messages(bool InluceSystemMessage = true)
     {
-        get
-        {
-            var result = new List<ChatMessage>();
-            result.Add(GetSystemMessage());
-            result.AddRange(_messages);
-            return result;
-        }
+        var result = new List<ChatMessage>();
+        if (InluceSystemMessage) { result.Add(GetSystemMessage()); }
+        result.AddRange(_messages);
+        return result;
     }
 
     public void Clear()
@@ -174,11 +171,14 @@ public class ContextManager
     public static async Task AddContent(string content, string reference = "content") => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
-        IEmbeddingProvider? embeddingProvider = Engine.Provider as IEmbeddingProvider;
-        embeddingProvider.ThrowIfNull("Current configured provider does not support embeddings.");
+        Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");        
+        IEmbeddingProvider embeddingProvider = Engine.Provider as IEmbeddingProvider ?? throw new InvalidOperationException("Current configured provider does not support embeddings.");
 
-        ctx.Append(Log.Data.Reference, reference);
+        var GetEmbeddingAsync = Program.config.RagSettings.UseEmbeddings
+            ? embeddingProvider!.GetEmbeddingAsync
+            : (Func<string, Task<float[]>>) (text => Task.FromResult(new float[0])); // Return empty embedding if embeddings are not used
+
+        ctx.Append(Log.Data.Reference, reference.Substring(0, Math.Min(reference.Length, 50)));
         var embeddings = new List<(string Reference, string Chunk, float[] Embedding)>();
         var chunks = Engine.TextChunker!.ChunkText(reference, content);
         ctx.Append(Log.Data.Count, chunks.Count);
@@ -187,12 +187,27 @@ public class ContextManager
             embeddings.Add((
                 Reference: chunk.Reference,
                 Chunk: chunk.Content,
-                Embedding: await embeddingProvider!.GetEmbeddingAsync(chunk.Content)
+                Embedding: await GetEmbeddingAsync(chunk.Content)
             ))
         ));
 
         Engine.VectorStore.Add(embeddings);
         ctx.Succeeded(embeddings.Count > 0);
+    });
+
+    public static async Task<List<SearchResult>> SearchReferences(string reference) => await Log.Method(ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        var results = new List<SearchResult>();
+        if (string.IsNullOrEmpty(reference) || null == Engine.VectorStore || Engine.VectorStore.IsEmpty)
+        {
+            return Task.FromResult(results);
+        }
+
+        results = Engine.VectorStore.SearchReferences(reference);
+        ctx.Append(Log.Data.Result, results.Select(r => r.Reference).ToArray());
+        ctx.Succeeded();
+        return Task.FromResult(results);
     });
 
     public static async Task<List<SearchResult>> SearchVectorDB(string userMessage) => await Log.MethodAsync(async ctx =>

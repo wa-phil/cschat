@@ -15,6 +15,7 @@ public class RagSettings
     public int Overlap { get; set; } = 5;
     public bool NormalizeEmbeddings { get; set; } = true;
     public int TopK { get; set; } = 3; // as in k-nearest neighbors
+    public bool UseEmbeddings { get; set; } = true; // whether to use embeddings for RAG
     public string EmbeddingModel { get; set; } = "nomic-embed-text"; // Default embedding model
     public int MaxTokensPerChunk { get; set; } = 8000;
     public int MaxLineLength { get; set; } = 1600; // because there should be a limit, approximately 400 tokens in a line is a LOT.

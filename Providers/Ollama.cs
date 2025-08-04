@@ -52,7 +52,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         var requestBody = new
         {
             model = config.Model,
-            messages = Context.Messages?.Select(msg => new
+            messages = Context.Messages().Select(msg => new
             {
                 role = msg.Role.ToString().ToLower(),
                 content = msg.Content

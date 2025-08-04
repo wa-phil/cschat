@@ -8,7 +8,7 @@ public partial class CommandManager
     {
         return new Command
         {
-            Name = "provider", Description = "Provider-related commands",
+            Name = "provider", Description = "provider related configuration settings",
             SubCommands = new List<Command>
             {
                 new Command

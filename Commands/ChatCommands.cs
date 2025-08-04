@@ -18,7 +18,7 @@ public partial class CommandManager
                     Name = "show", Description = "Show chat history",
                     Action = () =>
                     {
-                        User.RenderChatHistory(Program.Context.Messages);
+                        User.RenderChatHistory(Program.Context.Messages());
                         return Task.FromResult(Command.Result.Success);
                     }
                 },

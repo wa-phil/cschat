@@ -128,7 +128,11 @@ public partial class CommandManager
                                 }
                                 return Task.FromResult(Command.Result.Success);
                             }
-                        }
+                        },
+                        CreateProviderCommands(),
+                        CreateRagConfigCommands(),
+                        CreateRagFileTypeCommands(),
+                        CreateMcpCommands()
                     }
                 }
             }

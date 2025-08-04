@@ -13,17 +13,10 @@ public class User
         // Store original choices for scrolling
         var originalChoices = new List<string>(choices);
         int originalSelected = selected;
-        
-        // Check if we have enough console space
-        int requiredLines = Math.Min(choices.Count, actualMaxVisibleItems) + 5; // visible items + header + indicators + input line + buffer
-        int availableLines = Console.BufferHeight - Console.CursorTop;
-        
-        if (requiredLines > availableLines)
-        {
-            // If we don't have enough space, clear the console
-            Console.Clear();
-            Console.SetCursorPosition(0, 0);
-        }
+    
+        // always position the menu at the top    
+        Console.Clear();
+        Console.SetCursorPosition(0, 0);
         
         // Print header
         Console.WriteLine(header);
@@ -306,7 +299,7 @@ public class User
                 {
                     Console.WriteLine("Command failed.");
                 }
-                Console.Write("> ");
+                Console.Write("[press ESC to open menu]\n> ");
                 buffer.Clear();
                 cursor = 0;
                 continue;

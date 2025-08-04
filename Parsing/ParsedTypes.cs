@@ -108,6 +108,19 @@ ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.
 """)]
 public class PlanObjective
 {
-    public bool TakeAction { get; set; } = false; 
+    public bool TakeAction { get; set; } = false;
     public string Goal { get; set; } = string.Empty; // The goal statement if action is required
+}
+
+[ExampleText("""
+{ "Prompt": "<prompt>", "Text": "<text>" }
+
+Where:
+  * <prompt> is optional and is the prompt to use for summarization, e.g., "Summarize the following text"
+  * <text> is required and is the text to summarize
+""")]
+public class SummarizeText
+{
+    public string Prompt { get; set; } = "Summarize the following text";
+    public string Text { get; set; } = string.Empty;
 }

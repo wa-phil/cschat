@@ -75,33 +75,24 @@ static class Program
         Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
         Engine.VectorStore.Clear();
 
-        // Add all the tools to the context        
-        var toolDescriptions = $"Available Tools:\n{ToolRegistry.GetRegisteredTools()
-            .Select(tool => $"{tool.Name}: {tool.Description}")
+        // Add all the tools to the context
+        var toolNames = $"You can use the following tools to help the user:\n{ToolRegistry.GetRegisteredTools()
+            .Select(tool => $"{tool.Name}")
             .Aggregate(new StringBuilder(), (sb, txt) => sb.AppendLine(txt))
             .ToString()}";
-        if (!string.IsNullOrWhiteSpace(toolDescriptions))
+        if (!string.IsNullOrWhiteSpace(toolNames))
         {
-            await ContextManager.AddContent(toolDescriptions, "tool_descriptions");
+            await ContextManager.AddContent(toolNames, "tool_names");
         }
         else
         {
             Console.WriteLine("No tools registered. Please check your configuration.");
         }
 
-        // Add supported file types to the context
-        var supportedFileTypes = $"Supported File Types:\n{Engine.SupportedFileTypes
-            .Select(ext => ext.ToUpperInvariant())
-            .Aggregate(new StringBuilder(), (sb, txt) => sb.AppendLine(txt))
-            .ToString()}";
-
-        if (!string.IsNullOrWhiteSpace(supportedFileTypes))
+        foreach (var tool in ToolRegistry.GetRegisteredTools())
         {
-            await ContextManager.AddContent(supportedFileTypes, "supported_file_types");
-        }
-        else
-        {
-            Console.WriteLine("No supported file types configured. Please check your configuration.");
+            var toolDetails = $"Tool: {tool.Name}\nDescription: {tool.Description}\nUsage: {tool.Usage}";
+            await ContextManager.AddContent(toolDetails, tool.Name);
         }
     }
 
@@ -140,7 +131,7 @@ static class Program
             Config.Save(config, ConfigFilePath);
 
             Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-            Console.WriteLine("Type your message and press Enter. Press the escape key for the menu. (Shift+Enter for new line)");
+            Console.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
             Console.WriteLine();
 
             while (true)
@@ -151,7 +142,7 @@ static class Program
 
                 // Add and render user message with proper formatting
                 Context.AddUserMessage(userInput);
-                var userMessage = Context.Messages.Last(); // Get the message we just added
+                var userMessage = Context.Messages().Last(); // Get the message we just added
                 User.RenderChatMessage(userMessage);
 
                 var (response, updatedContext) = await Engine.PostChatAsync(Context);
@@ -169,7 +160,7 @@ static class Program
             Console.WriteLine($"Log Entries [{entries.Count}]:");
             entries.ToList().ForEach(entry => Console.WriteLine(entry));
             Console.WriteLine("Chat History:");
-            User.RenderChatHistory(Context.Messages);
+            User.RenderChatHistory(Context.Messages());
             throw; // unhandled exceptions result in a stack trace in the console.
         }
         finally

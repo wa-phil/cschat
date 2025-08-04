@@ -21,6 +21,16 @@ public class SimpleVectorStore : IVectorStore
     public bool IsEmpty => _entries.Count == 0;
     public int Count => _entries.Count;
 
+    public List<SearchResult> SearchReferences(string reference) => _entries
+        .Where(e => e.Reference.Equals(reference, StringComparison.OrdinalIgnoreCase))
+        .Select(e => new SearchResult
+        {
+            Score = 1.0f, // Exact match, so score is 1.0
+            Reference = e.Reference,
+            Content = e.Chunk
+        })
+        .ToList();
+
     public List<SearchResult> Search(float[] queryEmbedding, int topK = 3) =>
         Log.Method(ctx =>
     {

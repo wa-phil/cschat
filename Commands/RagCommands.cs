@@ -162,8 +162,7 @@ public partial class CommandManager
                         }
                         return Command.Result.Success;
                     }
-                },
-                CreateRagConfigCommands()
+                }
             }
         };
     }

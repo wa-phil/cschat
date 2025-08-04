@@ -10,8 +10,8 @@ public partial class CommandManager
     {
         return new Command
         {
-            Name = "filetypes",
-            Description = "Manage supported file types for RAG",
+            Name = "supported file types",
+            Description = "manage and configure RAG related settings for supported file types",
             SubCommands = new List<Command>
             {
                 new Command
@@ -215,10 +215,15 @@ public partial class CommandManager
                             Action = () =>
                             {
                                 // use menu to select file type to list rules for
-                                var fileTypes = Program.config.RagSettings.SupportedFileTypes.ToList();
+                                var fileTypes = Program.config.RagSettings.SupportedFileTypes
+                                    .Where(ft=>
+                                        Program.config.RagSettings.FileFilters.ContainsKey(ft) &&
+                                        (Program.config.RagSettings.FileFilters[ft].IncludeRegexPatterns.Count +
+                                         Program.config.RagSettings.FileFilters[ft].ExcludeRegexPatterns.Count) > 0)
+                                    .ToList();
                                 if (fileTypes.Count == 0)
                                 {
-                                    Console.WriteLine("No supported file types configured. Please add some first.");
+                                    Console.WriteLine("No rules configured for supported file types. Please add some first.");
                                     return Task.FromResult(Command.Result.Failed);
                                 }
                                 var selectedType = User.RenderMenu("Select file type to list rules for:", fileTypes);
@@ -255,7 +260,12 @@ public partial class CommandManager
                             Action = () =>
                             {
                                 // use menu to select file type to remove rule from
-                                var fileTypes = Program.config.RagSettings.SupportedFileTypes.ToList();
+                                var fileTypes = Program.config.RagSettings.SupportedFileTypes
+                                    .Where(ft=>
+                                        Program.config.RagSettings.FileFilters.ContainsKey(ft) &&
+                                        (Program.config.RagSettings.FileFilters[ft].IncludeRegexPatterns.Count +
+                                         Program.config.RagSettings.FileFilters[ft].ExcludeRegexPatterns.Count) > 0)
+                                    .ToList();
                                 if (fileTypes.Count == 0)
                                 {
                                     Console.WriteLine("No supported file types configured. Please add some first.");
@@ -275,12 +285,14 @@ public partial class CommandManager
                                 }
                                 Console.WriteLine("Select a rule to remove:");
                                 var choices = new List<string>();
-                                choices.AddRange(rules.IncludeRegexPatterns.Select(p => $"Include: {p}"));
-                                choices.AddRange(rules.ExcludeRegexPatterns.Select(p => $"Exclude: {p}"));
+                                choices.AddRange(rules.IncludeRegexPatterns.Where(p=>!string.IsNullOrWhiteSpace(p)).Select(p => $"Include: {p}"));
+                                choices.AddRange(rules.ExcludeRegexPatterns.Where(p=>!string.IsNullOrWhiteSpace(p)).Select(p => $"Exclude: {p}"));
                                 if (choices.Count == 0)
                                 {
-                                    Console.WriteLine($"No rules found for file type '{type}'.");
-                                    return Task.FromResult(Command.Result.Failed);
+                                    Program.config.RagSettings.FileFilters.Remove(type);
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine($"No rules found for file type '{type}'. Removed file type from configuration.");
+                                    return Task.FromResult(Command.Result.Success);
                                 }
                                 var selectedRule = User.RenderMenu("Select a rule to remove:", choices);
                                 if (string.IsNullOrWhiteSpace(selectedRule))
@@ -288,12 +300,12 @@ public partial class CommandManager
                                     Console.WriteLine("No rule selected.");
                                     return Task.FromResult(Command.Result.Cancelled);
                                 }
+                                choices.Remove(selectedRule);
                                 if (selectedRule.StartsWith("Include: "))
                                 {
                                     var rule = selectedRule.Substring("Include: ".Length);
                                     if (rules.IncludeRegexPatterns.Remove(rule))
                                     {
-                                        Config.Save(Program.config, Program.ConfigFilePath);
                                         Console.WriteLine($"Removed include rule '{rule}' from file type '{type}'.");
                                     }
                                     else
@@ -306,7 +318,6 @@ public partial class CommandManager
                                     var rule = selectedRule.Substring("Exclude: ".Length);
                                     if (rules.ExcludeRegexPatterns.Remove(rule))
                                     {
-                                        Config.Save(Program.config, Program.ConfigFilePath);
                                         Console.WriteLine($"Removed exclude rule '{rule}' from file type '{type}'.");
                                     }
                                     else
@@ -319,6 +330,12 @@ public partial class CommandManager
                                     Console.WriteLine("Invalid rule selected.");
                                     return Task.FromResult(Command.Result.Failed);
                                 }
+                                if (0 == choices.Count)
+                                {
+                                    Program.config.RagSettings.FileFilters.Remove(type);
+                                    Console.WriteLine($"No rules left for file type '{type}'. Removed file type from configuration.");
+                                }
+                                Config.Save(Program.config, Program.ConfigFilePath);
                                 return Task.FromResult(Command.Result.Success);
                             }
                         }
@@ -327,14 +344,37 @@ public partial class CommandManager
             }
         };
     }
+
     private static Command CreateRagConfigCommands()
     {
         return new Command
         {
-            Name = "config",
-            Description = "Configure RAG settings",
+            Name = "RAG",
+            Description = "RAG (Retrieval-Augmented Generation) configuration settings",
             SubCommands = new List<Command>
             {
+                new Command
+                {
+                    Name = "use embeddings", Description = "Toggle the use of embeddings for RAG",
+                    Action = () =>
+                    {
+                        var selected = User.RenderMenu("Use embeddings:", new List<string> { "true", "false" }, Program.config.RagSettings.UseEmbeddings ? 0 : 1);
+                        if (selected == null)
+                        {
+                            Console.WriteLine("No selection made.");
+                            return Task.FromResult(Command.Result.Cancelled);
+                        }
+                        if (!bool.TryParse(selected, out var useEmbeddings))
+                        {
+                            Console.WriteLine("Invalid selection. Please select 'true' or 'false'.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+                        Program.config.RagSettings.UseEmbeddings = useEmbeddings;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        Console.WriteLine($"Use embeddings set to {Program.config.RagSettings.UseEmbeddings}");
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
                 new Command
                 {
                     Name = "embedding model", Description = "Set the embedding model for RAG",
@@ -460,8 +500,7 @@ public partial class CommandManager
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
-                },
-                CreateRagFileTypeCommands()
+                }
             }
         };
     }

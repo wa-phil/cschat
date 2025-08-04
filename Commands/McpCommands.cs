@@ -326,9 +326,10 @@ public partial class CommandManager : Command
                             foreach (var tool in tools)
                             {
                                 Console.ForegroundColor = ConsoleColor.Yellow;
-                                Console.Write($"  - {tool.ToolName}");
+                                Console.WriteLine($"{tool.ToolName}");
                                 Console.ForegroundColor = ConsoleColor.Gray;
-                                Console.WriteLine($": {tool.Description}");
+                                Console.WriteLine($"    Usage: {tool.Usage}");
+                                Console.WriteLine($"    Description: {tool.Description}");
                                 Console.ResetColor();
                                 var exmapleText = tool.InputType?.GetCustomAttribute<ExampleText>()?.Text ?? string.Empty;
                                 if (!string.IsNullOrEmpty(exmapleText))

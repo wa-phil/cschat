@@ -30,6 +30,50 @@ public static class Engine
         ".yml"
     };
 
+    public static string BuildCommandTreeArt(IEnumerable<Command> commands, string indent = "", bool isLast = true, bool showText = true)
+    {
+        var sb = new StringBuilder();
+        var commandList = commands.ToList();
+        
+        for (int i = 0; i < commandList.Count; i++)
+        {
+            var command = commandList[i];
+            bool isLastCommand = i == commandList.Count - 1;
+            if (showText)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write($"{indent}{(isLast ? "└── " : "├── ")}");
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write(command.Name);
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write(" - ");
+            }
+
+            var line = $"{indent}{(isLast ? "└── " : "├── ")}{command.Name} - ";
+            var description = command.Description ?? string.Empty;
+            var maxWidth = Console.WindowWidth - line.Length - 4; // 4 for ellipses
+            if (description.Length > maxWidth)
+            {
+                description = description.Substring(0, maxWidth) + "...";
+            }
+            if (showText)
+            {
+                Console.WriteLine(description);
+                Console.ResetColor();
+            }
+
+            sb.Append(line);
+            sb.AppendLine(description);
+            if (command.SubCommands.Any())
+            {
+                var childIndent = indent + (isLastCommand ? "    " : "│   ");
+                sb.Append(BuildCommandTreeArt(command.SubCommands, childIndent, isLastCommand, showText));
+            }
+        }
+
+        return sb.ToString();
+    }    
+
     public static async Task AddContentItemsToVectorStore(IEnumerable<(string Name, string Content)> items) => await Log.MethodAsync(async ctx =>
     {
         try
@@ -179,7 +223,7 @@ public static class Engine
     public static async Task<(string result, Context Context)> PostChatAsync(Context history)
     {
         Provider.ThrowIfNull("Provider is not set.");
-        var input = history.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
+        var input = history.Messages().LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         await ContextManager.InvokeAsync(input, history);
         return await Planner.PostChatAsync(history);
     }
