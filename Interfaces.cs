@@ -29,28 +29,37 @@ public interface IEmbeddingProvider
     Task<float[]> GetEmbeddingAsync(string text);
 }
 
+public record Reference(string Source, int? Start, int? End)
+{
+    public static Reference Full(string source) => new Reference(source, null, null);
+    public static Reference Partial(string source, int start, int end) => new Reference(source, start, end);
+    public override string ToString() => Start.HasValue && End.HasValue
+        ? $"{Source} lines {Start.Value} to {End.Value}"
+        : Source;
+}
+
 public record SearchResult
 {
     public float Score;
-    required public string Reference;
+    required public Reference Reference;
     required public string Content;
 }
 
 public interface IVectorStore
 {
-    void Add(List<(string Reference, string Chunk, float[] Embedding)> entries);
+    void Add(List<(Reference Reference, string Chunk, float[] Embedding)> entries);
     void Clear();
     List<SearchResult> Search(float[] queryEmbedding, int topK = 3);
     List<SearchResult> SearchReferences(string reference);
     bool IsEmpty { get; }
     int Count { get; }
 
-    List<(string Reference, string Content)> GetEntries(Func<string, string, bool>? filter = null);
+    List<(Reference Reference, string Content)> GetEntries(Func<Reference, string, bool>? filter = null);
 }
 
 public interface ITextChunker
 {
-    List<(string Reference, string Content)> ChunkText(string path, string text);
+    List<(Reference Reference, string Content)> ChunkText(string path, string text);
 }
 
 public record ToolResult(bool Succeeded, string Response, Context context, string? Error = null)

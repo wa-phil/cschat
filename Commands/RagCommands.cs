@@ -98,13 +98,30 @@ public partial class CommandManager
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
-                new Command
-                {
-                    Name = "clear", Description = () => "Clear all RAG data",
+                new Command {
+                    Name = "export summary",
+                    Description = () => "Filter entries by reference and export a de-duped summary",
                     Action = () =>
                     {
-                        Engine.VectorStore.Clear();
-                        Console.WriteLine("RAG store cleared.");
+                        Console.Write("Enter filter (substring or prefix of reference): ");
+                        var filter = User.ReadLineWithHistory();
+                        if (string.IsNullOrEmpty(filter))
+                        {
+                            Console.WriteLine("No filter provided. Export cancelled.");
+                            return Task.FromResult(Command.Result.Cancelled);
+                        }
+
+                        var entries = Engine.VectorStore.GetEntries((refStr, content) => 
+                            refStr.Source.Contains(filter, StringComparison.OrdinalIgnoreCase));
+
+                        var merged = ContextManager.Flatten(entries);
+
+                        var mdPath = $"summary_{filter.Replace(':','_').Replace('\\','_').Replace('/','_').Replace('.','_')}.md";
+                        File.WriteAllText(
+                            Path.Combine(Directory.GetCurrentDirectory(), mdPath),
+                            string.Join("\n\n", merged.Select(e => $"--- start {e.Reference} ---\n{e.MergedContent}\n--- end {e.Reference} ---")));
+
+                        Console.WriteLine($"Wrote de-duped summary to: {mdPath}");
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -161,6 +178,16 @@ public partial class CommandManager
                             }
                         }
                         return Command.Result.Success;
+                    }
+                },
+                new Command
+                {
+                    Name = "clear", Description = () => "Clear all RAG data",
+                    Action = () =>
+                    {
+                        Engine.VectorStore.Clear();
+                        Console.WriteLine("RAG store cleared.");
+                        return Task.FromResult(Command.Result.Success);
                     }
                 }
             }

@@ -17,12 +17,12 @@ public class BlockChunk : ITextChunker
         overlap = config.RagSettings.Overlap;
     }
 
-    public List<(string Reference, string Content)> ChunkText(string path, string text)
+    public List<(Reference Reference, string Content)> ChunkText(string path, string text)
     {
-        var chunks = new List<(string, string)>();
+        var chunks = new List<(Reference, string)>();
         for (int i = 0; i < text.Length; i += chunkSize - overlap)
         {
-            chunks.Add(($"{path}:@{i}", text.Substring(i, Math.Min(chunkSize, text.Length - i))));
+            chunks.Add((Reference.Partial(path, i, i + chunkSize), text.Substring(i, Math.Min(chunkSize, text.Length - i))));
         }
         return chunks;
     }
@@ -40,15 +40,15 @@ public class LineChunk : ITextChunker
         overlap = config.RagSettings.Overlap;
     }
 
-    public List<(string Reference, string Content)> ChunkText(string path, string text)
+    public List<(Reference Reference, string Content)> ChunkText(string path, string text)
     {
-        var chunks = new List<(string, string)>();
+        var chunks = new List<(Reference, string)>();
         var lines = text.Split(new[] { '\n' }, StringSplitOptions.None);
         for (int i = 0; i < lines.Length; i += chunkSize - overlap)
         {
             var content = string.Join("\n", lines.Skip(i).Take(chunkSize));
             if (string.IsNullOrWhiteSpace(content)) continue; // Skip empty chunks
-            chunks.Add(($"{path}, line {i + 1} to {i + chunkSize}", content)); // line numbers are 1-based for user-friendliness
+            chunks.Add((Reference.Partial(path, i + 1, i + chunkSize), content)); // line numbers are 1-based for user-friendliness
         }
         return chunks;
     }
@@ -75,10 +75,10 @@ public class SmartChunk : ITextChunker
         }
     }
 
-    public List<(string Reference, string Content)> ChunkText(string path, string text)
+    public List<(Reference Reference, string Content)> ChunkText(string path, string text)
     {
         var lines = PreprocessLines(text, TryExtractRealFileExtension(path));
-        var chunks = new List<(string, string)>();
+        var chunks = new List<(Reference, string)>();
         int i = 0;
 
         while (i < lines.Count)
@@ -105,8 +105,8 @@ public class SmartChunk : ITextChunker
                     // Create a reference that includes the path and line range, if the content
                     // is the whole file only describe just the path, else describe the range
                     var reference = (start == 0 && i >= lines.Count)
-                        ? path
-                        : $"{path}, Lines {start + 1} to {i}";
+                        ? Reference.Full(path)
+                        : Reference.Partial(path, start + 1, i);
                     chunks.Add((reference, content));
                 }
 

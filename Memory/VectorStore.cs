@@ -11,9 +11,9 @@ using System.Collections.Generic;
 /// </summary>
 public class SimpleVectorStore : IVectorStore
 {
-    private readonly List<(string Reference, string Chunk, float[] Embedding)> _entries = new();
+    private readonly List<(Reference Reference, string Chunk, float[] Embedding)> _entries = new();
 
-    public void Add(List<(string Reference, string Chunk, float[] Embedding)> entries) =>
+    public void Add(List<(Reference Reference, string Chunk, float[] Embedding)> entries) =>
         _entries.AddRange(entries.Select(e => (e.Reference, e.Chunk, Normalize(e.Embedding))));
 
     public void Clear() => _entries.Clear();
@@ -22,7 +22,7 @@ public class SimpleVectorStore : IVectorStore
     public int Count => _entries.Count;
 
     public List<SearchResult> SearchReferences(string reference) => _entries
-        .Where(e => e.Reference.Equals(reference, StringComparison.OrdinalIgnoreCase))
+        .Where(e => e.Reference.Source.Contains(reference, StringComparison.OrdinalIgnoreCase))
         .Select(e => new SearchResult
         {
             Score = 1.0f, // Exact match, so score is 1.0
@@ -45,7 +45,7 @@ public class SimpleVectorStore : IVectorStore
             .Select(entry => new SearchResult
             {
                 Score = CosineSimilarity(normalizedQuery, entry.Embedding),
-                Reference = entry.Reference ?? string.Empty,
+                Reference = entry.Reference,
                 Content = entry.Chunk ?? string.Empty
             })
             .OrderByDescending(e => e.Score)
@@ -82,7 +82,7 @@ public class SimpleVectorStore : IVectorStore
         return (float)(dot / (Math.Sqrt(normA) * Math.Sqrt(normB) + 1e-8));
     }
 
-    public List<(string Reference, string Content)> GetEntries(Func<string, string, bool>? filter = null) => _entries
+    public List<(Reference Reference, string Content)> GetEntries(Func<Reference, string, bool>? filter = null) => _entries
         .Where(e => filter == null || filter(e.Reference, e.Chunk))
         .Select(e => (e.Reference, e.Chunk))
         .ToList();
