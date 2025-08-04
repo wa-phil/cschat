@@ -254,20 +254,20 @@ public static class Log
     public static IEnumerable<string> GetOutput() => _buffer.Select(item => item.ToJson());
     public static void ClearOutput() => _buffer.Clear();
 
-	public static void PrintColorizedOutput()
-	{
-		Console.ForegroundColor = ConsoleColor.Blue;
-		Console.WriteLine($"Log Entries [{_buffer.Count}]:");
-		Console.ResetColor();
+    public static void PrintColorizedOutput()
+    {
+        Console.ForegroundColor = ConsoleColor.Blue;
+        Console.WriteLine($"Log Entries [{_buffer.Count}]:");
+        Console.ResetColor();
 
-		_buffer.OfType<Dictionary<string, object>>()
+        _buffer.OfType<Dictionary<string, object>>()
                .Select(dict => dict.Where(kv => Enum.TryParse<Data>(kv.Key, out _))
                .ToDictionary(kv => Enum.Parse<Data>(kv.Key), kv => kv.Value))
-			   .ToList()
-			   .ForEach(ColorizedConsoleLogger.WriteColorizedLog);
-	}
+               .ToList()
+               .ForEach(ColorizedConsoleLogger.WriteColorizedLog);
+    }
 
-	public static void Initialize()
+    public static void Initialize()
     {
         if (eventListener == null)
         {

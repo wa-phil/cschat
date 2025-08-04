@@ -22,8 +22,8 @@ public partial class CommandManager
                             Name = "show", Description = () => "Show the contents of the log",
                             Action = () =>
                             {
-				                Log.PrintColorizedOutput();
-								return Task.FromResult(Command.Result.Success);
+                                Log.PrintColorizedOutput();
+                                return Task.FromResult(Command.Result.Success);
                             }
                         },
                         new Command
