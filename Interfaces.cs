@@ -45,7 +45,7 @@ public interface IVectorStore
     bool IsEmpty { get; }
     int Count { get; }
 
-    List<(string Reference, string Content)> GetEntries(Func<string, string, bool>? filter = null, int start = 0, int count = 100);
+    List<(string Reference, string Content)> GetEntries(Func<string, string, bool>? filter = null);
 }
 
 public interface ITextChunker

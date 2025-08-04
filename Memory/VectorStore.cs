@@ -82,10 +82,8 @@ public class SimpleVectorStore : IVectorStore
         return (float)(dot / (Math.Sqrt(normA) * Math.Sqrt(normB) + 1e-8));
     }
 
-    public List<(string Reference, string Content)> GetEntries(Func<string, string, bool>? filter = null, int start = 0, int count = 100) => _entries
+    public List<(string Reference, string Content)> GetEntries(Func<string, string, bool>? filter = null) => _entries
         .Where(e => filter == null || filter(e.Reference, e.Chunk))
-        .Skip(start)
-        .Take(count)
         .Select(e => (e.Reference, e.Chunk))
         .ToList();
 }
