@@ -266,6 +266,7 @@ You do not need to summarize the user's question, or comment on it, or explain y
             {
                 // Final tool output is the actual answer, no need to run final summary
                 ctx.Append(Log.Data.Message, "Returning raw tool output as final result.");
+                ctx.Succeeded();
                 return (result.Response, context);
             }            
         }
