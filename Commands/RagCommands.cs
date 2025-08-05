@@ -35,6 +35,21 @@ public partial class CommandManager
                 },
                 new Command
                 {
+                    Name = "fileForGraph", Description = () => "Add a file to the Graph RAG store",
+                    Action = async () =>
+                    {
+                        Console.Write("Enter graph file path: ");
+                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: false);
+                        /*if (!string.IsNullOrWhiteSpace(input))
+                        {
+                            await Engine.AddFileToGraphStore(input);
+                            Console.WriteLine($"Added file '{input}' to RAG.");
+                        }*/
+                        return Command.Result.Success;
+                    }
+                },                
+                new Command
+                {
                     Name = "add directory", Description = () => "Add a directory to the RAG store",
                     Action = async () =>
                     {
@@ -180,6 +195,25 @@ public partial class CommandManager
                         return Command.Result.Success;
                     }
                 },
+                new Command
+                {
+                    Name = "dumpGraph", Description = () => "display a range of entries from the Graph RAG store",
+                    Action = () =>
+                    {
+                        /*var graphStore = ContextManager.GraphStore;
+                        if (graphStore.IsEmpty)
+                        {
+                            Console.WriteLine("Graph RAG store is empty. Please add files or directories first.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+ 
+                        Console.WriteLine($"Total entities: {graphStore.EntityCount}");
+                        Console.WriteLine($"Total relationships: {graphStore.RelationshipCount}");
+                        Console.WriteLine("Displaying all entities and relationships in the Graph RAG store:");
+                        graphStore.PrintSummary();*/
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },                
                 new Command
                 {
                     Name = "clear", Description = () => "Clear all RAG data",
