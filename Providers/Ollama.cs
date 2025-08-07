@@ -52,7 +52,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider, IGraphProvider
         var requestBody = new
         {
             model = config.Model,
-            messages = Context.Messages?.Select(msg => new
+            messages = Context.Messages().Select(msg => new
             {
                 role = msg.Role.ToString().ToLower(),
                 content = msg.Content
@@ -87,52 +87,6 @@ public class Ollama : IChatProvider, IEmbeddingProvider, IGraphProvider
             throw;
         }
     });
-    
-    public async Task<float[]> GetEmbeddingAsync(string text)
-    {
-        var request = new
-        {
-            model = Program.config.RagSettings.EmbeddingModel,
-            prompt = text
-        };
-
-        var content = new StringContent(request.ToJson(), Encoding.UTF8, "application/json");
-        try
-        {
-            var response = await client.PostAsync($"{config.Host}/api/embeddings", content);
-            if (!response.IsSuccessStatusCode)
-            {
-                Console.WriteLine($"Failed to get embedding: {response.StatusCode}");
-                return Array.Empty<float>();
-            }
-            var json = await response.Content.ReadAsStringAsync();
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                Console.WriteLine("Received empty response from embedding API.");
-                return Array.Empty<float>();
-            }
-            dynamic? parsed = json!.FromJson<dynamic>();
-            if (null == parsed || null == parsed!["embedding"])
-            {
-                Console.WriteLine("No embedding found in response.");
-                return Array.Empty<float>();
-            }
-            var embedding = parsed!["embedding"] as IEnumerable<object>;
-            if (embedding == null)
-            {
-                Console.WriteLine("Embedding is null in response.");
-                return Array.Empty<float>();
-            }
-
-            return embedding.Select(Convert.ToSingle).ToArray();
-           
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Exception during embedding request: {ex.Message}");
-            return Array.Empty<float>();
-        }
-    }
 
     public async Task GetEntitiesAndRelationshipsAsync(string content, string reference) => await Log.MethodAsync(async ctx =>
     {
@@ -195,4 +149,51 @@ Example:
         }
     });
 
+    public async Task<float[]> GetEmbeddingAsync(string text) => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        ctx.Append(Log.Data.Input, text);
+        ctx.Append(Log.Data.Host, config.Host);
+        ctx.Append(Log.Data.Model, config.RagSettings.EmbeddingModel);
+
+        var request = new
+        {
+            model = Program.config.RagSettings.EmbeddingModel,
+            prompt = text
+        };
+
+        var content = new StringContent(request.ToJson(), Encoding.UTF8, "application/json");
+        var response = await client.PostAsync($"{config.Host}/api/embeddings", content);
+        if (!response.IsSuccessStatusCode)
+        {
+            ctx.Failed($"Failed to get embedding: {response.StatusCode}", Error.ToolFailed);
+            Console.WriteLine($"Failed to get embedding: {response.StatusCode}");
+            return Array.Empty<float>();
+        }
+        var json = await response.Content.ReadAsStringAsync();
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            ctx.Failed("Received empty response from embedding API", Error.EmptyResponse);
+            Console.WriteLine("Received empty response from embedding API.");
+            return Array.Empty<float>();
+        }
+        ctx.Append(Log.Data.Response, json);
+        dynamic? parsed = json!.FromJson<dynamic>();
+        if (null == parsed || null == parsed!["embedding"])
+        {
+            Console.WriteLine("No embedding found in response.");
+            ctx.Failed("No embedding found in response", Error.EmptyResponse);
+            return Array.Empty<float>();
+        }
+        var embedding = parsed!["embedding"] as IEnumerable<object>;
+        if (embedding == null)
+        {
+            ctx.Failed("Embedding is null in response", Error.EmptyResponse);
+            Console.WriteLine("Embedding is null in response.");
+            return Array.Empty<float>();
+        }
+        ctx.Append(Log.Data.Count, embedding.Count());
+        ctx.Succeeded();
+        return embedding.Select(Convert.ToSingle).ToArray();
+    });
 }

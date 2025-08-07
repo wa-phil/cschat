@@ -2,6 +2,7 @@ using System;
 using System.Text;
 using System.Linq;
 using System.Reflection;
+using System.IO.Compression;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
@@ -13,7 +14,7 @@ public static class Engine
     public static ITextChunker? TextChunker = null;
     public static Planner Planner = new Planner();
 
-    public static List<string> supportedFileTypes = new List<string>
+    public static List<string> SupportedFileTypes = new List<string>
     {
         ".bash", ".bat",
         ".c", ".cpp", ".cs", ".csproj", ".csv",
@@ -28,59 +29,7 @@ public static class Engine
         ".xml",
         ".yml"
     };
-
-    public static async Task AddDirectoryToVectorStore(string path) => await Log.MethodAsync(async ctx =>
-    {
-        ctx.Append(Log.Data.Path, path);
-        if (!Directory.Exists(path))
-        {
-            ctx.Failed($"Directory '{path}' does not exist.", Error.DirectoryNotFound);
-            return;
-        }
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
-            .Where(f => supportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
-            .ToList();
-
-        await Task.WhenAll(files.Select(f => AddFileToVectorStore(f)));
-        Console.WriteLine($"Added {files.Count} files to vector store from directory '{path}'.");
-
-        // Aggregate the list of relative file names into a new line delimited string and add it to the vector store.
-        var knownFiles = files.Aggregate(new StringBuilder(), (sb, f) => sb.AppendLine(Path.GetRelativePath(Directory.GetCurrentDirectory(), f))).ToString().TrimEnd();
-        var embeddings = new List<(string Reference, string Chunk, float[] Embedding)>();
-        var chunks = TextChunker!.ChunkText("known files", knownFiles);
-
-        await Task.WhenAll(chunks.Select(async chunk =>
-            embeddings.Add((
-                Reference: chunk.Reference,
-                Chunk: chunk.Content,
-                Embedding: await (Engine.Provider as IEmbeddingProvider)!.GetEmbeddingAsync(chunk.Content)
-            ))
-        ));
-        Engine.VectorStore.Add(embeddings);
-        Console.WriteLine($"Added directory index to vector store in {chunks.Count} chunks.");
-
-        stopwatch.Stop();
-        var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
-        Console.WriteLine($"{elapsedTime}ms required to process files in '{path}'.");
-
-        ctx.Append(Log.Data.Count, files.Count);
-        ctx.Succeeded();
-    });
-
-    public static async Task AddFileToVectorStore(string path) => await Log.MethodAsync(async ctx =>
-    {
-        ctx.OnlyEmitOnFailure();
-        // start a timer to measure the time taken to add the file
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        await ContextManager.AddContent(File.ReadAllText(path), path);
-        ctx.Append(Log.Data.FilePath, path);
-        stopwatch.Stop();
-        var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
-        Console.WriteLine($"{elapsedTime}ms required to read file '{path}' contents.");
-        ctx.Succeeded();
-    });
-
+    
     public static async Task AddFileToGraphStore(string path) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
@@ -93,6 +42,120 @@ public static class Engine
         Console.WriteLine($"{elapsedTime}ms required to read file '{path}' contents.");
         ctx.Succeeded();
     });       
+
+    public static string BuildCommandTreeArt(IEnumerable<Command> commands, string indent = "", bool isLast = true, bool showText = true)
+    {
+        var sb = new StringBuilder();
+        var commandList = commands.ToList();
+
+        for (int i = 0; i < commandList.Count; i++)
+        {
+            var command = commandList[i];
+            bool isLastCommand = i == commandList.Count - 1;
+            if (showText)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write($"{indent}{(isLast ? "└── " : "├── ")}");
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write(command.Name);
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write(" - ");
+            }
+
+            var line = $"{indent}{(isLast ? "└── " : "├── ")}{command.Name} - ";
+            var description = command.Description() ?? string.Empty;
+            var maxWidth = Console.WindowWidth - line.Length - 4; // 4 for ellipses
+            if (description.Length > maxWidth)
+            {
+                description = description.Substring(0, maxWidth) + "...";
+            }
+            if (showText)
+            {
+                Console.WriteLine(description);
+                Console.ResetColor();
+            }
+
+            sb.Append(line);
+            sb.AppendLine(description);
+            if (command.SubCommands.Any())
+            {
+                var childIndent = indent + (isLastCommand ? "    " : "│   ");
+                sb.Append(BuildCommandTreeArt(command.SubCommands, childIndent, isLastCommand, showText));
+            }
+        }
+
+        return sb.ToString();
+    }    
+
+    public static async Task AddContentItemsToVectorStore(IEnumerable<(string Name, string Content)> items) => await Log.MethodAsync(async ctx =>
+    {
+        try
+        {
+            ctx.OnlyEmitOnFailure();
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var countItems = 0;
+            var knownFiles = new StringBuilder();
+
+            foreach (var (name, content) in items)
+            {
+                knownFiles.AppendLine(name);
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write($"Adding file '{name}' to RAG store... ");
+                await ContextManager.AddContent(content, name);
+                Console.ResetColor();
+                Console.WriteLine("Done.");
+                countItems++;
+            }
+
+            await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
+
+            stopwatch.Stop();
+            Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
+            ctx.Succeeded();
+        }
+        finally
+        {
+            Console.ResetColor();
+        }
+    });
+
+    public static async Task AddDirectoryToVectorStore(string path) => await AddContentItemsToVectorStore(ReadFilesFromDirectory(path));
+
+    private static IEnumerable<(string Name, string Content)> ReadFilesFromDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+            yield break;
+
+        var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
+            .Where(f => SupportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase));
+
+        foreach (var file in files)
+        {
+            yield return (Path.GetRelativePath(Directory.GetCurrentDirectory(), file), File.ReadAllText(file));
+        }
+    }
+
+    public static async Task AddZipFileToVectorStore(string zipPath) => await AddContentItemsToVectorStore(ReadFilesFromZip(zipPath));
+
+    private static IEnumerable<(string Name, string Content)> ReadFilesFromZip(string zipPath)
+    {
+        if (!File.Exists(zipPath))
+            yield break;
+
+        using var archive = ZipFile.OpenRead(zipPath);
+        foreach (var entry in archive.Entries)
+        {
+            var ext = Path.GetExtension(entry.FullName);
+            if (string.IsNullOrWhiteSpace(ext) || !SupportedFileTypes.Contains(ext, StringComparer.OrdinalIgnoreCase))
+                continue;
+
+            using var stream = entry.Open();
+            using var reader = new StreamReader(stream);
+            yield return ($"{zipPath}::{entry.FullName}", reader.ReadToEnd());
+        }
+    }
+
+    public static async Task AddFileToVectorStore(string path) => await AddContentItemsToVectorStore(new[] { (path, File.ReadAllText(path)) });
 
     public static void SetTextChunker(string chunkerName) => Log.Method(ctx =>
     {
@@ -173,7 +236,7 @@ public static class Engine
     public static async Task<(string result, Context Context)> PostChatAsync(Context history)
     {
         Provider.ThrowIfNull("Provider is not set.");
-        var input = history.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
+        var input = history.Messages().LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         await ContextManager.InvokeAsync(input, history);
         return await Planner.PostChatAsync(history);
     }

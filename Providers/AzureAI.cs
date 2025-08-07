@@ -67,7 +67,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider, IGraphProvider
     {
         ctx.OnlyEmitOnFailure();
         await Task.CompletedTask; // Ensure we don't block the thread unnecessarily
-        var chatHistory = Context.Messages.Select<ChatMessage, OpenAI.Chat.ChatMessage>(msg =>
+        var chatHistory = Context.Messages().Select<ChatMessage, OpenAI.Chat.ChatMessage>(msg =>
             msg.Role switch
             {
                 Roles.User => new UserChatMessage(msg.Content),

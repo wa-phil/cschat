@@ -23,12 +23,12 @@
 //     });
 // ===============================================
 
+using cschat;
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Diagnostics;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Diagnostics.Tracing;
 using System.Collections.Generic;
@@ -38,11 +38,11 @@ public static class Log
 {
     public enum Data : UInt32
     {
-        Method, Level, Timestamp, Message, Success, ErrorCode, IsRetry, Threw, Caught, Exception, PlugIn, Count, Source,
+        Method, Level, Timestamp, Message, Success, ErrorCode, IsRetry, Threw, Caught, Exception, PlugIn, Count, Source, ThreadId,
         Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, Response, Progress,
         Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered, Reason,
         ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step, Input, TypeToParse, PlanningFailed,
-        Command, ServerName, Names, Schema, ExampleText, MenuTop, ConsoleHeight, ConsoleWidth, InputTop,
+        Command, ServerName, Names, Schema, ExampleText, MenuTop, ConsoleHeight, ConsoleWidth, InputTop, Host,
     }
 
     public enum Level { Verbose, Information, Warning, Error }
@@ -60,6 +60,7 @@ public static class Log
             _items[Data.Level] = level;
             _items[Data.Success] = false;
             _items[Data.GitHash] = BuildInfo.GitCommitHash;
+            _items[Data.ThreadId] = Environment.CurrentManagedThreadId;
         }
 
         public Context Append(Data key, object value)
@@ -253,6 +254,19 @@ public static class Log
     public static IEnumerable<string> GetOutput() => _buffer.Select(item => item.ToJson());
     public static void ClearOutput() => _buffer.Clear();
 
+    public static void PrintColorizedOutput()
+    {
+        Console.ForegroundColor = ConsoleColor.Blue;
+        Console.WriteLine($"Log Entries [{_buffer.Count}]:");
+        Console.ResetColor();
+
+        _buffer.OfType<Dictionary<string, object>>()
+               .Select(dict => dict.Where(kv => Enum.TryParse<Data>(kv.Key, out _))
+               .ToDictionary(kv => Enum.Parse<Data>(kv.Key), kv => kv.Value))
+               .ToList()
+               .ForEach(ColorizedConsoleLogger.WriteColorizedLog);
+    }
+
     public static void Initialize()
     {
         if (eventListener == null)
@@ -272,12 +286,13 @@ public static class Log
                 Data[] priority = new[]
                 {
                     Data.Timestamp,
+                    Data.Success,
                     Data.Level,
                     Data.GitHash,
                     Data.Source,
                     Data.Method,
-                    Data.Success,
                     Data.ErrorCode,
+                    Data.ThreadId,
                     Data.IsRetry,
                     Data.Name,
                     Data.TypeToParse,
@@ -325,7 +340,7 @@ public class EventLogListener : EventListener
         {
             EnableEvents(eventSource, EventLevel.Verbose);
         }
-        else
+        else if (!Program.config.EventSources.ContainsKey(eventSource.Name))
         {
             Program.config.EventSources[eventSource.Name] = false;
         }

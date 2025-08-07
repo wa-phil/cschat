@@ -609,15 +609,12 @@ public class Context
         }
     }
 
-    public IEnumerable<ChatMessage> Messages
+    public IEnumerable<ChatMessage> Messages(bool InluceSystemMessage = true)
     {
-        get
-        {
-            var result = new List<ChatMessage>();
-            result.Add(GetSystemMessage());
-            result.AddRange(_messages);
-            return result;
-        }
+        var result = new List<ChatMessage>();
+        if (InluceSystemMessage) { result.Add(GetSystemMessage()); }
+        result.AddRange(_messages);
+        return result;
     }
 
     public void Clear()
@@ -725,6 +722,54 @@ public class Context
 public class ContextManager
 {
     public static GraphStore GraphStore { get; } = new GraphStore();
+    
+    public static List<(Reference Reference, string MergedContent)> Flatten(List<(Reference Reference, string Content)> entries)
+    {
+        var grouped = entries                           // grouped is Dictionary: source -> chunks, where chunks: List<(Start, End, Lines)>
+            .GroupBy(entry => entry.Reference.Source)   // Group chunks by source file
+            .ToDictionary(                              // use GroupBy + ToDictionary to correctly handle multiple source references
+                g => g.Key,                             // key: source
+                g => g.Select(entry => (
+                    Start: entry.Reference.Start,       // nullable start line
+                    End: entry.Reference.End,           // nullable end line
+                    Lines: entry.Content.Split('\n')    // List<string>
+                )).ToList()                             // Change from Enumerable -> List to avoid multiple reevaluations later
+            );
+
+        return grouped.Select(kvp => // flatten Dictionary: source -> chunks to List<(Reference, Content)>
+        {
+            var source = kvp.Key;
+            var chunks = kvp.Value;
+
+            var lineMap = chunks                                    // for files that have chunks
+                .Where(c => c.Start.HasValue && c.End.HasValue)     // only consider line-ranged chunks
+                .SelectMany(c => c.Lines                            // calculate line numbers for every line
+                    .Select((line, idx) => (LineNumber: c.Start!.Value + idx, Content: line)))
+                .GroupBy(x => x.LineNumber)                         // group by line number to deduplicate
+                .ToDictionary(g => g.Key, g => g.First().Content);  // keep first occurrence of each line
+
+            var fullChunks = chunks                                 // for whole files, or content w/ only one reference.
+                .Where(c => !c.Start.HasValue || !c.End.HasValue)   // whole-content chunks (no line info)
+                .SelectMany(c => c.Lines)                           // just extract their lines
+                .ToList();
+
+            var merged = lineMap                                    // put it all together...
+                .OrderBy(kv => kv.Key)                              // order lines by line number
+                .Select(kv => kv.Value)                             // get the content
+                .Concat(fullChunks)                                 // append whole-content chunks at the end
+                .ToList();                                          // convert to List to avoid multiple reevaluations
+
+            var content = string.Join("\n", merged);                // join into final output
+            var minLine = lineMap.Keys.DefaultIfEmpty().Min();      // min line number for ref
+            var maxLine = lineMap.Keys.DefaultIfEmpty().Max();      // max line number for ref
+
+            var reference = lineMap.Count > 0
+                ? Reference.Partial(source, minLine, maxLine)       // ranged ref if we had any line-based chunks
+                : Reference.Full(source);                           // otherwise fallback to whole-content
+
+            return (reference, content);                            // return the combined entry
+        }).ToList(); // gather all merged entries
+    }
 
     public static async Task InvokeAsync(string input, Context Context) => await Log.MethodAsync(async ctx =>
     {
@@ -733,13 +778,14 @@ public class ContextManager
 
         // Try to add context to Context first
         var references = new List<string>();
-        var results = await SearchVectorDB(input);
-        if (results != null && results.Count > 0)
+        var content = await SearchVectorDB(input);
+        if (content != null && content.Count > 0)
         {
+            var results = Flatten(content.Select(r => (r.Reference, r.Content)).ToList());
             foreach (var result in results)
             {
-                references.Add(result.Reference);
-                Context.AddContext(result.Reference, result.Content);
+                references.Add(result.Reference.ToString());
+                Context.AddContext(result.Reference.ToString(), result.MergedContent);
             }
             // Context was added, no summary response required, returning modified Context back to caller.
             ctx.Append(Log.Data.Result, references.ToArray());
@@ -757,12 +803,15 @@ public class ContextManager
     public static async Task AddContent(string content, string reference = "content") => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
-        IEmbeddingProvider? embeddingProvider = Engine.Provider as IEmbeddingProvider;
-        embeddingProvider.ThrowIfNull("Current configured provider does not support embeddings.");
+        Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");        
+        IEmbeddingProvider embeddingProvider = Engine.Provider as IEmbeddingProvider ?? throw new InvalidOperationException("Current configured provider does not support embeddings.");
 
-        ctx.Append(Log.Data.Reference, reference);
-        var embeddings = new List<(string Reference, string Chunk, float[] Embedding)>();
+        var GetEmbeddingAsync = Program.config.RagSettings.UseEmbeddings
+            ? embeddingProvider!.GetEmbeddingAsync
+            : (Func<string, Task<float[]>>) (text => Task.FromResult(new float[0])); // Return empty embedding if embeddings are not used
+
+        ctx.Append(Log.Data.Reference, reference.Substring(0, Math.Min(reference.Length, 50)));
+        var embeddings = new List<(Reference Reference, string Chunk, float[] Embedding)>();
         var chunks = Engine.TextChunker!.ChunkText(reference, content);
         ctx.Append(Log.Data.Count, chunks.Count);
 
@@ -770,7 +819,7 @@ public class ContextManager
             embeddings.Add((
                 Reference: chunk.Reference,
                 Chunk: chunk.Content,
-                Embedding: await embeddingProvider!.GetEmbeddingAsync(chunk.Content)
+                Embedding: await GetEmbeddingAsync(chunk.Content)
             ))
         ));
 
@@ -802,7 +851,22 @@ public class ContextManager
         ctx.Succeeded(chunksProcessed > 0);
     });    
 
-    public static async Task<List<SearchResult>> SearchVectorDB(string userMessage)
+    public static async Task<List<SearchResult>> SearchReferences(string reference) => await Log.Method(ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        var results = new List<SearchResult>();
+        if (string.IsNullOrEmpty(reference) || null == Engine.VectorStore || Engine.VectorStore.IsEmpty)
+        {
+            return Task.FromResult(results);
+        }
+
+        results = Engine.VectorStore.SearchReferences(reference);
+        ctx.Append(Log.Data.Result, results.Select(r => r.Reference).ToArray());
+        ctx.Succeeded();
+        return Task.FromResult(results);
+    });
+
+    public static async Task<List<SearchResult>> SearchVectorDB(string userMessage) => await Log.MethodAsync(async ctx =>
     {
         var empty = new List<SearchResult>();
         if (string.IsNullOrEmpty(userMessage) || null == Engine.VectorStore || Engine.VectorStore.IsEmpty) { return empty; }
@@ -817,6 +881,16 @@ public class ContextManager
         // filter out below average results
         var average = items.Average(i => i.Score);
 
-        return items.Where(i => i.Score >= average).ToList();
-    }
+        var results = items.Where(i => i.Score >= average).ToList();
+        if (results.Count == 0)
+        {
+            ctx.Append(Log.Data.Message, "No relevant results found in the vector store.");
+        }
+        else
+        {
+            ctx.Append(Log.Data.Result, results.Select(r => r.Reference).ToArray());
+        }
+        ctx.Succeeded();
+        return results;
+    });
 }

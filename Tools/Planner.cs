@@ -126,22 +126,23 @@ Your task is to determine which tool to use based on the following:
         return (ToolSelection)response;
     });
 
-    private async Task<PlanObjective> GetObjective(Context Context)
-    {
-        return await Log.MethodAsync(async ctx =>
+    private async Task<PlanObjective> GetObjective(Context context) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        var input = Context.Messages
-            .TakeLast(5)
+        var input = context.Messages()
+            .Take(5)
             .Select(m => $"{m.Role.ToString()}: {m.Content}")
             .Aggregate((current, next) => $"{current}\n{next}");
 
         var working = new Context($"""
 You are a goal planner.
-Your task is to decide if a tool should be used to answer the user's question, to provide a more accurate or personalized response.
-If the user's query depends on realtime or runtime data (e.g., filesystem contents, current date/time, etc.), assume action is required, and that you will be able to complete it.
+Your task is to decide if a tool should be used to answer the user's question in pursuit of providing a more accurate or personalized response.
+If the user's query depends on realtime or runtime data (see tool_names for list of available tools) assume action is required, and that you will be able to complete it.
+You do not need to summarize the user's question, or comment on it, or explain your answer, just decide if a tool is needed to answer the question.
 """);
-        Context.GetContext().ForEach(c => working.AddContext(c.Reference, c.Chunk));
+
+        context.GetContext().ForEach(c => working.AddContext(c.Reference, c.Chunk));
+        working.AddUserMessage("---ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE---");
         working.AddUserMessage(input);
         var result = await TypeParser.GetAsync(working, typeof(PlanObjective));
         if (result == null || result is not PlanObjective goal)
@@ -152,7 +153,6 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
         ctx.Succeeded();
         return (PlanObjective)result;
     });
-    }
 
     public async Task<(string result, Context Context)> PostChatAsync(Context context) => await Log.MethodAsync(async ctx =>
     {
@@ -178,7 +178,7 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
             return (finalResult, context); // context is unchanged
         }
 
-        var input = context.Messages.LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
+        var input = context.Messages().LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         int stepsTaken = 0, maxAllowedSteps = Program.config.MaxSteps;
         Console.ForegroundColor = ConsoleColor.DarkYellow;
         Console.WriteLine($"working on: {objective.Goal}");
@@ -228,7 +228,7 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
             Console.Write($"Step {stepsTaken}: {step.ToolName}...");
             Console.ResetColor();
 
-            var result = await ToolRegistry.InvokeInternalAsync(step!.ToolName!, step!.ToolInput!, context, objective.Goal!);
+            var result = await ToolRegistry.InvokeInternalAsync(step!.ToolName!, step!.ToolInput!, context);
             var status = result.Succeeded ? "✅" : "❌";
             
             // Summarize internally for plan progress evaluation
@@ -266,6 +266,7 @@ If the user's query depends on realtime or runtime data (e.g., filesystem conten
             {
                 // Final tool output is the actual answer, no need to run final summary
                 ctx.Append(Log.Data.Message, "Returning raw tool output as final result.");
+                ctx.Succeeded();
                 return (result.Response, context);
             }            
         }

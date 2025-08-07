@@ -57,7 +57,6 @@ static class Program
         Tools = DictionaryOfTypesToNamesForInterface<ITool>(serviceCollection, types);
 
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
-
     }
 
     public static async Task InitProgramAsync()
@@ -71,16 +70,30 @@ static class Program
         // Create command manager after all tools are registered
         commandManager = CommandManager.CreateDefaultCommands();
 
+        Engine.SupportedFileTypes = config.RagSettings.SupportedFileTypes;
         Engine.SetProvider(config.Provider);
         Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
+        Engine.VectorStore.Clear();
 
         // Add all the tools to the context
-        var toolDescriptions = ToolRegistry.GetRegisteredTools()
-            .Select(tool => $"--- {tool.Name} ---\n{tool.Description}\nUsage:\n{tool.Usage}\n--- end {tool.Name} ---")
+        var toolNames = $"You can use the following tools to help the user:\n{ToolRegistry.GetRegisteredTools()
+            .Select(tool => $"{tool.Name}")
             .Aggregate(new StringBuilder(), (sb, txt) => sb.AppendLine(txt))
-            .ToString();
-        
-        await ContextManager.AddContent(toolDescriptions, "tool_descriptions");            
+            .ToString()}";
+        if (!string.IsNullOrWhiteSpace(toolNames))
+        {
+            await ContextManager.AddContent(toolNames, "tool_names");
+        }
+        else
+        {
+            Console.WriteLine("No tools registered. Please check your configuration.");
+        }
+
+        foreach (var tool in ToolRegistry.GetRegisteredTools())
+        {
+            var toolDetails = $"Tool: {tool.Name}\nDescription: {tool.Description}\nUsage: {tool.Usage}";
+            await ContextManager.AddContent(toolDetails, tool.Name);
+        }
     }
 
     static async Task Main(string[] args)
@@ -104,22 +117,23 @@ static class Program
             return;
         }
 
-        await InitProgramAsync();
-
-        if (string.IsNullOrWhiteSpace(config.Model))
-        {
-            var selected = await Engine.SelectModelAsync();
-            if (selected == null) return;
-            config.Model = selected;
-        }
-
-        Config.Save(config, ConfigFilePath);
-
-        Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-        Console.WriteLine("Type your message and press Enter. Press the escape key for the menu. (Shift+Enter for new line)");
-        Console.WriteLine();
         try
         {
+            await InitProgramAsync();
+
+            if (string.IsNullOrWhiteSpace(config.Model))
+            {
+                var selected = await Engine.SelectModelAsync();
+                if (selected == null) return;
+                config.Model = selected;
+            }
+
+            Config.Save(config, ConfigFilePath);
+
+            Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
+            Console.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
+            Console.WriteLine();
+
             while (true)
             {
                 Console.Write("> ");
@@ -128,7 +142,7 @@ static class Program
 
                 // Add and render user message with proper formatting
                 Context.AddUserMessage(userInput);
-                var userMessage = Context.Messages.Last(); // Get the message we just added
+                var userMessage = Context.Messages().Last(); // Get the message we just added
                 User.RenderChatMessage(userMessage);
 
                 var (response, updatedContext) = await Engine.PostChatAsync(Context);
@@ -146,7 +160,7 @@ static class Program
             Console.WriteLine($"Log Entries [{entries.Count}]:");
             entries.ToList().ForEach(entry => Console.WriteLine(entry));
             Console.WriteLine("Chat History:");
-            User.RenderChatHistory(Context.Messages);
+            User.RenderChatHistory(Context.Messages());
             throw; // unhandled exceptions result in a stack trace in the console.
         }
         finally
