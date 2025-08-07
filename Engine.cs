@@ -29,12 +29,25 @@ public static class Engine
         ".xml",
         ".yml"
     };
+    
+    public static async Task AddFileToGraphStore(string path) => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        // start a timer to measure the time taken to add the file
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await ContextManager.AddGraphContent(File.ReadAllText(path), path);
+        ctx.Append(Log.Data.FilePath, path);
+        stopwatch.Stop();
+        var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
+        Console.WriteLine($"{elapsedTime}ms required to read file '{path}' contents.");
+        ctx.Succeeded();
+    });       
 
     public static string BuildCommandTreeArt(IEnumerable<Command> commands, string indent = "", bool isLast = true, bool showText = true)
     {
         var sb = new StringBuilder();
         var commandList = commands.ToList();
-        
+
         for (int i = 0; i < commandList.Count; i++)
         {
             var command = commandList[i];
