@@ -130,19 +130,16 @@ public class AzureAI : IChatProvider, IEmbeddingProvider, IGraphProvider
         }
     });
 
-
-    public async Task GetEntitiesAndRelationshipsAsync(string content, string reference)
+    public async Task GetEntitiesAndRelationshipsAsync(string content, string reference) => await Log.MethodAsync(async ctx =>
     {
-        await Log.MethodAsync(async ctx =>
-        {
-            ctx.OnlyEmitOnFailure();
-            ctx.Append(Log.Data.Reference, reference);
+        ctx.OnlyEmitOnFailure();
+        ctx.Append(Log.Data.Reference, reference);
 
-            try
+        try
+        {
+            var chatHistory = new List<OpenAI.Chat.ChatMessage>
             {
-                var chatHistory = new List<OpenAI.Chat.ChatMessage>
-                {
-                    new SystemChatMessage(@"You are an expert at extracting entities and relationships from text. 
+                new SystemChatMessage(@"You are an expert at extracting entities and relationships from text. 
 Extract all important entities (people, places, organizations, concepts, etc.) and their relationships from the provided text.
 
 For each entity, identify:
@@ -160,81 +157,80 @@ Format your response as JSON with 'entities' and 'relationships' arrays.
 
 Example:
 {
-  ""entities"": [
-    {""name"": ""John Smith"", ""type"": ""Person"", ""attributes"": ""Senior Developer""},
-    {""name"": ""Acme Corp"", ""type"": ""Organization"", ""attributes"": ""Technology company""}
-  ],
-  ""relationships"": [
-    {""source"": ""John Smith"", ""target"": ""Acme Corp"", ""type"": ""works_for"", ""description"": ""employed as Senior Developer""}
-  ]
+""entities"": [
+{""name"": ""John Smith"", ""type"": ""Person"", ""attributes"": ""Senior Developer""},
+{""name"": ""Acme Corp"", ""type"": ""Organization"", ""attributes"": ""Technology company""}
+],
+""relationships"": [
+{""source"": ""John Smith"", ""target"": ""Acme Corp"", ""type"": ""works_for"", ""description"": ""employed as Senior Developer""}
+]
 }"),
-                    new UserChatMessage($"Source: {reference}\n\nText: {content}")
-                };
+                new UserChatMessage($"Source: {reference}\n\nText: {content}")
+            };
 
-                chatClient.ThrowIfNull("chatClient is not initialized.");
+            chatClient.ThrowIfNull("chatClient is not initialized.");
 
-                // Use streaming completion like the existing PostChatAsync method
-                var completionUpdates = chatClient!.CompleteChatStreaming(chatHistory);
-                StringBuilder sb = new StringBuilder();
+            // Use streaming completion like the existing PostChatAsync method
+            var completionUpdates = chatClient!.CompleteChatStreaming(chatHistory);
+            StringBuilder sb = new StringBuilder();
 
-                foreach (var completionUpdate in completionUpdates)
-                {
-                    foreach (var contentPart in completionUpdate.ContentUpdate)
-                    {
-                        sb.Append(contentPart.Text);
-                    }
-                }
-
-                var result = sb.ToString();
-
-                // Print the raw JSON response
-                Console.WriteLine($"\n=== Extracted from {reference} ===");
-                Console.WriteLine("Raw JSON Response:");
-                Console.WriteLine($"[Original length: {result.Length}]");
-                Console.WriteLine(result);
-                
-                // Clean up the result - remove common JSON wrapper patterns
-                var cleanResult = result.Trim();
-                
-                // Remove markdown code block markers
-                if (cleanResult.StartsWith("```json"))
-                {
-                    cleanResult = cleanResult.Substring(7).Trim();
-                }
-                if (cleanResult.StartsWith("```"))
-                {
-                    cleanResult = cleanResult.Substring(3).Trim();
-                }
-                if (cleanResult.EndsWith("```"))
-                {
-                    cleanResult = cleanResult.Substring(0, cleanResult.Length - 3).Trim();
-                }
-                
-                Console.WriteLine($"\n[Cleaned length: {cleanResult.Length}]");
-                Console.WriteLine("Cleaned JSON:");
-                Console.WriteLine(cleanResult);
-
-                var graphDto = GraphStoreManager.JsonToGraphDto(cleanResult);
-                if (graphDto != null) 
-                { 
-                    GraphStoreManager.ParseGraphFromJson(graphDto);
-                    Console.WriteLine($"Successfully processed {graphDto.Entities?.Count ?? 0} entities and {graphDto.Relationships?.Count ?? 0} relationships");
-                }
-                else
-                {
-                    Console.WriteLine("Failed to parse JSON response into GraphDto");
-                }
-
-                Console.WriteLine("=================================\n");
-
-                ctx.Append(Log.Data.Result, $"Extracted {GraphStoreManager.Graph.EntityCount} entities and {GraphStoreManager.Graph.RelationshipCount} relationships from {reference}");
-                ctx.Succeeded();
-            }
-            catch (Exception ex)
+            foreach (var completionUpdate in completionUpdates)
             {
-                ctx.Failed($"Failed to extract entities and relationships", ex);
-                Console.WriteLine($"Failed to extract entities and relationships: {ex.Message}");
+                foreach (var contentPart in completionUpdate.ContentUpdate)
+                {
+                    sb.Append(contentPart.Text);
+                }
             }
-        });
-    }
+
+            var result = sb.ToString();
+
+            // Print the raw JSON response
+            Console.WriteLine($"\n=== Extracted from {reference} ===");
+            Console.WriteLine("Raw JSON Response:");
+            Console.WriteLine($"[Original length: {result.Length}]");
+            Console.WriteLine(result);
+            
+            // Clean up the result - remove common JSON wrapper patterns
+            var cleanResult = result.Trim();
+            
+            // Remove markdown code block markers
+            if (cleanResult.StartsWith("```json"))
+            {
+                cleanResult = cleanResult.Substring(7).Trim();
+            }
+            if (cleanResult.StartsWith("```"))
+            {
+                cleanResult = cleanResult.Substring(3).Trim();
+            }
+            if (cleanResult.EndsWith("```"))
+            {
+                cleanResult = cleanResult.Substring(0, cleanResult.Length - 3).Trim();
+            }
+            
+            Console.WriteLine($"\n[Cleaned length: {cleanResult.Length}]");
+            Console.WriteLine("Cleaned JSON:");
+            Console.WriteLine(cleanResult);
+
+            var graphDto = GraphStoreManager.JsonToGraphDto(cleanResult);
+            if (graphDto != null) 
+            { 
+                GraphStoreManager.ParseGraphFromJson(graphDto);
+                Console.WriteLine($"Successfully processed {graphDto.Entities?.Count ?? 0} entities and {graphDto.Relationships?.Count ?? 0} relationships");
+            }
+            else
+            {
+                Console.WriteLine("Failed to parse JSON response into GraphDto");
+            }
+
+            Console.WriteLine("=================================\n");
+
+            ctx.Append(Log.Data.Result, $"Extracted {GraphStoreManager.Graph.EntityCount} entities and {GraphStoreManager.Graph.RelationshipCount} relationships from {reference}");
+            ctx.Succeeded();
+        }
+        catch (Exception ex)
+        {
+            ctx.Failed($"Failed to extract entities and relationships", ex);
+            Console.WriteLine($"Failed to extract entities and relationships: {ex.Message}");
+        }
+    });
 }

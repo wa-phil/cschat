@@ -842,7 +842,7 @@ public class ContextManager
         
         foreach (var chunk in chunks)
         {
-            await graphProvider!.GetEntitiesAndRelationshipsAsync(chunk.Content, chunk.Reference);
+            await graphProvider!.GetEntitiesAndRelationshipsAsync(chunk.Content, chunk.Reference.ToString());
             
             chunksProcessed++;
         }

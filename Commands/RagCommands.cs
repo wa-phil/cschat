@@ -35,7 +35,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "fileForGraph", Description = "Add a file to the Graph RAG store",
+                    Name = "fileForGraph", Description = () => "Add a file to the Graph RAG store",
                     Action = async () =>
                     {
                         Console.Write("Enter graph file path: ");
@@ -115,7 +115,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "walkGraph", Description = "do a n-hop node walk on the Knowledge Graph",
+                    Name = "walkGraph", Description = () => "do a n-hop node walk on the Knowledge Graph",
                     Action = () =>
                     {
                         Console.Write("Enter search query: ");
@@ -135,7 +135,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "dumpGraph", Description = "display a range of entries from the Graph RAG store",
+                    Name = "dumpGraph", Description = () => "display a range of entries from the Graph RAG store",
                     Action = () =>
                     {
                         GraphStoreManager.Graph.PrintGraph();
