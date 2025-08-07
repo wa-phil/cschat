@@ -29,6 +29,11 @@ public interface IEmbeddingProvider
     Task<float[]> GetEmbeddingAsync(string text);
 }
 
+public interface IGraphProvider
+{
+    Task GetEntitiesAndRelationshipsAsync(string content, string reference);
+}
+
 public record SearchResult
 {
     public float Score;

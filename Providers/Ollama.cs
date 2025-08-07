@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Linq; // Add using directive for LINQ
 
 [IsConfigurable("Ollama")]
-public class Ollama : IChatProvider, IEmbeddingProvider
+public class Ollama : IChatProvider, IEmbeddingProvider, IGraphProvider
 {
     private Config config = new Config(); // Initialize non-nullable field to avoid null reference
     private readonly HttpClient client = new HttpClient();
@@ -133,5 +133,66 @@ public class Ollama : IChatProvider, IEmbeddingProvider
             return Array.Empty<float>();
         }
     }
+
+    public async Task GetEntitiesAndRelationshipsAsync(string content, string reference) => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        ctx.Append(Log.Data.Reference, reference);
+
+        try
+        {
+            var systemPrompt = @"You are an expert at extracting entities and relationships from text. 
+Extract all important entities (people, places, organizations, concepts, etc.) and their relationships from the provided text.
+
+For each entity, identify:
+- Entity name
+- Entity type (Person, Organization, Location, Concept, etc.)
+- Key attributes or descriptions
+
+For each relationship, identify:
+- Source entity
+- Target entity  
+- Relationship type (works_for, located_in, part_of, etc.)
+- Relationship description
+
+Format your response as JSON with 'entities' and 'relationships' arrays.
+
+Example:
+{
+  ""entities"": [
+    {""name"": ""John Smith"", ""type"": ""Person"", ""attributes"": ""Senior Developer""},
+    {""name"": ""Acme Corp"", ""type"": ""Organization"", ""attributes"": ""Technology company""}
+  ],
+  ""relationships"": [
+    {""source"": ""John Smith"", ""target"": ""Acme Corp"", ""type"": ""works_for"", ""description"": ""employed as Senior Developer""}
+  ]
+}";
+
+            var tempContext = new Context(systemPrompt);
+            tempContext.AddUserMessage($"Source: {reference}\n\nText: {content}");
+            
+            var result = await PostChatAsync(tempContext, 0.1f); // Low temperature for consistent extraction
+            
+            // Print the raw JSON response
+            Console.WriteLine($"\n=== Extracted from {reference} ===");
+            Console.WriteLine("Raw JSON Response:");
+            Console.WriteLine(result);
+            
+            var graphDto = GraphStoreManager.JsonToGraphDto(result);
+            if (graphDto != null) { GraphStoreManager.ParseGraphFromJson(graphDto); }
+
+            Console.WriteLine("=================================\n");
+
+            ctx.Append(Log.Data.Result, $"Extracted {GraphStoreManager.Graph.EntityCount} entities and {GraphStoreManager.Graph.RelationshipCount} relationships from {reference}");
+            ctx.Succeeded();
+            
+            Console.WriteLine("=================================\n");
+        }
+        catch (Exception ex)
+        {
+            ctx.Failed($"Failed to extract entities and relationships", ex);
+            Console.WriteLine($"Failed to extract entities and relationships: {ex.Message}");
+        }
+    });
 
 }

@@ -29,6 +29,21 @@ public partial class CommandManager
                 },
                 new Command
                 {
+                    Name = "fileForGraph", Description = "Add a file to the Graph RAG store",
+                    Action = async () =>
+                    {
+                        Console.Write("Enter graph file path: ");
+                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: false);
+                        if (!string.IsNullOrWhiteSpace(input))
+                        {
+                            await Engine.AddFileToGraphStore(input);
+                            Console.WriteLine($"Added file '{input}' to RAG.");
+                        }
+                        return Command.Result.Success;
+                    }
+                },
+                new Command
+                {
                     Name = "directory", Description = "Add a directory to the RAG store",
                     Action = async () =>
                     {
@@ -100,6 +115,35 @@ public partial class CommandManager
                         {
                             Console.WriteLine($"--- start {entry.Reference} ---\n{entry.Content}\n--- end {entry.Reference} ---");
                         }
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "walkGraph", Description = "do a n-hop node walk on the Knowledge Graph",
+                    Action = () =>
+                    {
+                        Console.Write("Enter search query: ");
+                        var query = Console.ReadLine();
+                        
+                        Console.WriteLine("Enter the number of hops to walk (default is 2): ");
+                        var hopsInput = Console.ReadLine();
+
+                        int hops = 2;
+                        if (int.TryParse(hopsInput, out int parsedHops))
+                        {
+                            hops = parsedHops;
+                        }
+                        GraphStoreManager.Graph.PrintEntitiesWithinHops(query ?? string.Empty, hops);
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "dumpGraph", Description = "display a range of entries from the Graph RAG store",
+                    Action = () =>
+                    {
+                        GraphStoreManager.Graph.PrintGraph();
                         return Task.FromResult(Command.Result.Success);
                     }
                 },

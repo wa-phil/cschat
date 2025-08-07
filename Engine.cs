@@ -80,7 +80,20 @@ public static class Engine
         Console.WriteLine($"{elapsedTime}ms required to read file '{path}' contents.");
         ctx.Succeeded();
     });
-        
+
+    public static async Task AddFileToGraphStore(string path) => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        // start a timer to measure the time taken to add the file
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await ContextManager.AddGraphContent(File.ReadAllText(path), path);
+        ctx.Append(Log.Data.FilePath, path);
+        stopwatch.Stop();
+        var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
+        Console.WriteLine($"{elapsedTime}ms required to read file '{path}' contents.");
+        ctx.Succeeded();
+    });       
+
     public static void SetTextChunker(string chunkerName) => Log.Method(ctx =>
     {
         ctx.OnlyEmitOnFailure();
