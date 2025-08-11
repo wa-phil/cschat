@@ -1072,46 +1072,6 @@ public static class GraphStoreManager
             Graph.AddRelationship(relDto.Source, relDto.Target, relDto.Type, relDto.Description);
     }
 
-    public static GraphDto? JsonToGraphDto(string jsonString)
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(jsonString))
-            {
-                Console.WriteLine("JSON string is null or empty");
-                return null;
-            }
-
-            Console.WriteLine($"Attempting to parse JSON string of length: {jsonString.Length}");
-            var options = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            };
-
-            var result = JsonSerializer.Deserialize<GraphDto>(jsonString, options);
-            if (result == null)
-            {
-                Console.WriteLine("JsonSerializer.Deserialize returned null");
-                return null;
-            }
-
-            Console.WriteLine($"Successfully parsed GraphDto with {result.Entities?.Count ?? 0} entities and {result.Relationships?.Count ?? 0} relationships");
-            return result;
-        }
-        catch (JsonException ex)
-        {
-            Console.WriteLine($"Failed to parse JSON: {ex.Message}");
-            Console.WriteLine($"JSON content: {jsonString}");
-            return null;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Unexpected error parsing JSON: {ex.Message}");
-            Console.WriteLine($"Stack trace: {ex.StackTrace}");
-            return null;
-        }
-    }
-
     public static async Task ExtractAndStoreAsync(string content, string reference) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
@@ -1119,7 +1079,8 @@ public static class GraphStoreManager
 
         try
         {
-            var working = new Context(@"You are an expert at extracting entities and relationships from text and C# code.
+            var working = new Context(@"""
+You are an expert at extracting entities and relationships from text and code.
 Extract all important entities (people, places, organizations, concepts, functions, variables etc.) and their relationships from the provided text.
 
 For each entity, identify:
@@ -1132,23 +1093,10 @@ For each relationship, identify:
 - Target entity  
 - Relationship type (works_for, located_in, part_of, etc.)
 - Relationship description
+""");
 
-Format your response as JSON with 'Entities' and 'Relationships' arrays.
-
-Example:
-{
-""Entities"": [
-{""Name"": ""John Smith"", ""Type"": ""Person"", ""Attributes"": ""Senior Developer""},
-{""Name"": ""Acme Corp"", ""Type"": ""Organization"", ""Attributes"": ""Technology company""}
-],
-""Relationships"": [
-{""Source"": ""John Smith"", ""Target"": ""Acme Corp"", ""Type"": ""works_for"", ""Description"": ""employed as Senior Developer""}
-]
-}");
-
-            working.AddUserMessage($"Source: {reference}\n\nText: {content}");
-
-            var response = await TypeParser.PostChatAndParseAsync<GraphDto>(working);
+            working.AddUserMessage(content);
+            var response = await TypeParser.GetAsync(working, typeof(GraphDto));
             if (response == null || response is not GraphDto graphDtoObject)
             {
                 Console.WriteLine($"JSON processing issue");
@@ -1235,118 +1183,6 @@ Example:
         Console.WriteLine($"Generated {generated} new embeddings. Total embeddings: {EntityEmbeddings.Count}");
     }
 
-    /// <summary>
-    /// Generate embeddings for ALL entities in the graph (useful for initialization)
-    /// Call this after loading a graph or to backfill missing embeddings
-    /// </summary>
-    public static async Task GenerateAllEntityEmbeddingsAsync()
-    {
-        if (Engine.Provider is not IEmbeddingProvider embeddingProvider)
-        {
-            Console.WriteLine("Warning: No embedding provider available for entity embedding generation");
-            return;
-        }
-
-        Console.WriteLine($"Generating embeddings for ALL {Graph.EntityCount} entities in the graph...");
-        int generated = 0;
-        int skipped = 0;
-
-        foreach (var entity in Graph.Entities.Values)
-        {
-            if (EntityEmbeddings.ContainsKey(entity.Name))
-            {
-                skipped++;
-                continue;
-            }
-
-            try
-            {
-                var entityText = $"{entity.Name} {entity.Type} {entity.Attributes}";
-                Console.WriteLine($"  Generating embedding for: {entity.Name} ({entity.Type})");
-
-                var embedding = await embeddingProvider.GetEmbeddingAsync(entityText);
-
-                if (embedding != null && embedding.Length > 0)
-                {
-                    EntityEmbeddings[entity.Name] = Normalize(embedding);
-                    generated++;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Failed to generate embedding for entity {entity.Name}: {ex.Message}");
-            }
-        }
-
-        Console.WriteLine($"✅ Generated {generated} new embeddings, skipped {skipped} existing. Total: {EntityEmbeddings.Count}");
-    }
-
-    /// <summary>
-    /// Find entities most similar to a query using semantic search
-    /// This is where EntityEmbeddings are USED for similarity search
-    /// </summary>
-    public static async Task<List<(Entity Entity, float Similarity)>> FindSimilarEntitiesAsync(string query, int topK = 5)
-    {
-        if (string.IsNullOrWhiteSpace(query))
-            return new List<(Entity, float)>();
-
-        if (Engine.Provider is not IEmbeddingProvider embeddingProvider)
-        {
-            Console.WriteLine("Warning: No embedding provider available for similarity search");
-            return new List<(Entity, float)>();
-        }
-
-        try
-        {
-            Console.WriteLine($"Finding entities similar to: '{query}'");
-            
-            // Generate embedding for the user's query
-            var queryEmbedding = await embeddingProvider.GetEmbeddingAsync(query);
-            if (queryEmbedding == null || queryEmbedding.Length == 0)
-            {
-                Console.WriteLine("Failed to generate embedding for query");
-                return new List<(Entity, float)>();
-            }
-
-            var normalizedQuery = Normalize(queryEmbedding);
-            var similarities = new List<(Entity Entity, float Similarity)>();
-
-            Console.WriteLine($"Comparing query against {EntityEmbeddings.Count} entity embeddings...");
-
-            // Compare query embedding with ALL stored entity embeddings
-            foreach (var kvp in EntityEmbeddings)
-            {
-                var entityName = kvp.Key;
-                var entityEmbedding = kvp.Value;
-                
-                if (Graph.Entities.ContainsKey(entityName))
-                {
-                    var entity = Graph.Entities[entityName];
-                    var similarity = CosineSimilarity(normalizedQuery, entityEmbedding);
-                    similarities.Add((entity, similarity));
-                }
-            }
-
-            // Return top K most similar entities
-            var results = similarities
-                .OrderByDescending(s => s.Similarity)
-                .Take(topK)
-                .ToList();
-
-            Console.WriteLine($"Found {results.Count} similar entities:");
-            foreach (var (entity, similarity) in results)
-            {
-                Console.WriteLine($"  {entity.Name} ({entity.Type}) - Similarity: {similarity:F4}");
-            }
-
-            return results;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error finding similar entities: {ex.Message}");
-            return new List<(Entity, float)>();
-        }
-    }
 
     // Helper methods for vector operations
     private static float[] Normalize(float[] vector)
@@ -1356,103 +1192,4 @@ Example:
         return vector.Select(v => v / norm).ToArray();
     }
 
-    private static float CosineSimilarity(float[] a, float[] b)
-    {
-        if (a.Length != b.Length) throw new ArgumentException("Vector dimensions do not match.");
-
-        float dot = 0, normA = 0, normB = 0;
-
-        for (int i = 0; i < a.Length; i++)
-        {
-            dot += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
-        }
-
-        return (float)(dot / (Math.Sqrt(normA) * Math.Sqrt(normB) + 1e-8));
-    }
-
-    /// <summary>
-    /// Get statistics about the embedding cache
-    /// </summary>
-    public static (int TotalEntities, int EntitiesWithEmbeddings, double CoveragePercentage) GetEmbeddingStats()
-    {
-        int totalEntities = Graph.EntityCount;
-        int entitiesWithEmbeddings = EntityEmbeddings.Count;
-        double coverage = totalEntities > 0 ? (double)entitiesWithEmbeddings / totalEntities * 100 : 0;
-        
-        Console.WriteLine($"Embedding Coverage: {entitiesWithEmbeddings}/{totalEntities} entities ({coverage:F1}%)");
-        
-        return (totalEntities, entitiesWithEmbeddings, coverage);
-    }
-
-    /// <summary>
-    /// Clear all embeddings cache (useful when graph is cleared)
-    /// </summary>
-    public static void ClearEmbeddingsCache()
-    {
-        var count = EntityEmbeddings.Count;
-        EntityEmbeddings.Clear();
-        Console.WriteLine($"Cleared {count} entity embeddings from cache");
-    }
-
-    /// <summary>
-    /// Print detailed info about entity embeddings
-    /// </summary>
-    public static void PrintEmbeddingInfo()
-    {
-        Console.WriteLine("\n=== ENTITY EMBEDDINGS INFO ===");
-        var (total, withEmbeddings, coverage) = GetEmbeddingStats();
-        
-        Console.WriteLine($"Total Entities in Graph: {total}");
-        Console.WriteLine($"Entities with Embeddings: {withEmbeddings}");
-        Console.WriteLine($"Coverage: {coverage:F1}%");
-        
-        if (withEmbeddings > 0)
-        {
-            var firstEmbedding = EntityEmbeddings.Values.First();
-            Console.WriteLine($"Embedding Dimension: {firstEmbedding.Length}");
-            
-            Console.WriteLine("\nEntities with embeddings:");
-            foreach (var entityName in EntityEmbeddings.Keys.Take(10))
-            {
-                if (Graph.Entities.ContainsKey(entityName))
-                {
-                    var entity = Graph.Entities[entityName];
-                    Console.WriteLine($"  • {entity.Name} ({entity.Type})");
-                }
-            }
-            
-            if (EntityEmbeddings.Count > 10)
-                Console.WriteLine($"  ... and {EntityEmbeddings.Count - 10} more");
-        }
-        
-        Console.WriteLine("===============================\n");
-    }
 }
-
-/*// Generate embeddings for all entities already in the graph
-await GraphStoreManager.GenerateAllEntityEmbeddingsAsync();
-
-// For each entity like "Neural Networks" (Algorithm, "Deep learning technique"):
-
-// Step 1: Create text representation
-var entityText = "Neural Networks Algorithm Deep learning technique";
-
-// Step 2: Get embedding from provider (Azure OpenAI/Ollama)
-var embedding = await embeddingProvider.GetEmbeddingAsync(entityText);
-// Returns: float[1536] array (for OpenAI) or float[4096] (for other models)
-
-// Step 3: Normalize the vector
-var normalizedEmbedding = Normalize(embedding);
-
-// Step 4: Store in dictionary
-EntityEmbeddings["Neural Networks"] = normalizedEmbedding;
-
-// After documents are processed and embeddings are generated:
-var stats = GraphStoreManager.GetEmbeddingStats();
-// Output: "Embedding Coverage: 150/150 entities (100.0%)"
-
-// Now you can do semantic search:
-var similar = await GraphStoreManager.FindSimilarEntitiesAsync("machine learning", 5);
-// Returns entities most similar to "machine learning" using cosine similarity*/
