@@ -64,7 +64,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         var content = new StringContent(requestBody.ToJson(), Encoding.UTF8, "application/json");
         try
         {
-            var response = await client.PostAsync($"{config.Host}/v1/chat/completions", content);
+            var response = await client.PostAsync($"{config.Host}/api/chat", content);
             if (!response.IsSuccessStatusCode)
             {
                 ctx.Append(Log.Data.Response, response.StatusCode.ToString());
@@ -76,7 +76,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
             ctx.Append(Log.Data.Input, requestBody.ToJson());
             ctx.Append(Log.Data.Result, respJson);
             dynamic? respObj = respJson!.FromJson<dynamic>();
-            var result = respObj?["choices"]?[0]?["message"]?["content"]?.ToString() ?? string.Empty;
+            var result = respObj?["message"]?["content"]?.ToString() ?? string.Empty;
             ctx.Succeeded();
             return result;
         }
