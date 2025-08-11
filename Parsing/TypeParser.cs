@@ -101,9 +101,6 @@ class TypeParser
             throw new CsChatException($"LLM returned invalid JSON: hallucinated postamble or missing closing brace detected. Response: {response}", Error.FailedToParseResponse);
         }
 
-        Console.WriteLine("RESPONSE:");
-        Console.WriteLine(response);
-
         // Parse the response into the specified type
         var parsedObject = response.FromJson<T>();
         if (null == parsedObject)

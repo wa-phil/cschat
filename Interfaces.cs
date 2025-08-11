@@ -29,11 +29,6 @@ public interface IEmbeddingProvider
     Task<float[]> GetEmbeddingAsync(string text);
 }
 
-public interface IGraphProvider
-{
-    Task GetEntitiesAndRelationshipsAsync(string content, string reference);
-}
-
 public record Reference(string Source, int? Start, int? End)
 {
     public static Reference Full(string source) => new Reference(source, null, null);

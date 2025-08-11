@@ -251,24 +251,20 @@ public class ContextManager
     {
         ctx.OnlyEmitOnFailure();
         Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
-        IGraphProvider? graphProvider = Engine.Provider as IGraphProvider;
-        graphProvider.ThrowIfNull("Current configured provider does not support graph operations.");
 
         ctx.Append(Log.Data.Reference, reference);
         var chunks = Engine.TextChunker!.ChunkText(reference, content);
         ctx.Append(Log.Data.Count, chunks.Count);
 
-        var chunksProcessed = 0;
+        // Use LINQ to create a list of tasks
+        var tasks = chunks.Select(chunk =>
+            GraphStoreManager.ExtractAndStoreAsync(chunk.Content, chunk.Reference.ToString())
+        ).ToList();
         
-        foreach (var chunk in chunks)
-        {
-            await graphProvider!.GetEntitiesAndRelationshipsAsync(chunk.Content, chunk.Reference.ToString());
-            
-            chunksProcessed++;
-        }
-        
-        ctx.Append(Log.Data.Result, $"Processed {chunksProcessed} chunks and stored graph data");
-        ctx.Succeeded(chunksProcessed > 0);
+        await Task.WhenAll(tasks); // Await all tasks at once
+
+        ctx.Append(Log.Data.Result, $"Processed {tasks.Count} chunks and stored graph data");
+        ctx.Succeeded(tasks.Count > 0);        
     });    
 
     public static async Task<List<SearchResult>> SearchReferences(string reference) => await Log.Method(ctx =>

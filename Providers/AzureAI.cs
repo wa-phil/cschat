@@ -14,7 +14,7 @@ using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 
 [IsConfigurable("AzureAI")]
-public class AzureAI : IChatProvider, IEmbeddingProvider, IGraphProvider
+public class AzureAI : IChatProvider, IEmbeddingProvider 
 {
     private Config config = null!;
     private AzureOpenAIClient azureClient = null!;
@@ -129,9 +129,4 @@ public class AzureAI : IChatProvider, IEmbeddingProvider, IGraphProvider
             return Array.Empty<float>();
         }
     });
-
-    public async Task GetEntitiesAndRelationshipsAsync(string content, string reference)
-    {
-        await GraphStoreManager.ExtractAndStoreAsync(content, reference);
-    }
 }

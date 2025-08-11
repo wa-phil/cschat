@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Linq; // Add using directive for LINQ
 
 [IsConfigurable("Ollama")]
-public class Ollama : IChatProvider, IEmbeddingProvider, IGraphProvider
+public class Ollama : IChatProvider, IEmbeddingProvider
 {
     private Config config = new Config(); // Initialize non-nullable field to avoid null reference
     private readonly HttpClient client = new HttpClient();
@@ -135,9 +135,4 @@ public class Ollama : IChatProvider, IEmbeddingProvider, IGraphProvider
         ctx.Succeeded();
         return embedding.Select(Convert.ToSingle).ToArray();
     });
-
-    public async Task GetEntitiesAndRelationshipsAsync(string content, string reference)
-    {
-        await GraphStoreManager.ExtractAndStoreAsync(content, reference);
-    }
 }
