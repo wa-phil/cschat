@@ -130,69 +130,8 @@ public class AzureAI : IChatProvider, IEmbeddingProvider, IGraphProvider
         }
     });
 
-    public async Task GetEntitiesAndRelationshipsAsync(string content, string reference) => await Log.MethodAsync(async ctx =>
+    public async Task GetEntitiesAndRelationshipsAsync(string content, string reference)
     {
-        ctx.OnlyEmitOnFailure();
-        ctx.Append(Log.Data.Reference, reference);
-
-        try
-        {
-            var working = new Context(@"You are an expert at extracting entities and relationships from text. 
-Extract all important entities (people, places, organizations, concepts, etc.) and their relationships from the provided text.
-
-For each entity, identify:
-- Entity name
-- Entity type (Person, Organization, Location, Concept, etc.)
-- Key attributes or descriptions
-
-For each relationship, identify:
-- Source entity
-- Target entity  
-- Relationship type (works_for, located_in, part_of, etc.)
-- Relationship description
-
-Format your response as JSON with 'Entities' and 'Relationships' arrays.
-
-Example:
-{
-""Entities"": [
-{""Name"": ""John Smith"", ""Type"": ""Person"", ""Attributes"": ""Senior Developer""},
-{""Name"": ""Acme Corp"", ""Type"": ""Organization"", ""Attributes"": ""Technology company""}
-],
-""Relationships"": [
-{""Source"": ""John Smith"", ""Target"": ""Acme Corp"", ""Type"": ""works_for"", ""Description"": ""employed as Senior Developer""}
-]
-}");
-
-            working.AddUserMessage($"Source: {reference}\n\nText: {content}");
-
-            var response = await TypeParser.PostChatAndParseAsync<GraphDto>(working);
-            if (response == null || response is not GraphDto graphDtoObject)
-            {
-                Console.WriteLine($"JSON processing issue");
-                return;
-            }
-            Console.WriteLine($"\n=== Extracted from {response} ===");
-
-            if (graphDtoObject != null)
-            {
-                GraphStoreManager.ParseGraphFromJson(graphDtoObject);
-                Console.WriteLine($"Successfully processed {graphDtoObject.Entities?.Count ?? 0} entities and {graphDtoObject.Relationships?.Count ?? 0} relationships");
-            }
-            else
-            {
-                Console.WriteLine("Failed to parse JSON response into GraphDto");
-            }
-
-            Console.WriteLine("=================================\n");
-
-            ctx.Append(Log.Data.Result, $"Extracted {GraphStoreManager.Graph.EntityCount} entities and {GraphStoreManager.Graph.RelationshipCount} relationships from {reference}");
-            ctx.Succeeded();
-        }
-        catch (Exception ex)
-        {
-            ctx.Failed($"Failed to extract entities and relationships", ex);
-            Console.WriteLine($"Failed to extract entities and relationships: {ex.Message}");
-        }
-    });
+        await GraphStoreManager.ExtractAndStoreAsync(content, reference);
+    }
 }
