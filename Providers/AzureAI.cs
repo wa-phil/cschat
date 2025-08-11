@@ -7,6 +7,7 @@ using OpenAI.Chat;
 using Azure.Identity;
 using Azure.AI.OpenAI;
 using OpenAI.Embeddings;
+using System.ClientModel;
 using System.Threading.Tasks;
 using Azure.Core.Diagnostics;
 using System.Diagnostics.Tracing;
@@ -110,7 +111,27 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
 
     public async Task<float[]> GetEmbeddingAsync(string text) => await Log.MethodAsync(
         retryCount: 2,
-        shouldRetry: e => e is TimeoutException,
+        shouldRetry: e => {
+            if (e is ClientResultException cre && cre.Status == 429) { Thread.Sleep(2000); return true; } // Retry on rate limit (2s wait)
+            if (e is TimeoutException te)
+            {
+                // parse the message to extract the retry time
+                var message = te.Message;
+                var marker = "Try again in ";
+                var idx = message.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                if (idx >= 0)
+                {
+                    var afterMarker = message.Substring(idx + marker.Length);
+                    var timePart = afterMarker.Split(' ').FirstOrDefault();
+                    if (int.TryParse(timePart, out int seconds))
+                    {
+                        System.Threading.Thread.Sleep(TimeSpan.FromSeconds(seconds));
+                        return true; // Retry after sleeping
+                    }
+                }
+            }
+            return false;
+        },
         func: async ctx =>
     {
         ctx.OnlyEmitOnFailure();
