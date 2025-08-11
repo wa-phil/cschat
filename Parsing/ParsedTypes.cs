@@ -124,3 +124,72 @@ public class SummarizeText
     public string Prompt { get; set; } = "Summarize the following text";
     public string Text { get; set; } = string.Empty;
 }
+
+[ExampleText("""
+{ "Name": "<entity_name>", "Type": "<entity_type>", "Attributes": "<entity_attributes>" }
+
+Where:
+  * <entity_name> is the name/identifier of the entity, e.g., "John Smith" or "Microsoft Corporation"
+  * <entity_type> is the category/type of the entity, e.g., "Person", "Organization", "Location", "Concept"
+  * <entity_attributes> is a brief description of key attributes or properties, e.g., "CEO of company" or "Technology company founded in 1975"
+
+ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.
+""")]
+public class EntityDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string Type { get; set; } = string.Empty;
+    public string Attributes { get; set; } = string.Empty;
+}
+
+[ExampleText("""
+{ "Source": "<source_entity>", "Target": "<target_entity>", "Type": "<relationship_type>", "Description": "<relationship_description>" }
+
+Where:
+  * <source_entity> is the name of the entity that initiates the relationship, e.g., "John Smith"
+  * <target_entity> is the name of the entity that receives the relationship, e.g., "Microsoft Corporation"
+  * <relationship_type> is the category of relationship, e.g., "WORKS_FOR", "LOCATED_IN", "PART_OF", "CREATED_BY"
+  * <relationship_description> is a brief description of the relationship, e.g., "works as CEO" or "headquartered in"
+
+ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.
+""")]
+public class RelationshipDto
+{
+    public string Source { get; set; } = string.Empty;
+    public string Target { get; set; } = string.Empty;
+    public string Type { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+}
+
+[ExampleText("""
+{ 
+  "Entities": [
+    { "Name": "John Smith", "Type": "Person", "Attributes": "Senior Developer at tech company" },
+    { "Name": "Microsoft", "Type": "Organization", "Attributes": "Technology company" }
+  ],
+  "Relationships": [
+    { "Source": "John Smith", "Target": "Microsoft", "Type": "WORKS_FOR", "Description": "employed as Senior Developer" }
+  ]
+}
+
+IMPORTANT RULES:
+- Entities is an array of EntityDto objects with Name, Type, and Attributes
+- Relationships is an array of RelationshipDto objects connecting the entities
+- Extract all meaningful entities (people, places, organizations, concepts) and their relationships from the given text
+- Each Entity MUST have only one each of the following: Name, Type, Attributes
+- Each Relationship MUST have only one each of the following: Source, Target, Type, Description
+- Source and Target must reference entity names from the Entities array
+- Use consistent capitalized relationship types like: WORKS_FOR, LOCATED_IN, PART_OF, CREATED_BY, MANAGES, etc.
+- Return ONLY valid JSON with no explanations or markdown
+- Source and Target must exactly match Entity Names
+- NO missing fields allowed
+
+CRITICAL: Return ONLY valid JSON. No explanations, no markdown, no duplicated fields. Each relationship object must have exactly one Source, Target, Type, and Description field.
+
+ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.
+""")]
+public class GraphDto
+{
+    public List<EntityDto> Entities { get; set; } = new List<EntityDto>();
+    public List<RelationshipDto> Relationships { get; set; } = new List<RelationshipDto>();
+}

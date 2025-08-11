@@ -35,7 +35,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "fileForGraph", Description = () => "Add a file to the Graph RAG store",
+                    Name = "Graph Add File", Description = () => "Add a file to the Graph RAG store",
                     Action = async () =>
                     {
                         Console.Write("Enter graph file path: ");
@@ -115,7 +115,7 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "walkGraph", Description = () => "do a n-hop node walk on the Knowledge Graph",
+                    Name = "Graph Walk", Description = () => "do a n-hop node walk on the Knowledge Graph",
                     Action = () =>
                     {
                         Console.Write("Enter search query: ");
@@ -135,10 +135,71 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "dumpGraph", Description = () => "display a range of entries from the Graph RAG store",
+                    Name = "Graph Dump", Description = () => "display a range of entries from the Graph RAG store",
                     Action = () =>
                     {
                         GraphStoreManager.Graph.PrintGraph();
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "Graph Community Info", Description = () => "Show detailed information about graph communities",
+                    Action = () =>
+                    {
+                        if (GraphStoreManager.Graph.IsEmpty)
+                        {
+                            Console.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+
+                        Console.Write("Enter community ID (leave blank for all communities): ");
+                        var input = Console.ReadLine();
+                        
+                        if (string.IsNullOrWhiteSpace(input))
+                        {
+                            GraphStoreManager.Graph.PrintDetailedCommunityInfo();
+                        }
+                        else if (int.TryParse(input, out int communityId))
+                        {
+                            GraphStoreManager.Graph.PrintDetailedCommunityInfo(communityId);
+                        }
+                        else
+                        {
+                            Console.WriteLine("Invalid community ID. Please enter a number or leave blank for all communities.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+                        
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "Graph Community Summary", Description = () => "Show summary table of all graph communities",
+                    Action = () =>
+                    {
+                        if (GraphStoreManager.Graph.IsEmpty)
+                        {
+                            Console.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+                        
+                        GraphStoreManager.Graph.PrintCommunitySummaryTable();
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "Graph Community Detection", Description = () => "Detect communities in the graph using Louvain algorithm",
+                    Action = () =>
+                    {
+                        if (GraphStoreManager.Graph.IsEmpty)
+                        {
+                            Console.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+
+                        GraphStoreManager.Graph.PrintCommunityAnalysis();
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -155,7 +216,7 @@ public partial class CommandManager
                             return Task.FromResult(Command.Result.Cancelled);
                         }
 
-                        var entries = Engine.VectorStore.GetEntries((refStr, content) => 
+                        var entries = Engine.VectorStore.GetEntries((refStr, content) =>
                             refStr.Source.Contains(filter, StringComparison.OrdinalIgnoreCase));
 
                         var merged = ContextManager.Flatten(entries);

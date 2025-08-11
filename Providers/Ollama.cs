@@ -95,7 +95,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider, IGraphProvider
 
         try
         {
-            var systemPrompt = @"You are an expert at extracting entities and relationships from text. 
+            var working = new Context(@"You are an expert at extracting entities and relationships from text. 
 Extract all important entities (people, places, organizations, concepts, etc.) and their relationships from the provided text.
 
 For each entity, identify:
@@ -113,34 +113,39 @@ Format your response as JSON with 'entities' and 'relationships' arrays.
 
 Example:
 {
-  ""entities"": [
-    {""name"": ""John Smith"", ""type"": ""Person"", ""attributes"": ""Senior Developer""},
-    {""name"": ""Acme Corp"", ""type"": ""Organization"", ""attributes"": ""Technology company""}
-  ],
-  ""relationships"": [
-    {""source"": ""John Smith"", ""target"": ""Acme Corp"", ""type"": ""works_for"", ""description"": ""employed as Senior Developer""}
-  ]
-}";
+""entities"": [
+{""name"": ""John Smith"", ""type"": ""Person"", ""attributes"": ""Senior Developer""},
+{""name"": ""Acme Corp"", ""type"": ""Organization"", ""attributes"": ""Technology company""}
+],
+""relationships"": [
+{""source"": ""John Smith"", ""target"": ""Acme Corp"", ""type"": ""works_for"", ""description"": ""employed as Senior Developer""}
+]
+}");
 
-            var tempContext = new Context(systemPrompt);
-            tempContext.AddUserMessage($"Source: {reference}\n\nText: {content}");
-            
-            var result = await PostChatAsync(tempContext, 0.1f); // Low temperature for consistent extraction
-            
-            // Print the raw JSON response
-            Console.WriteLine($"\n=== Extracted from {reference} ===");
-            Console.WriteLine("Raw JSON Response:");
-            Console.WriteLine(result);
-            
-            var graphDto = GraphStoreManager.JsonToGraphDto(result);
-            if (graphDto != null) { GraphStoreManager.ParseGraphFromJson(graphDto); }
+            working.AddUserMessage($"Source: {reference}\n\nText: {content}");
+
+            var response = await TypeParser.PostChatAndParseAsync<GraphDto>(working);
+            if (response == null || response is not GraphDto graphDtoObject)
+            {
+                Console.WriteLine($"JSON processing issue");
+                return;
+            }
+            Console.WriteLine($"\n=== Extracted from {response} ===");
+
+            if (graphDtoObject != null)
+            {
+                GraphStoreManager.ParseGraphFromJson(graphDtoObject);
+                Console.WriteLine($"Successfully processed {graphDtoObject.Entities?.Count ?? 0} entities and {graphDtoObject.Relationships?.Count ?? 0} relationships");
+            }
+            else
+            {
+                Console.WriteLine("Failed to parse JSON response into GraphDto");
+            }
 
             Console.WriteLine("=================================\n");
 
             ctx.Append(Log.Data.Result, $"Extracted {GraphStoreManager.Graph.EntityCount} entities and {GraphStoreManager.Graph.RelationshipCount} relationships from {reference}");
             ctx.Succeeded();
-            
-            Console.WriteLine("=================================\n");
         }
         catch (Exception ex)
         {

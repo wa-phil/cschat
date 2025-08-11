@@ -8,7 +8,8 @@ using System.Text.RegularExpressions;
 
 class TypeParser
 {
-    public static async Task<object> GetAsync(Context Context, Type t) => await Log.MethodAsync(async ctx=>{
+    public static async Task<object> GetAsync(Context Context, Type t) => await Log.MethodAsync(async ctx =>
+    {
         ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.TypeToParse, t.Name);
 
@@ -17,7 +18,7 @@ class TypeParser
         {
             Context.AddSystemMessage($"Example text for {t.Name}:\n{exampleTextAttr.Text}");
         }
-        
+
         // Reflection to the rescue!
         var method = typeof(TypeParser).GetMethods()
             .FirstOrDefault(m => m.Name == nameof(PostChatAndParseAsync)
@@ -57,7 +58,7 @@ class TypeParser
             throw new InvalidOperationException($"Result is null for task of type {task.GetType().Name}.");
         }
         ctx.Append(Log.Data.Result, result.ToJson());
-        ctx.Succeeded();        
+        ctx.Succeeded();
         return result;
     });
 
@@ -88,6 +89,8 @@ class TypeParser
             response = Regex.Replace(response, @"\s*```$", "", RegexOptions.Multiline).Trim();
         }
 
+        response = FixCommonJsonErrors(response);
+
         if (!response.TrimStart().StartsWith("{"))
         {
             throw new CsChatException($"LLM returned invalid JSON: hallucinated preamble or natural language detected. Response: {response}", Error.FailedToParseResponse);
@@ -98,6 +101,9 @@ class TypeParser
             throw new CsChatException($"LLM returned invalid JSON: hallucinated postamble or missing closing brace detected. Response: {response}", Error.FailedToParseResponse);
         }
 
+        Console.WriteLine("RESPONSE:");
+        Console.WriteLine(response);
+
         // Parse the response into the specified type
         var parsedObject = response.FromJson<T>();
         if (null == parsedObject)
@@ -107,5 +113,36 @@ class TypeParser
 
         ctx.Succeeded();
         return parsedObject;
-    });    
+    });
+    private static string FixCommonJsonErrors(string json)
+    {
+        // Fix trailing commas before closing brackets/braces
+        //json = Regex.Replace(json, @",(\s*[}\]])", "$1");
+        
+        // Fix casing for GraphDto - convert lowercase to proper casing
+        json = Regex.Replace(json, @"""entities""", @"""Entities""", RegexOptions.IgnoreCase);
+        json = Regex.Replace(json, @"""relationships""", @"""Relationships""", RegexOptions.IgnoreCase);
+        json = Regex.Replace(json, @"""name""", @"""Name""", RegexOptions.IgnoreCase);
+        json = Regex.Replace(json, @"""type""", @"""Type""", RegexOptions.IgnoreCase);
+        json = Regex.Replace(json, @"""attributes""", @"""Attributes""", RegexOptions.IgnoreCase);
+        json = Regex.Replace(json, @"""source""", @"""Source""", RegexOptions.IgnoreCase);
+        json = Regex.Replace(json, @"""target""", @"""Target""", RegexOptions.IgnoreCase);
+        json = Regex.Replace(json, @"""description""", @"""Description""", RegexOptions.IgnoreCase);
+        
+        // Fix duplicate consecutive fields in objects by removing duplicates
+        //json = Regex.Replace(json, @"""(Target|Source|Type|Description)""\s*:\s*""[^""]*""\s*,?\s*""(Target|Source|Type|Description)""\s*:", @"""$2"":");
+        
+        // Remove any broken trailing content after the main JSON structure
+        /*var lastBraceIndex = json.LastIndexOf('}');
+        if (lastBraceIndex != -1 && lastBraceIndex < json.Length - 1)
+        {
+            var afterLastBrace = json.Substring(lastBraceIndex + 1).Trim();
+            if (!string.IsNullOrWhiteSpace(afterLastBrace))
+            {
+                json = json.Substring(0, lastBraceIndex + 1);
+            }
+        }*/
+        
+        return json;
+    }
 }
