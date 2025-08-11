@@ -151,16 +151,16 @@ For each relationship, identify:
 - Relationship type (works_for, located_in, part_of, etc.)
 - Relationship description
 
-Format your response as JSON with 'entities' and 'relationships' arrays.
+Format your response as JSON with 'Entities' and 'Relationships' arrays.
 
 Example:
 {
-""entities"": [
-{""name"": ""John Smith"", ""type"": ""Person"", ""attributes"": ""Senior Developer""},
-{""name"": ""Acme Corp"", ""type"": ""Organization"", ""attributes"": ""Technology company""}
+""Entities"": [
+{""Name"": ""John Smith"", ""Type"": ""Person"", ""Attributes"": ""Senior Developer""},
+{""Name"": ""Acme Corp"", ""Type"": ""Organization"", ""Attributes"": ""Technology company""}
 ],
-""relationships"": [
-{""source"": ""John Smith"", ""target"": ""Acme Corp"", ""type"": ""works_for"", ""description"": ""employed as Senior Developer""}
+""Relationships"": [
+{""Source"": ""John Smith"", ""Target"": ""Acme Corp"", ""Type"": ""works_for"", ""Description"": ""employed as Senior Developer""}
 ]
 }");
 
