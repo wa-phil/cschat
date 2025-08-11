@@ -68,7 +68,7 @@ public class SimpleVectorStore : IVectorStore
 
     private static float CosineSimilarity(float[] a, float[] b)
     {
-        if (a.Length != b.Length) throw new ArgumentException("Vector dimensions do not match.");
+        if (a.Length != b.Length) { return 0f; } // all vectors must be of the same length. Those that aren't get a score of 0.
 
         float dot = 0, normA = 0, normB = 0;
 
