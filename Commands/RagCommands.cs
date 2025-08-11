@@ -65,6 +65,21 @@ public partial class CommandManager
                 },
                 new Command
                 {
+                    Name = "Graph Add Directory", Description = () => "Add a directory to the Graph RAG store",
+                    Action = async () =>
+                    {
+                        Console.Write("Enter directory path: ");
+                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: true);
+                        if (!string.IsNullOrWhiteSpace(input))
+                        {
+                            await Engine.AddDirectoryToGraphStore(input);
+                            Console.WriteLine($"Added directory '{input}' to RAG.");
+                        }
+                        return Command.Result.Success;
+                    }
+                },
+                new Command
+                {
                     Name = "add zip contents", Description = () => "Add contents of a zip file to the RAG store",
                     Action = async () =>
                     {
