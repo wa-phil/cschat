@@ -1119,8 +1119,8 @@ public static class GraphStoreManager
 
         try
         {
-            var working = new Context(@"You are an expert at extracting entities and relationships from text. 
-Extract all important entities (people, places, organizations, concepts, etc.) and their relationships from the provided text.
+            var working = new Context(@"You are an expert at extracting entities and relationships from text and C# code.
+Extract all important entities (people, places, organizations, concepts, functions, variables etc.) and their relationships from the provided text.
 
 For each entity, identify:
 - Entity name
@@ -1219,7 +1219,7 @@ Example:
                     // Normalize the embedding vector and store it
                     EntityEmbeddings[entityDto.Name] = Normalize(embedding);
                     generated++;
-                    Console.WriteLine($"    ✅ Generated embedding (dimension: {embedding.Length})");
+                    //Console.WriteLine($"    ✅ Generated embedding (dimension: {embedding.Length})");
                 }
                 else
                 {
