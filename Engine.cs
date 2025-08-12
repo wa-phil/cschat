@@ -110,7 +110,6 @@ public static class Engine
                 catch (Exception ex)
                 {
                     sb.AppendLine($"[fail] {name}: {ex.Message}");
-                    throw;
                 }
                 finally
                 {

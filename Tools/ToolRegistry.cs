@@ -63,7 +63,7 @@ public static class ToolRegistry
     internal static async Task<ToolResult> InvokeInternalAsync(string toolName, object toolInput, Context context) =>
         await Log.MethodAsync(async ctx =>
     {
-        //ctx.OnlyEmitOnFailure();
+        ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, toolName);
         ctx.Append(Log.Data.ToolInput, toolInput?.ToString() ?? "<null>");
 
