@@ -148,6 +148,8 @@ public class Context
 
 public class ContextManager
 {
+    public static void ClearCaches() => _embedCache.Clear();
+    
     private static readonly ConcurrentDictionary<string, float[]> _embedCache = new();
     private static string HashUtf8(string s)
     {
@@ -233,23 +235,34 @@ public class ContextManager
         return;
     });
 
-    public static async Task AddContent(string content, string reference = "content") => await Log.MethodAsync(async ctx =>
+    public static Task AddContent(string content, string reference = "content")
+        => AddContent(content, reference, CancellationToken.None, _ => { }, (_, __) => { });
+
+    public static async Task AddContent(
+        string content,
+        string reference,
+        CancellationToken ct,
+        Action<int> setTotalSteps,
+        Action<int, string?> advance) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
         IEmbeddingProvider embeddingProvider = Engine.Provider as IEmbeddingProvider ?? throw new InvalidOperationException("Current configured provider does not support embeddings.");
+        ct.ThrowIfCancellationRequested();
 
         ctx.Append(Log.Data.Reference, reference.Substring(0, Math.Min(reference.Length, 50)));
 
         // Chunk the text once
         var chunks = Engine.TextChunker!.ChunkText(reference, content);
         ctx.Append(Log.Data.Count, chunks.Count);
+        setTotalSteps(chunks.Count); // tell UI how many steps we’ll report against
 
         // If embeddings are disabled, just add empty vectors
         if (!Program.config.RagSettings.UseEmbeddings)
         {
             var noVecEntries = chunks.Select(c => (c.Reference, c.Content, Embedding: Array.Empty<float>())).ToList();
             Engine.VectorStore.Add(noVecEntries);
+            advance(chunks.Count, "indexed"); // 100%
             ctx.Succeeded(noVecEntries.Count > 0);
             return;
         }
@@ -263,9 +276,11 @@ public class ContextManager
         var missIndices = new List<int>();
         for (int i = 0; i < texts.Count; i++)
         {
+            ct.ThrowIfCancellationRequested();
             if (_embedCache.TryGetValue(hashes[i], out var v) && v.Length > 0)
             {
                 embeddings[i] = v;
+                advance(1, "cached");
             }
             else
             {
@@ -277,13 +292,22 @@ public class ContextManager
         if (missIndices.Count > 0)
         {
             var missTexts = missIndices.Select(i => texts[i]).ToList();
-            var missVectors = await embeddingProvider.GetEmbeddingsAsync(missTexts); // NEW batched call
-            for (int k = 0; k < missIndices.Count; k++)
+            int batch = Program.config.RagSettings.MaxEmbeddingConcurrency;
+            for (int offset = 0; offset < missIndices.Count; offset += batch)
             {
-                var idx = missIndices[k];
-                var vec = missVectors[k] ?? Array.Empty<float>();
-                embeddings[idx] = vec;
-                _embedCache[hashes[idx]] = vec; // populate cache
+                var slice = missIndices.Skip(offset).Take(batch).ToList();
+                var sliceTexts = slice.Select(i => texts[i]).ToList();
+                var sliceVectors = await embeddingProvider.GetEmbeddingsAsync(sliceTexts);
+
+                for (int k = 0; k < slice.Count; k++)
+                {
+                    var idx = slice[k];
+                    var vec = sliceVectors[k] ?? Array.Empty<float>();
+                    embeddings[idx] = vec;
+                    _embedCache[hashes[idx]] = vec;
+                }
+
+                advance(slice.Count, $"embedded {Math.Min(offset + slice.Count, missIndices.Count)}/{missIndices.Count}");
             }
         }
 
@@ -291,10 +315,11 @@ public class ContextManager
         var entries = new List<(Reference Reference, string Chunk, float[] Embedding)>(chunks.Count);
         for (int i = 0; i < chunks.Count; i++)
         {
+            ct.ThrowIfCancellationRequested();
             entries.Add((chunks[i].Reference, chunks[i].Content, embeddings[i] ?? Array.Empty<float>()));
         }
 
-        Engine.VectorStore.Add(entries); // signature: Add(List<(Reference, string, float[])>) :contentReference[oaicite:5]{index=5}
+        Engine.VectorStore.Add(entries);
         ctx.Succeeded(entries.Count > 0);
     });
 

@@ -18,8 +18,8 @@ public class RagSettings
     public bool UseEmbeddings { get; set; } = true; // whether to use embeddings for RAG
     public string EmbeddingModel { get; set; } = "nomic-embed-text"; // Default embedding model
     public int MaxTokensPerChunk { get; set; } = 8000;
-    public int MaxEmbeddingConcurrency { get; set; } = 6; // Maximum number of concurrent embedding requests
-    public int MaxIngestConcurrency { get; set; } = 6; // Maximum number of concurrent ingestion tasks
+    public int MaxEmbeddingConcurrency { get; set; } = 8; // Maximum number of concurrent embedding requests
+    public int MaxIngestConcurrency { get; set; } = 10; // Maximum number of concurrent ingestion tasks
     public int MaxLineLength { get; set; } = 1600; // because there should be a limit, approximately 400 tokens in a line is a LOT.
     public bool UseMmr { get; set; } = true;      // toggle on/off
     public double MmrLambda { get; set; } = 0.55;  // relevance vs. diversity

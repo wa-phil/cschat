@@ -394,6 +394,42 @@ public partial class CommandManager
                 },
                 new Command
                 {
+                    Name = "embedding concurrency", Description = () => $"Set the maximum concurrency for embedding generation [currently: {Program.config.RagSettings.MaxEmbeddingConcurrency}]",
+                    Action = () =>
+                    {
+                        var maxValue = 100;
+                        Console.Write($"Current MaxEmbeddingConcurrency: {Program.config.RagSettings.MaxEmbeddingConcurrency}. Enter new value (1 to {maxValue}): ");
+                        var concurrencyInput = User.ReadLineWithHistory();
+                        if (int.TryParse(concurrencyInput, out var concurrency) && concurrency >= 1 && concurrency <= maxValue)
+                        {
+                            Program.config.RagSettings.MaxEmbeddingConcurrency = concurrency;
+                            Config.Save(Program.config, Program.ConfigFilePath);
+                            Console.WriteLine($"MaxEmbeddingConcurrency set to {concurrency}");
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                        return Task.FromResult(Command.Result.Cancelled);
+                    }
+                },
+                new Command
+                {
+                    Name = "ingest concurrency", Description = () => $"Set the maximum concurrency for RAG ingestion [currently: {Program.config.RagSettings.MaxIngestConcurrency}]",
+                    Action = () =>
+                    {
+                        var maxValue = 100;
+                        Console.Write($"Current MaxIngestConcurrency: {Program.config.RagSettings.MaxIngestConcurrency}. Enter new value (1 to {maxValue}): ");
+                        var concurrencyInput = User.ReadLineWithHistory();
+                        if (int.TryParse(concurrencyInput, out var concurrency) && concurrency >= 1 && concurrency <= maxValue)
+                        {
+                            Program.config.RagSettings.MaxIngestConcurrency = concurrency;
+                            Config.Save(Program.config, Program.ConfigFilePath);
+                            Console.WriteLine($"MaxIngestConcurrency set to {concurrency}");
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                        return Task.FromResult(Command.Result.Cancelled);
+                    }
+                },
+                new Command
+                {
                     Name = "chunking method", Description = () => $"Select the text chunker for RAG [currently: {Program.config.RagSettings.ChunkingStrategy}]",
                     Action = () =>
                     {
