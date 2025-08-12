@@ -21,7 +21,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
     private AzureOpenAIClient azureClient = null!;
     private ChatClient chatClient = null!;
     private EmbeddingClient embeddingClient = null!;
-    
+
 
     public AzureAI(Config cfg) => Log.Method(ctx =>
     {
@@ -53,7 +53,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
             embeddingClient = azureClient.GetEmbeddingClient(config.RagSettings.EmbeddingModel);
             ctx.Append(Log.Data.Message, "Azure OpenAI client initialized successfully");
         }
-        
+
         ctx.Succeeded();
     });
 
@@ -95,7 +95,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
                     sb.Append(contentPart.Text);
                 }
             }
-            
+
             var result = sb.ToString();
             ctx.Append(Log.Data.Result, $"Response length: {result.Length} characters");
             ctx.Succeeded();
@@ -111,7 +111,8 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
 
     public async Task<float[]> GetEmbeddingAsync(string text) => await Log.MethodAsync(
         retryCount: 2,
-        shouldRetry: e => {
+        shouldRetry: e =>
+        {
             if (e is ClientResultException cre && cre.Status == 429) { Thread.Sleep(2000); return true; } // Retry on rate limit (2s wait)
             if (e is TimeoutException te)
             {
@@ -149,5 +150,29 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
             Console.WriteLine($"Failed to get embedding from AzureAI: {ex.Message}");
             return Array.Empty<float>();
         }
+    });
+    
+    public async Task<IReadOnlyList<float[]>> GetEmbeddingsAsync(IEnumerable<string> texts) => await Log.MethodAsync(
+        retryCount: 2,
+        shouldRetry: e =>
+        {
+            if (e is ClientResultException cre && cre.Status == 429) { Thread.Sleep(2000); return true; }
+            return false;
+        },
+        func: async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        var list = texts?.ToList() ?? new();
+        if (list.Count == 0) return await Task.FromResult<IReadOnlyList<float[]>>(Array.Empty<float[]>());
+
+        embeddingClient.ThrowIfNull("Embedding client could not be retrieved.");
+        ctx.Append(Log.Data.Model, Program.config.RagSettings.EmbeddingModel);
+        ctx.Append(Log.Data.Count, list.Count);
+
+        // Azure SDK supports batched embeddings
+        var resp = await embeddingClient!.GenerateEmbeddingsAsync(list);
+        var vectors = resp.Value.Select(v => v.ToFloats().ToArray()).ToList();
+        ctx.Succeeded();
+        return await Task.FromResult<IReadOnlyList<float[]>>(vectors);
     });
 }

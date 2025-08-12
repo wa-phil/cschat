@@ -45,7 +45,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         }
     }
 
-    public async Task<string> PostChatAsync(Context Context, float temperature) => await Log.MethodAsync(async ctx=>
+    public async Task<string> PostChatAsync(Context Context, float temperature) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         string respJson = string.Empty;
@@ -130,9 +130,41 @@ public class Ollama : IChatProvider, IEmbeddingProvider
             ctx.Failed("Embedding is null in response", Error.EmptyResponse);
             Console.WriteLine("Embedding is null in response.");
             return Array.Empty<float>();
-        }        
+        }
         ctx.Append(Log.Data.Count, embedding.Count());
         ctx.Succeeded();
         return embedding.Select(Convert.ToSingle).ToArray();
     });
+    
+    public async Task<IReadOnlyList<float[]>> GetEmbeddingsAsync(IEnumerable<string> texts) => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        var items = texts?.Select((t, i) => (t, i)).ToList() ?? new();
+        if (items.Count == 0) return Array.Empty<float[]>();
+
+        int maxConc = Program.config.RagSettings.MaxEmbeddingConcurrency > 0
+            ? Program.config.RagSettings.MaxEmbeddingConcurrency
+            : 6;
+
+        using var gate = new SemaphoreSlim(maxConc);
+        var results = new float[items.Count][];
+
+        await Task.WhenAll(items.Select(async x =>
+        {
+            await gate.WaitAsync();
+            try
+            {
+                results[x.i] = await GetEmbeddingAsync(x.t); // uses your existing single-call method
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+
+        ctx.Append(Log.Data.Count, results.Length);
+        ctx.Succeeded();
+        return results;
+    });
+
 }

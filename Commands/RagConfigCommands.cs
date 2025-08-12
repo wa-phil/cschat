@@ -500,6 +500,51 @@ public partial class CommandManager
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
+                },
+                new Command
+                {
+                    Name = "Use MMR", Description = () => $"Toggle the use of MMR for RAG [currently: {Program.config.RagSettings.UseMmr}]",
+                    Action = () =>
+                    {
+                        Program.config.RagSettings.UseMmr = !Program.config.RagSettings.UseMmr;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        Console.WriteLine($"UseMmr set to {Program.config.RagSettings.UseMmr}");
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "MMR Lambda", Description = () => $"Set the MMR lambda value for RAG [currently: {Program.config.RagSettings.MmrLambda}]",
+                    Action = () =>
+                    {
+                        Console.Write($"Current MMR Lambda: {Program.config.RagSettings.MmrLambda}. Enter new value (0.0 to 1.0): ");
+                        var lambdaInput = User.ReadLineWithHistory();
+                        if (float.TryParse(lambdaInput, out var lambda) && lambda >= 0.0f && lambda <= 1.0f)
+                        {
+                            Program.config.RagSettings.MmrLambda = lambda;
+                            Config.Save(Program.config, Program.ConfigFilePath);
+                            Console.WriteLine($"MMR Lambda set to {lambda}");
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                        return Task.FromResult(Command.Result.Cancelled);
+                    }
+                },
+                new Command
+                {
+                    Name = "MMR Pool Multiplier" , Description = () => $"Set the MMR pool multiplier for RAG [currently: {Program.config.RagSettings.MmrPoolMultiplier}]",
+                    Action = () =>
+                    {
+                        Console.Write($"Current MMR Pool Multiplier: {Program.config.RagSettings.MmrPoolMultiplier}. Enter new value (0.0 to 10.0): ");
+                        var multiplierInput = User.ReadLineWithHistory();
+                        if (float.TryParse(multiplierInput, out var multiplier) && multiplier >= 0.0f && multiplier <= 10.0f)
+                        {
+                            Program.config.RagSettings.MmrPoolMultiplier = multiplier;
+                            Config.Save(Program.config, Program.ConfigFilePath);
+                            Console.WriteLine($"MMR Pool Multiplier set to {multiplier}");
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                        return Task.FromResult(Command.Result.Cancelled);
+                    }
                 }
             }
         };

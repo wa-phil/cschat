@@ -2,9 +2,12 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 
 public class Context
 {
+    public bool IncludeCitationRule { get; set; } = true;
+    public int MaxContextEntries { get; set; } = int.MaxValue;
     protected ChatMessage _systemMessage = new ChatMessage { Role = Roles.System, Content = string.Empty };
     protected List<ChatMessage> _messages = new List<ChatMessage>();
     protected List<(string Reference, string Chunk)> _context = new List<(string Reference, string Chunk)>();
@@ -73,10 +76,15 @@ public class Context
     public ChatMessage GetSystemMessage()
     {
         var result = new ChatMessage { Role = Roles.System, Content = _systemMessage.Content };
+
         if (_context.Count > 0)
         {
-            result.Content += "\nWhat follows is content to help answer your next question.\n"+string.Join("\n", _context.Select(c => $"--- BEGIN CONTEXT: {c.Reference} ---\n{c.Chunk}\n--- END CONTEXT ---"));
-            result.Content += "\nWhen referring to the provided context in your answer, explicitly state which content you are referencing in the form 'as per [reference], [your answer]'.";
+            var chosen = _context.Take(MaxContextEntries); // see §2
+            result.Content += "\nWhat follows is content to help answer your next question.\n"
+                + string.Join("\n", chosen.Select(c => $"--- BEGIN CONTEXT: {c.Reference} ---\n{c.Chunk}\n--- END CONTEXT ---"));
+
+            if (IncludeCitationRule)
+                result.Content += "\nWhen referring to the provided context in your answer, explicitly state which content you are referencing in the form 'as per [reference], [your answer]'.";
         }
         return result;
     }
@@ -140,6 +148,14 @@ public class Context
 
 public class ContextManager
 {
+    private static readonly ConcurrentDictionary<string, float[]> _embedCache = new();
+    private static string HashUtf8(string s)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(s);
+        var hash = System.Security.Cryptography.SHA256.HashData(bytes);
+        return Convert.ToHexString(hash); // 64-char hex
+    }
+    
     public static List<(Reference Reference, string MergedContent)> Flatten(List<(Reference Reference, string Content)> entries)
     {
         var grouped = entries                           // grouped is Dictionary: source -> chunks, where chunks: List<(Start, End, Lines)>
@@ -161,7 +177,7 @@ public class ContextManager
             var lineMap = chunks                                    // for files that have chunks
                 .Where(c => c.Start.HasValue && c.End.HasValue)     // only consider line-ranged chunks
                 .SelectMany(c => c.Lines                            // calculate line numbers for every line
-                    .Select((line, idx) => (LineNumber: c.Start!.Value + idx, Content: line))) 
+                    .Select((line, idx) => (LineNumber: c.Start!.Value + idx, Content: line)))
                 .GroupBy(x => x.LineNumber)                         // group by line number to deduplicate
                 .ToDictionary(g => g.Key, g => g.First().Content);  // keep first occurrence of each line
 
@@ -220,28 +236,66 @@ public class ContextManager
     public static async Task AddContent(string content, string reference = "content") => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");        
+        Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
         IEmbeddingProvider embeddingProvider = Engine.Provider as IEmbeddingProvider ?? throw new InvalidOperationException("Current configured provider does not support embeddings.");
 
-        var GetEmbeddingAsync = Program.config.RagSettings.UseEmbeddings
-            ? embeddingProvider!.GetEmbeddingAsync
-            : (Func<string, Task<float[]>>) (text => Task.FromResult(new float[0])); // Return empty embedding if embeddings are not used
-
         ctx.Append(Log.Data.Reference, reference.Substring(0, Math.Min(reference.Length, 50)));
-        var embeddings = new List<(Reference Reference, string Chunk, float[] Embedding)>();
+
+        // Chunk the text once
         var chunks = Engine.TextChunker!.ChunkText(reference, content);
         ctx.Append(Log.Data.Count, chunks.Count);
 
-        await Task.WhenAll(chunks.Select(async chunk =>
-            embeddings.Add((
-                Reference: chunk.Reference,
-                Chunk: chunk.Content,
-                Embedding: await GetEmbeddingAsync(chunk.Content)
-            ))
-        ));
+        // If embeddings are disabled, just add empty vectors
+        if (!Program.config.RagSettings.UseEmbeddings)
+        {
+            var noVecEntries = chunks.Select(c => (c.Reference, c.Content, Embedding: Array.Empty<float>())).ToList();
+            Engine.VectorStore.Add(noVecEntries);
+            ctx.Succeeded(noVecEntries.Count > 0);
+            return;
+        }
 
-        Engine.VectorStore.Add(embeddings);
-        ctx.Succeeded(embeddings.Count > 0);
+        // Prepare cache lookups
+        var texts = chunks.Select(c => c.Content).ToList();
+        var hashes = texts.Select(HashUtf8).ToList();
+
+        // Gather cached hits and misses
+        var embeddings = new float[texts.Count][];
+        var missIndices = new List<int>();
+        for (int i = 0; i < texts.Count; i++)
+        {
+            if (_embedCache.TryGetValue(hashes[i], out var v) && v.Length > 0)
+            {
+                embeddings[i] = v;
+            }
+            else
+            {
+                missIndices.Add(i);
+            }
+        }
+
+        // Batch request for cache misses (preserving order)
+        if (missIndices.Count > 0)
+        {
+            var missTexts = missIndices.Select(i => texts[i]).ToList();
+            var missVectors = await embeddingProvider.GetEmbeddingsAsync(missTexts); // NEW batched call
+            for (int k = 0; k < missIndices.Count; k++)
+            {
+                var idx = missIndices[k];
+                var vec = missVectors[k] ?? Array.Empty<float>();
+                embeddings[idx] = vec;
+                _embedCache[hashes[idx]] = vec; // populate cache
+            }
+        }
+
+        // Assemble entries for the vector store
+        var entries = new List<(Reference Reference, string Chunk, float[] Embedding)>(chunks.Count);
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            entries.Add((chunks[i].Reference, chunks[i].Content, embeddings[i] ?? Array.Empty<float>()));
+        }
+
+        Engine.VectorStore.Add(entries); // signature: Add(List<(Reference, string, float[])>) :contentReference[oaicite:5]{index=5}
+        ctx.Succeeded(entries.Count > 0);
     });
 
     public static async Task<List<SearchResult>> SearchReferences(string reference) => await Log.Method(ctx =>
@@ -261,6 +315,7 @@ public class ContextManager
 
     public static async Task<List<SearchResult>> SearchVectorDB(string userMessage) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         var empty = new List<SearchResult>();
         if (string.IsNullOrEmpty(userMessage) || null == Engine.VectorStore || Engine.VectorStore.IsEmpty) { return empty; }
 

@@ -5,10 +5,12 @@ using System.Reflection;
 using System.IO.Compression;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 
 public static class Engine
 {
+    private static readonly object _consoleLock = new();
     public static IVectorStore VectorStore = new SimpleVectorStore();
     public static IChatProvider? Provider = null;
     public static ITextChunker? TextChunker = null;
@@ -80,24 +82,55 @@ public static class Engine
         {
             ctx.OnlyEmitOnFailure();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var countItems = 0;
-            var knownFiles = new StringBuilder();
 
-            foreach (var (name, content) in items)
+            int maxConc = Program.config.RagSettings.MaxIngestConcurrency > 0
+                ? Program.config.RagSettings.MaxIngestConcurrency
+                : 4;
+
+            using var gate = new SemaphoreSlim(maxConc);
+            var knownFiles = new System.Collections.Concurrent.ConcurrentBag<string>();
+            int processed = 0;
+
+            var tasks = items.Select(async tuple =>
             {
-                knownFiles.AppendLine(name);
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write($"Adding file '{name}' to RAG store... ");
-                await ContextManager.AddContent(content, name);
-                Console.ResetColor();
-                Console.WriteLine("Done.");
-                countItems++;
-            }
+                var (name, content) = tuple;
+                var sb = new System.Text.StringBuilder();
 
-            await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
+                await gate.WaitAsync();
+                try
+                {
+                    knownFiles.Add(name);
+                    sb.AppendLine($"[add ] {name} …");
+
+                    await ContextManager.AddContent(content, name);
+
+                    System.Threading.Interlocked.Increment(ref processed);
+                    sb.AppendLine($"[done] {name}");
+                }
+                catch (Exception ex)
+                {
+                    sb.AppendLine($"[fail] {name}: {ex.Message}");
+                    throw;
+                }
+                finally
+                {
+                    gate.Release();
+                    lock (_consoleLock)
+                    {
+                        Console.ForegroundColor = ConsoleColor.DarkGray;
+                        Console.Write(sb.ToString());
+                        Console.ResetColor();
+                    }
+                }
+            });
+
+            await Task.WhenAll(tasks);
+
+            // Add the consolidated "Known files" entry
+            await ContextManager.AddContent("Known files:\n" + string.Join("\n", knownFiles), "known_files");
 
             stopwatch.Stop();
-            Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
+            Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms total. Processed: {processed}, files enumerated: {knownFiles.Count}.");
             ctx.Succeeded();
         }
         finally
