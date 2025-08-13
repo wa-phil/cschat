@@ -845,8 +845,12 @@ public static class ProgressUi
                 : _alpha * seconds + (1 - _alpha) * _emaSecondsRemaining;
 
             var ts = TimeSpan.FromSeconds(Math.Max(0, _emaSecondsRemaining));
-            return ts.TotalHours >= 1 ? $"{(int)ts.TotalHours}h {ts.Minutes}m"
-                                    : $"{ts.Minutes}m {ts.Seconds}s";
+            if (ts.TotalHours > 1)
+            {
+                return "??:??"; // too long to reasonably estimate.
+            }
+
+            return $"{ts.Minutes}m {ts.Seconds}s";
         }
     }
 

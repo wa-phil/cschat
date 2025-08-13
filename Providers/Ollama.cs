@@ -136,7 +136,10 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         return embedding.Select(Convert.ToSingle).ToArray();
     });
     
-    public async Task<IReadOnlyList<float[]>> GetEmbeddingsAsync(IEnumerable<string> texts) => await Log.MethodAsync(async ctx =>
+    public async Task<IReadOnlyList<float[]>> GetEmbeddingsAsync(
+        IEnumerable<string> texts,
+        CancellationToken ct = default
+        ) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         var items = texts?.Select((t, i) => (t, i)).ToList() ?? new();

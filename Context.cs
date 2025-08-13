@@ -297,7 +297,7 @@ public class ContextManager
             {
                 var slice = missIndices.Skip(offset).Take(batch).ToList();
                 var sliceTexts = slice.Select(i => texts[i]).ToList();
-                var sliceVectors = await embeddingProvider.GetEmbeddingsAsync(sliceTexts);
+                var sliceVectors = await embeddingProvider.GetEmbeddingsAsync(sliceTexts, ct);
 
                 for (int k = 0; k < slice.Count; k++)
                 {

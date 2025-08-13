@@ -27,7 +27,7 @@ public interface IChatProvider
 public interface IEmbeddingProvider
 {
     Task<float[]> GetEmbeddingAsync(string text);
-    Task<IReadOnlyList<float[]>> GetEmbeddingsAsync(IEnumerable<string> texts);
+    Task<IReadOnlyList<float[]>> GetEmbeddingsAsync(IEnumerable<string> texts, CancellationToken ct);
 }
 
 public record Reference(string Source, int? Start, int? End)
