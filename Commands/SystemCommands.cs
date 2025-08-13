@@ -130,7 +130,8 @@ public partial class CommandManager
                         CreateProviderCommands(),
                         CreateRagConfigCommands(),
                         CreateRagFileTypeCommands(),
-                        CreateMcpCommands()
+                        CreateMcpCommands(),
+                        CreateSubsystemCommands()
                     }
                 }
             }

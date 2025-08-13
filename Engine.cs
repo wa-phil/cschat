@@ -34,7 +34,7 @@ public static class Engine
     {
         var sb = new StringBuilder();
         var commandList = commands.ToList();
-        
+
         for (int i = 0; i < commandList.Count; i++)
         {
             var command = commandList[i];
@@ -72,7 +72,7 @@ public static class Engine
         }
 
         return sb.ToString();
-    }    
+    }
 
     public static async Task AddContentItemsToVectorStore(IEnumerable<(string Name, string Content)> items) => await Log.MethodAsync(async ctx =>
     {

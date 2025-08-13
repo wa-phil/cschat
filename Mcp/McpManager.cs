@@ -189,7 +189,7 @@ public class McpManager
             foreach (var tool in tools)
             {
                 var toolName = $"{serverDef.Name}_{tool.ToolName}";
-                ToolRegistry.RegisterMcpTool(toolName, tool);
+                ToolRegistry.RegisterTool(toolName, tool);
             }
             
             // Store the client and tools
@@ -224,7 +224,7 @@ public class McpManager
             {
                 foreach (var tool in tools)
                 {
-                    ToolRegistry.UnregisterMcpTool($"{serverName}_{tool.ToolName}");
+                    ToolRegistry.UnregisterTool($"{serverName}_{tool.ToolName}");
                 }
             }
 

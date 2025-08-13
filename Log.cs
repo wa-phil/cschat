@@ -42,7 +42,7 @@ public static class Log
         Path, IsValid, IsAuthed, Assembly, Interface, Role, Token, SecureBase, DirectFile, Response, Progress,
         Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered, Reason,
         ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step, Input, TypeToParse, PlanningFailed,
-        Command, ServerName, Names, Schema, ExampleText, MenuTop, ConsoleHeight, ConsoleWidth, InputTop, Host,
+        Command, ServerName, Names, Schema, ExampleText, MenuTop, ConsoleHeight, ConsoleWidth, InputTop, Host, Output,
     }
 
     public enum Level { Verbose, Information, Warning, Error }

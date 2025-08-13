@@ -79,3 +79,10 @@ public interface ITool
     string InputSchema { get; }
     Task<ToolResult> InvokeAsync(object input, Context Context); // Returns response text, and optionally modifies Context for context
 }
+
+public interface ISubsystem
+{
+    Type ConfigType { get; }
+    bool IsAvailable { get; }
+    bool IsEnabled { get; set; }
+}
