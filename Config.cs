@@ -66,7 +66,7 @@ public class Config
 
     public Dictionary<string, bool> Subsystems { get; set; } = new Dictionary<string, bool>
     {
-        { "Ado", true },
+        { "Ado", false },
     };
 
     public AdoConfig Ado { get; set; } = new AdoConfig();
