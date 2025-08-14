@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using Microsoft.VisualStudio.Services.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 
+public record AdoQueryRow(Guid? Id, string Name, string Path, bool IsFolder, int Depth);
+
 public record WorkItemSummary(
     int Id,
     string Title,
