@@ -17,7 +17,9 @@ public record WorkItemSummary(
     DateTime ChangedDate,
     string? Description,
     IEnumerable<string> Tags,
-    IEnumerable<string> Discussion
+    IEnumerable<string> Discussion,
+    DateTime CreatedDate,
+    DateTime? DueDate = null
 )
 {
     public static WorkItemSummary FromWorkItem(WorkItem item)
@@ -61,7 +63,9 @@ public record WorkItemSummary(
             ChangedDate: ParseDate("System.ChangedDate"),
             Description: Utilities.StripHtml(Get("System.Description")),
             Tags: ParseTags(),
-            Discussion: ParseDiscussion()
+            Discussion: ParseDiscussion(),
+            CreatedDate: ParseDate("System.CreatedDate"),
+            DueDate: ParseDate("Microsoft.VSTS.Scheduling.DueDate")
         );
     }
 }

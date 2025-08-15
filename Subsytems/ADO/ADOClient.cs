@@ -111,7 +111,8 @@ public class AdoClient : ISubsystem
     {
         "System.Id", "System.Title", "System.State", "Microsoft.VSTS.Common.Priority",
         "System.AssignedTo", "System.AreaPath", "System.IterationPath", "System.ChangedDate",
-        "System.Description", "System.Tags", "System.History"
+        "System.Description", "System.Tags", "System.History",
+        "System.CreatedDate", "Microsoft.VSTS.Scheduling.DueDate"
     };
 
     public async Task<WorkItemSummary> GetWorkItemSummaryById(int id) => await Log.MethodAsync(async ctx =>

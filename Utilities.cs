@@ -7,11 +7,69 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Runtime.CompilerServices;
 
-internal static class Utilities
+public static class Utilities
 {
+    /// <summary>
+    /// Truncates a plain (non-HTML) string to a maximum length.
+    /// Optionally preserves whole words and adds an ellipsis.
+    /// Handles null/whitespace gracefully.
+    /// </summary>
+    public static string TruncatePlain(string? input, int maxLength, bool preserveWords = true, bool addEllipsis = true)
+    {
+        if (string.IsNullOrEmpty(input)) return string.Empty;
+        if (maxLength <= 0) return string.Empty;
+        if (input.Length <= maxLength) return input;
+
+        // Reserve room for ellipsis if requested
+        var softMax = addEllipsis && maxLength > 1 ? Math.Max(1, maxLength - 1) : maxLength;
+        var slice = input.AsSpan(0, softMax);
+
+        if (preserveWords)
+        {
+            // Try to backtrack to a reasonable boundary (space or punctuation)
+            int back = LastBoundaryIndex(slice);
+            if (back > 0)
+                slice = slice[..back];
+        }
+
+        var result = slice.ToString().TrimEnd();
+        if (addEllipsis && result.Length < input.Length)
+            result += "…"; // single-character ellipsis (fits UI better)
+        return result;
+    }
+
+    /// <summary>
+    /// A stricter truncation that never returns more than maxLength characters,
+    /// even including the ellipsis. (Useful for tight column layouts.)
+    /// </summary>
+    public static string TruncatePlainHard(string? input, int maxLength)
+    {
+        if (string.IsNullOrEmpty(input) || maxLength <= 0) return string.Empty;
+        if (input.Length <= maxLength) return input;
+        if (maxLength == 1) return "…";
+        return input.Substring(0, maxLength - 1) + "…";
+    }
+
+    private static int LastBoundaryIndex(ReadOnlySpan<char> s)
+    {
+        for (int i = s.Length - 1; i >= 0; i--)
+        {
+            char c = s[i];
+            if (char.IsWhiteSpace(c) || IsPunctuation(c))
+            {
+                // avoid returning index of trailing punctuation itself; cut AFTER it
+                return i > 0 ? i : 0;
+            }
+        }
+        return 0;
+    }
+
+    private static bool IsPunctuation(char c)
+        => c == '.' || c == ',' || c == ';' || c == ':' || c == '!' || c == '?' || c == ')' || c == ']' || c == '}';
+
     internal static string StripHtml(string input, params Func<string, string>[] customRules)
     {
-        var ret = customRules.Aggregate(input, (current, rule) => rule(current));        
+        var ret = customRules.Aggregate(input, (current, rule) => rule(current));
         ret = Regex.Replace(ret, "<.*?>", " ");
         ret = ret.Replace("&nbsp;", " ", StringComparison.OrdinalIgnoreCase);
         ret = ret.Replace("&amp;", "&", StringComparison.OrdinalIgnoreCase);
