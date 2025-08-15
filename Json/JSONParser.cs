@@ -48,6 +48,19 @@ public static class JSONParser
         if (type == typeof(double)) return double.TryParse(json, out var d) ? d : 0.0;
         if (type == typeof(bool)) return json == "true";
         if (type == typeof(object)) return ParseDynamic(json);
+        if (type == typeof(Guid))
+        {
+            // GUIDs in JSON are always quoted strings. Parse only string forms and
+            // return Guid.Empty for any other format.
+            json = json.Trim();
+            if (json.Length >= 2 && json[0] == '"' && json[json.Length - 1] == '"')
+            {
+                string inner = Unescape(json.Substring(1, json.Length - 2));
+                return Guid.TryParse(inner, out var g) ? g : Guid.Empty;
+            }
+            // If it's an empty unquoted value or malformed, return Guid.Empty
+            return Guid.Empty;
+        }
 
         if (type.IsArray)
         {
