@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -9,8 +10,8 @@ public class Context
     protected List<ChatMessage> _messages = new List<ChatMessage>();
     protected List<(string Reference, string Chunk)> _context = new List<(string Reference, string Chunk)>();
     private DateTime _conversationStartTime = DateTime.Now;
-    
-    public Context(string? systemPrompt = null) 
+
+    public Context(string? systemPrompt = null)
     {
         _conversationStartTime = DateTime.Now;
         AddSystemMessage(systemPrompt ?? Program.config.SystemPrompt);
@@ -62,9 +63,9 @@ public class Context
 
     public void SetSystemMessage(string content)
     {
-        _systemMessage = new ChatMessage 
-        { 
-            Role = Roles.System, 
+        _systemMessage = new ChatMessage
+        {
+            Role = Roles.System,
             Content = content,
             CreatedAt = _conversationStartTime
         };
@@ -75,7 +76,7 @@ public class Context
         var result = new ChatMessage { Role = Roles.System, Content = _systemMessage.Content };
         if (_context.Count > 0)
         {
-            result.Content += "\nWhat follows is content to help answer your next question.\n"+string.Join("\n", _context.Select(c => $"--- BEGIN CONTEXT: {c.Reference} ---\n{c.Chunk}\n--- END CONTEXT ---"));
+            result.Content += "\nWhat follows is content to help answer your next question.\n" + string.Join("\n", _context.Select(c => $"--- BEGIN CONTEXT: {c.Reference} ---\n{c.Chunk}\n--- END CONTEXT ---"));
             result.Content += "\nWhen referring to the provided context in your answer, explicitly state which content you are referencing in the form 'as per [reference], [your answer]'.";
         }
         return result;
@@ -118,11 +119,11 @@ public class Context
     {
         return new Context
         {
-            _systemMessage = new ChatMessage 
-            { 
-                Role = Roles.System, 
+            _systemMessage = new ChatMessage
+            {
+                Role = Roles.System,
                 Content = $"{_systemMessage.Content}", // Ensure a deep copy of the content for system message -- SUPER IMPORTANT
-                CreatedAt = _systemMessage.CreatedAt 
+                CreatedAt = _systemMessage.CreatedAt
             },
             _messages = new List<ChatMessage>(_messages),
             _context = new List<(string Reference, string Chunk)>(_context),
@@ -140,6 +141,8 @@ public class Context
 
 public class ContextManager
 {
+    public static GraphStore GraphStore { get; } = new GraphStore();
+    
     public static List<(Reference Reference, string MergedContent)> Flatten(List<(Reference Reference, string Content)> entries)
     {
         var grouped = entries                           // grouped is Dictionary: source -> chunks, where chunks: List<(Start, End, Lines)>
@@ -161,7 +164,7 @@ public class ContextManager
             var lineMap = chunks                                    // for files that have chunks
                 .Where(c => c.Start.HasValue && c.End.HasValue)     // only consider line-ranged chunks
                 .SelectMany(c => c.Lines                            // calculate line numbers for every line
-                    .Select((line, idx) => (LineNumber: c.Start!.Value + idx, Content: line))) 
+                    .Select((line, idx) => (LineNumber: c.Start!.Value + idx, Content: line)))
                 .GroupBy(x => x.LineNumber)                         // group by line number to deduplicate
                 .ToDictionary(g => g.Key, g => g.First().Content);  // keep first occurrence of each line
 
@@ -243,6 +246,26 @@ public class ContextManager
         Engine.VectorStore.Add(embeddings);
         ctx.Succeeded(embeddings.Count > 0);
     });
+
+    public static async Task AddGraphContent(string content, string reference = "content") => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
+
+        ctx.Append(Log.Data.Reference, reference);
+        var chunks = Engine.TextChunker!.ChunkText(reference, content);
+        ctx.Append(Log.Data.Count, chunks.Count);
+
+        // Use LINQ to create a list of tasks
+        var tasks = chunks.Select(chunk =>
+            GraphStoreManager.ExtractAndStoreAsync(chunk.Content, chunk.Reference.ToString())
+        ).ToList();
+        
+        await Task.WhenAll(tasks); // Await all tasks at once
+
+        ctx.Append(Log.Data.Result, $"Processed {tasks.Count} chunks and stored graph data");
+        ctx.Succeeded(tasks.Count > 0);        
+    });    
 
     public static async Task<List<SearchResult>> SearchReferences(string reference) => await Log.Method(ctx =>
     {

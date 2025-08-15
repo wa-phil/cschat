@@ -15,13 +15,13 @@ using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 
 [IsConfigurable("AzureAI")]
-public class AzureAI : IChatProvider, IEmbeddingProvider
+public class AzureAI : IChatProvider, IEmbeddingProvider 
 {
     private Config config = null!;
     private AzureOpenAIClient azureClient = null!;
     private ChatClient chatClient = null!;
     private EmbeddingClient embeddingClient = null!;
-    
+
 
     public AzureAI(Config cfg) => Log.Method(ctx =>
     {
@@ -53,7 +53,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
             embeddingClient = azureClient.GetEmbeddingClient(config.RagSettings.EmbeddingModel);
             ctx.Append(Log.Data.Message, "Azure OpenAI client initialized successfully");
         }
-        
+
         ctx.Succeeded();
     });
 
@@ -95,7 +95,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
                     sb.Append(contentPart.Text);
                 }
             }
-            
+
             var result = sb.ToString();
             ctx.Append(Log.Data.Result, $"Response length: {result.Length} characters");
             ctx.Succeeded();

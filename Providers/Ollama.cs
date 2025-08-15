@@ -130,7 +130,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
             ctx.Failed("Embedding is null in response", Error.EmptyResponse);
             Console.WriteLine("Embedding is null in response.");
             return Array.Empty<float>();
-        }        
+        }
         ctx.Append(Log.Data.Count, embedding.Count());
         ctx.Succeeded();
         return embedding.Select(Convert.ToSingle).ToArray();

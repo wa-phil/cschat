@@ -29,6 +29,45 @@ public static class Engine
         ".xml",
         ".yml"
     };
+    
+    public static async Task AddFileToGraphStore(string path) => await AddContentItemsToGraphStore(new[] { (path, File.ReadAllText(path)) });
+
+    public static async Task AddDirectoryToGraphStore(string path) => await AddContentItemsToGraphStore(ReadFilesFromDirectory(path));
+
+    public static async Task AddContentItemsToGraphStore(IEnumerable<(string Name, string Content)> items) => await Log.MethodAsync(async ctx =>
+    {
+        try
+        {
+            ctx.OnlyEmitOnFailure();
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var countItems = 0;
+            var knownFiles = new StringBuilder();
+
+            Console.WriteLine("Started processing files for RAG store...");
+
+            foreach (var (name, content) in items)
+            {
+                Console.WriteLine($"Processing : {name}\n");
+                knownFiles.AppendLine(name);
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write($"Adding file '{name}' to RAG store... ");
+                await ContextManager.AddGraphContent(content, name);
+                Console.ResetColor();
+                Console.WriteLine("Done.");
+                countItems++;
+            }
+
+            await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
+
+            stopwatch.Stop();
+            Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
+            ctx.Succeeded();
+        }
+        finally
+        {
+            Console.ResetColor();
+        }
+    });
 
     public static string BuildCommandTreeArt(IEnumerable<Command> commands, string indent = "", bool isLast = true, bool showText = true)
     {

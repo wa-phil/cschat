@@ -179,6 +179,7 @@ public partial class CommandManager : Command
                     Program.Context.Clear();
                     Program.Context.AddSystemMessage(Program.config.SystemPrompt);
                     Engine.VectorStore.Clear();
+                    GraphStoreManager.Graph.Clear();
                     Log.ClearOutput();
                     await Program.InitProgramAsync();
                     Console.WriteLine("Chat history, RAG state, and logs have been reset.");

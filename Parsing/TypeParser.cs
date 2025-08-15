@@ -8,7 +8,8 @@ using System.Text.RegularExpressions;
 
 class TypeParser
 {
-    public static async Task<object> GetAsync(Context Context, Type t) => await Log.MethodAsync(async ctx=>{
+    public static async Task<object> GetAsync(Context Context, Type t) => await Log.MethodAsync(async ctx =>
+    {
         ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.TypeToParse, t.Name);
 
@@ -17,7 +18,7 @@ class TypeParser
         {
             Context.AddSystemMessage($"Example text for {t.Name}:\n{exampleTextAttr.Text}");
         }
-        
+
         // Reflection to the rescue!
         var method = typeof(TypeParser).GetMethods()
             .FirstOrDefault(m => m.Name == nameof(PostChatAndParseAsync)
@@ -57,7 +58,7 @@ class TypeParser
             throw new InvalidOperationException($"Result is null for task of type {task.GetType().Name}.");
         }
         ctx.Append(Log.Data.Result, result.ToJson());
-        ctx.Succeeded();        
+        ctx.Succeeded();
         return result;
     });
 
@@ -107,5 +108,5 @@ class TypeParser
 
         ctx.Succeeded();
         return parsedObject;
-    });    
+    });
 }
