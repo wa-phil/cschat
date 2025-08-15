@@ -273,7 +273,7 @@ public class AdoClient : ISubsystem
 
     public async Task<List<AdoQueryRow>> GetQueryChildrenAsync(string project, string path, int depth)
     {
-        var item = await _witClient.GetQueryAsync(project, path, QueryExpand.All, depth: 2);
+        var item = await _witClient.GetQueryAsync(project, path, QueryExpand.Minimal, depth: 2);
         var list = new List<AdoQueryRow>();
         if (item?.Children == null) return list;
 

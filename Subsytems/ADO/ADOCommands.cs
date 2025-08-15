@@ -199,7 +199,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                 topN = Math.Min(topN, ranked.Count);
                                 Console.WriteLine();
                                 Console.WriteLine($"—— Top {topN} attention-worthy items ——");
-                                Console.WriteLine($"{"ID",6}  {"Score",5}  {"State",-12} {"Pri",3} {"Due",10}  Title");
+                                Console.WriteLine($"{"ID",8}  {"Score",5}  {"State",-12} {"Pri",3} {"Due",10}  Title");
                                 Console.WriteLine(new string('─', Math.Max(60, Console.WindowWidth - 1)));
 
                                 foreach (var s in ranked.Take(topN))
@@ -207,7 +207,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                     var due = s.Item.DueDate?.ToString("yyyy-MM-dd") ?? "—";
                                     var pri = string.IsNullOrWhiteSpace(s.Item.Priority) ? "-" : s.Item.Priority!;
                                     var title = Utilities.TruncatePlain(s.Item.Title, Math.Max(30, Console.WindowWidth - 40));
-                                    Console.WriteLine($"{s.Item.Id,6}  {s.Score,5:0.0}  {s.Item.State,-12} {pri,3} {due,10}  {title}");
+                                    Console.WriteLine($"{s.Item.Id,8}  {s.Score,5:0.0}  {s.Item.State,-12} {pri,3} {due,10}  {title}");
                                 }
 
                                 Console.WriteLine();
@@ -342,9 +342,10 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                 var topN = Math.Min(15, ranked.Count);
                                 Console.WriteLine();
                                 Console.WriteLine($"—— Top {topN} attention-worthy items ——");
+                                Console.WriteLine($"{"ID",8}  {"Score",5}  {"State",-12} {"Pri",3} {"Due",10}  Title");
                                 foreach (var s in ranked.Take(topN))
                                 {
-                                    Console.WriteLine($"{s.Item.Id,6}  {s.Score,5:0.0}  [{s.Item.State}]  P:{s.Item.Priority,-2}  {(s.Item.DueDate?.ToString("yyyy-MM-dd") ?? "—"),10}  {s.Item.Title}");
+                                    Console.WriteLine($"{s.Item.Id,8}  {s.Score,5:0.0}  [{s.Item.State,8}]  P:{s.Item.Priority,-2}  {(s.Item.DueDate?.ToString("yyyy-MM-dd") ?? "—"),10}  {s.Item.Title}");
                                 }
                                 Console.WriteLine("—— End Top Items ——");
 
@@ -372,85 +373,76 @@ Be concise and include a short bullet list of actionable next steps if any.";
                 },
                 new Command
                 {
-                    Name = "queries",
-                    Description = () => "Browse ADO queries and add to Data->User Selected Queries",
-                    SubCommands = new List<Command>
+                    Name = "browse", Description = () => "Open a query picker (navigate folders; Enter on a query prints its GUID).",
+                    Action = async () =>
                     {
-                        new Command
+                        var ado = Program.SubsystemManager.Get<AdoClient>();
+
+                        var defaultProject = Program.config.Ado.ProjectName;
+                        Console.Write($"Project [{defaultProject}]: ");
+                        var p = Console.ReadLine();
+                        var project = string.IsNullOrWhiteSpace(p) ? defaultProject : p.Trim();
+
+                        while (true)
                         {
-                            Name = "browse",
-                            Description = () => "Open a query picker (navigate folders; Enter on a query prints its GUID).",
-                            Action = async () =>
+                            // Top-level options
+                            var topChoices = new List<string>
                             {
-                                var ado = Program.SubsystemManager.Get<AdoClient>();
+                                "📁 My Queries",
+                                "📁 Shared Queries"
+                            };
+                            var header = $"ADO Queries — {project}\nSelect a query to print its GUID (Press ESC to cancel)\n" +
+                                        new string('─', Math.Max(60, Console.WindowWidth - 1));
 
-                                var defaultProject = Program.config.Ado.ProjectName;
-                                Console.Write($"Project [{defaultProject}]: ");
-                                var p = Console.ReadLine();
-                                var project = string.IsNullOrWhiteSpace(p) ? defaultProject : p.Trim();
+                            var pick = User.RenderMenu(header, topChoices);
+                            if (string.IsNullOrWhiteSpace(pick)) return Command.Result.Cancelled;
 
-                                while (true)
+                            // Folder navigation loop
+                            var root = pick.Contains("My Queries") ? "My Queries" : "Shared Queries";
+                            string current = root;
+                            string parentOf(string path) => path.Contains('/') ? path[..path.LastIndexOf('/')] : "";
+
+                            while (true)
+                            {
+                                var items = await ado.GetQueryChildrenAsync(project, current, depth: current == root ? 0 : 1);
+                                var choices = new List<string>();
+
+                                if (current != root) choices.Add(".. (Up)");
+                                choices.AddRange(items.Select(i => (i.IsFolder ? "📁 " : "📄 ") + i.Name));
+
+                                var head = $"{current}\n" + new string('─', Math.Max(60, Console.WindowWidth - 1));
+                                var selection = User.RenderMenu(head, choices);
+                                if (string.IsNullOrWhiteSpace(selection)) break; // back to top-level
+
+                                if (selection.StartsWith(".."))
                                 {
-                                    // Top-level options
-                                    var topChoices = new List<string>
-                                    {
-                                        "📁 My Queries",
-                                        "📁 Shared Queries"
-                                    };
-                                    var header = $"ADO Queries — {project}\nSelect a query to print its GUID (Press ESC to cancel)\n" +
-                                                new string('─', Math.Max(60, Console.WindowWidth - 1));
-
-                                    var pick = User.RenderMenu(header, topChoices);
-                                    if (string.IsNullOrWhiteSpace(pick)) return Command.Result.Cancelled;
-
-                                    // Folder navigation loop
-                                    var root = pick.Contains("My Queries") ? "My Queries" : "Shared Queries";
-                                    string current = root;
-                                    string parentOf(string path) => path.Contains('/') ? path[..path.LastIndexOf('/')] : "";
-
-                                    while (true)
-                                    {
-                                        var items = await ado.GetQueryChildrenAsync(project, current, depth: current == root ? 0 : 1);
-                                        var choices = new List<string>();
-
-                                        if (current != root) choices.Add(".. (Up)");
-                                        choices.AddRange(items.Select(i => (i.IsFolder ? "📁 " : "📄 ") + i.Name));
-
-                                        var head = $"{current}\n" + new string('─', Math.Max(60, Console.WindowWidth - 1));
-                                        var selection = User.RenderMenu(head, choices);
-                                        if (string.IsNullOrWhiteSpace(selection)) break; // back to top-level
-
-                                        if (selection.StartsWith(".."))
-                                        {
-                                            current = parentOf(current);
-                                            if (string.IsNullOrEmpty(current)) break;
-                                            continue;
-                                        }
-
-                                        var idx = choices.IndexOf(selection) - (current != root ? 1 : 0);
-                                        if (idx < 0 || idx >= items.Count) continue;
-
-                                        var picked = items[idx];
-                                        if (picked.IsFolder)
-                                        {
-                                            current = picked.Path;
-                                            continue; // dive in
-                                        }
-
-                                        // It's a query → print the GUID
-                                        if (picked.Id.HasValue)
-                                        {
-                                            var userManagedData = Program.SubsystemManager.Get<UserManagedData>();
-                                            userManagedData.AddItem(new UserSelectedQuery(picked.Id.Value, picked.Name, project, picked.Path));
-                                            Console.WriteLine($"Added query '{picked.Name}' (ID: {picked.Id.Value}) to User Selected Queries.");
-                                            Config.Save(Program.config, Program.ConfigFilePath);
-                                            return Command.Result.Success;
-                                        }
-
-                                        Console.WriteLine("Selected item has no ID.");
-                                        return Command.Result.Failed;
-                                    }
+                                    current = parentOf(current);
+                                    if (string.IsNullOrEmpty(current)) break;
+                                    continue;
                                 }
+
+                                var idx = choices.IndexOf(selection) - (current != root ? 1 : 0);
+                                if (idx < 0 || idx >= items.Count) continue;
+
+                                var picked = items[idx];
+                                if (picked.IsFolder)
+                                {
+                                    current = picked.Path;
+                                    continue; // dive in
+                                }
+
+                                // It's a query → print the GUID
+                                if (picked.Id.HasValue)
+                                {
+                                    var userManagedData = Program.SubsystemManager.Get<UserManagedData>();
+                                    userManagedData.AddItem(new UserSelectedQuery(picked.Id.Value, picked.Name, project, picked.Path));
+                                    Console.WriteLine($"Added query '{picked.Name}' (ID: {picked.Id.Value}) to User Selected Queries.");
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    return Command.Result.Success;
+                                }
+
+                                Console.WriteLine("Selected item has no ID.");
+                                return Command.Result.Failed;
                             }
                         }
                     }
