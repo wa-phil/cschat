@@ -58,6 +58,8 @@ public partial class CommandManager
                             return Task.FromResult(Command.Result.Cancelled);
                         }
                         Program.SubsystemManager.SetEnabled(name, !Program.SubsystemManager.IsEnabled(name));
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        Console.WriteLine($"Subsystem '{name}' is now {(Program.SubsystemManager.IsEnabled(name) ? "enabled" : "disabled")}.");
                         return Task.FromResult(Command.Result.Success);
                     }
                 }

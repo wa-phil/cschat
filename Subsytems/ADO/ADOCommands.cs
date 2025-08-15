@@ -18,7 +18,7 @@ public static class ADOCommands
                     {
                         new Command
                         {
-                            Name = "get", Description = () => "Get work item by ID",
+                            Name = "lookup by ID", Description = () => "Get work item by ID",
                             Action = async () =>
                             {
                                 var adoClient = Program.SubsystemManager.Get<AdoClient>();
@@ -35,7 +35,7 @@ public static class ADOCommands
                         },
                         new Command
                         {
-                            Name = "get by query id", Description = () => "Query work items by saved query",
+                            Name = "summarize item", Description = () => "Select items from a saved query and summarize it",
                             Action = async () =>
                             {
                                 // Get saved queries from UserManagedData

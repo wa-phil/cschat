@@ -14,7 +14,7 @@ public static class DataCommands
         return new Command
         {
             Name = "Data",
-            Description = () => "Manage user data collections",
+            Description = () => "Manage user data",
             SubCommands = GetDataTypeCommands()
         };
     }
@@ -131,6 +131,7 @@ public static class DataCommands
 
                     var (dataSubsystem, addMethod) = GetUserManagedAdd(type);
                     addMethod.Invoke(dataSubsystem, new[] { instance });
+                    Config.Save(Program.config, Program.ConfigFilePath);
                     Console.WriteLine($"Added {metadata.Name}: {instance}");
                     return Command.Result.Success;
                 }
@@ -201,6 +202,7 @@ public static class DataCommands
                     var (subsystemForUpdate, updateMethod) = GetUserManagedUpdate(type);
                     updateMethod.Invoke(subsystemForUpdate, new[] { editable, predicate });
 
+                    Config.Save(Program.config, Program.ConfigFilePath);
                     Console.WriteLine($"Updated {metadata.Name}: {editable}");
                     return Command.Result.Success;
                 }
@@ -568,6 +570,7 @@ public static class DataCommands
                     {
                         var query = (UserSelectedQuery)itemList[selectedIndex];
                         subsystem.DeleteItem<UserSelectedQuery>(q => q.Id == query.Id);
+                        Config.Save(Program.config, Program.ConfigFilePath);
                         Console.WriteLine($"Deleted: {query}");
                     }
 

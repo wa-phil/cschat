@@ -163,6 +163,23 @@ The ADO (Azure DevOps) Subsystem is a specialized subsystem that integrates Azur
 
 The ADO Subsystem enhances productivity by streamlining interactions with Azure DevOps, making it easier to manage work items and queries directly from the `cschat` interface.
 
+### UserManagedData Subsystem
+
+The `UserManagedData` subsystem lets developers register small, typed user data collections (for example: saved queries, bookmarks, snippets, or other user-maintained records) that the app stores in `config.json` and exposes via an interactive `Data` command group.
+
+Note that by-default this subystem should be enabled, and that it has no other configurable settings.
+
+Key points:
+
+- Mark a class with `[UserManagedAttribute("Display Name", "Description")]` to make it discoverable by the subsystem.
+- Decorate properties with `[UserField(required: true/false)]` and mark a logical key with `[UserKey]` to enable update/delete operations.
+- The subsystem, through reflection, at runtime, discovers annotated types and creates per-type commands grouped under the top-level `Data` command with `list`, `add`, `update`, and `delete` actions as default actions.
+- Stored data lives in `Program.config.UserManagedData.TypedData` as simple dictionaries (serialized JSON). This makes the feature lightweight and durable across runs.
+- Example: `UserSelectedQuery` (used by the ADO subsystem) demonstrates a user-managed type that stores a query name, project, path, and GUID. Once defined, it appears in the `Data` menu and can be managed interactively.
+- Extending: to add a new user-managed collection, create a class with the appropriate attributes and a parameterless constructor. The subsystem will discover it after the next start (or when the subsystem is enabled) and expose the interactive commands.
+
+This subsystem is intended for small, developer-maintained collections and not for large data stores or sensitive secrets.
+
 ## How it works
 - On startup, loads or creates a configuration file (`config.json`) for provider, host, model, and system prompt.
 - Initializes providers, command system, and in-memory chat history.
