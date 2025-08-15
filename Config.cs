@@ -33,8 +33,13 @@ public class RagSettings
         ".ts", ".txt",
         ".xml",
         ".yml"
-    };    
+    };
     public Dictionary<string, FileFilterRules> FileFilters { get; set; } = new();
+}
+
+public class UserManagedDataConfig
+{
+    public Dictionary<string, List<Dictionary<string, object>>> TypedData { get; set; } = new();
 }
 
 public class Config
@@ -63,6 +68,15 @@ public class Config
         { "System.Net.NameResolution", true },
         { "System.Net.Http", true },
     };
+
+    public Dictionary<string, bool> Subsystems { get; set; } = new Dictionary<string, bool>
+    {
+        { "Ado", false },
+        { "UserManagedData", true },
+    };
+
+    public AdoConfig Ado { get; set; } = new AdoConfig();
+    public UserManagedDataConfig UserManagedData { get; set; } = new UserManagedDataConfig();
 
     public static Config Load(string configFilePath)
     {

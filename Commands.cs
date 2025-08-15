@@ -167,8 +167,7 @@ public partial class CommandManager : Command
         var commands = new CommandManager(new[]
         {
             CreateChatCommands(),
-            CreateRagCommands(),
-            CreateToolsCommands(),
+            CreateRagCommands(),            
             CreateSystemCommands(),
             new Command
             {
@@ -191,7 +190,7 @@ public partial class CommandManager : Command
             new Command
             {
                 Name = "help",
-                Description = () => "Generate help text summarizing available commands",
+                Description = () => "Explain the program and generate summary of available commands",
                 Action = async () =>
                 {
                     Console.WriteLine("Menu structure and layout:");
@@ -207,17 +206,6 @@ public partial class CommandManager : Command
                     Console.WriteLine("Generated helptext:");
                     Console.WriteLine(summary);
                     return Command.Result.Success;
-                }
-            },
-            new Command
-            {
-                Name = "about", Description = () => "Show information about Console# Chat",
-                Action = () =>
-                {
-                    Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
-                    Console.WriteLine("A console-based chat application with RAG capabilities.");
-                    Console.WriteLine("For more information, visit: https://github.com/wa-phil/cschat");
-                    return Task.FromResult(Command.Result.Success);
                 }
             },
             new Command

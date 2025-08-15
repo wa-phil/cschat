@@ -71,6 +71,11 @@ public static class JSONWriter
         {
             stringBuilder.Append('"').Append(item.ToString()).Append('"');
         }
+        else if (item is Guid guid)
+        {
+            // Serialize GUIDs as quoted strings so they parse back correctly
+            stringBuilder.Append('"').Append(guid.ToString()).Append('"');
+        }
         else if (item is IList list)
         {
             stringBuilder.Append('[');

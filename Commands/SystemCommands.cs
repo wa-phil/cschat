@@ -130,9 +130,23 @@ public partial class CommandManager
                         CreateProviderCommands(),
                         CreateRagConfigCommands(),
                         CreateRagFileTypeCommands(),
-                        CreateMcpCommands()
+                        CreateMcpCommands(),
+                        CreateADOConfigCommands(),
+                        CreateSubsystemCommands()
                     }
-                }
+                },
+                CreateToolsCommands(),
+                new Command
+                {
+                    Name = "about", Description = () => "Show information about Console# Chat",
+                    Action = () =>
+                    {
+                        Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
+                        Console.WriteLine("A console-based chat application with RAG capabilities.");
+                        Console.WriteLine("For more information, visit: https://github.com/wa-phil/cschat");
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },                
             }
         };
     }

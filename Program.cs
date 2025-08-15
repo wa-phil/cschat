@@ -18,7 +18,8 @@ static class Program
     public static Dictionary<string, Type> Chunkers = null!; // Dictionary to hold chunker types by name
     public static Dictionary<string, Type> Tools = null!; // Dictionary to hold tool types by name
     public static CommandManager commandManager = null!;
-    public static ServiceProvider? serviceProvider = null!;
+    public static ServiceProvider serviceProvider = null!;
+    public static SubsystemManager SubsystemManager = null!;
 
     static Dictionary<string, Type> DictionaryOfTypesToNamesForInterface<T>(ServiceCollection serviceCollection, IEnumerable<Type> types)
         where T : class
@@ -35,9 +36,16 @@ static class Program
 
         foreach (var item in result.Values)
         {
-            serviceCollection.AddTransient(item);
+            if (typeof(ISubsystem).IsAssignableFrom(item))
+            {
+                serviceCollection.AddSingleton(item);
+            }
+            else
+            {
+                serviceCollection.AddTransient(item);
+            }
         }
-        
+
         return result;
     }
 
@@ -46,6 +54,7 @@ static class Program
         config = Config.Load(ConfigFilePath);
         Log.Initialize();
 
+        SubsystemManager = new SubsystemManager();
         var serviceCollection = new ServiceCollection();
         serviceCollection.AddSingleton(config); // Register the config instance
         var assembly = Assembly.GetExecutingAssembly();
@@ -55,6 +64,7 @@ static class Program
         Providers = DictionaryOfTypesToNamesForInterface<IChatProvider>(serviceCollection, types);
         Chunkers = DictionaryOfTypesToNamesForInterface<ITextChunker>(serviceCollection, types);
         Tools = DictionaryOfTypesToNamesForInterface<ITool>(serviceCollection, types);
+        SubsystemManager.Register(DictionaryOfTypesToNamesForInterface<ISubsystem>(serviceCollection, types));
 
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
     }
@@ -74,6 +84,7 @@ static class Program
         Engine.SetProvider(config.Provider);
         Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
         Engine.VectorStore.Clear();
+        SubsystemManager.Connect();
 
         // Add all the tools to the context
         var toolNames = $"You can use the following tools to help the user:\n{ToolRegistry.GetRegisteredTools()
