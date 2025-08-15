@@ -26,5 +26,5 @@ public class UserSelectedQuery
         Path = path;
     }
 
-    public override string ToString() => $"{Name} ({Project}) - {Id}";
+    public override string ToString() => $"{Project}/{Path}/{Name}:[{Id}]";
 }

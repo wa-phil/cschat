@@ -13,7 +13,7 @@ public sealed class AdoInsightsConfig
     public float W_PriorityHigh = 2.5f;  // P1/P2
     public float W_CriticalTag = 3.0f;   // security, data loss, escalation, blocker
     public float W_DueSoon = 2.2f;
-    public string[] CriticalTags = new[] { "security","data loss","escalation","blocker","sev1","sev2" };
+    public List<string> CriticalTags = new List<string> { "security","data loss","escalation","blocker","sev1","sev2" };
 }
 
 public sealed class ScoredItem
@@ -90,7 +90,7 @@ public static class AdoInsights
     {
         var sb = new StringBuilder();
         sb.AppendLine("You are an engineering manager. Write a crisp 30-second briefing for your manager.");
-        sb.AppendLine("Use bullet points. Focus on clusters/themes, risks, and what’s changed recently.");
+        sb.AppendLine("Use bullet points. Focus on clusters/themes, risks, and what's changed recently.");
         sb.AppendLine();
         sb.AppendLine("Counts by state:");
         foreach (var kv in byState.Take(10)) sb.AppendLine($"- {kv.Key}: {kv.Value}");
@@ -104,7 +104,7 @@ public static class AdoInsights
         sb.AppendLine("\nSample item titles (for clustering intuition):");
         foreach (var t in sampleTitles.Take(20)) sb.AppendLine($"- {t.Title}");
 
-        sb.AppendLine("\nWrite 6–10 bullets. Avoid restating the raw counts.");
+        sb.AppendLine("\nWrite 6-10 bullets. Avoid restating the raw counts.");
         return sb.ToString();
     }
 
@@ -113,7 +113,7 @@ public static class AdoInsights
         var sb = new StringBuilder();
         sb.AppendLine("You are an EM preparing a triage action plan for the following items (ranked).");
         sb.AppendLine("For each item, give: 1) Assign to (junior/senior + discipline), 2) Next concrete step, 3) Likely resolution (fix/duplicate/transfer), 4) Preventative investment.");
-        sb.AppendLine("Finish with 3-5 ‘big rocks’ bullets for the team.");
+        sb.AppendLine("Finish with 3-5 'big rocks' bullets for the team.");
         sb.AppendLine();
         foreach (var s in top)
         {

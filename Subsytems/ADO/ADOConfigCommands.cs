@@ -79,7 +79,7 @@ public partial class CommandManager : Command
                 },
                 new Command
                 {
-                    Name= "AdoOAuthScope", Description = () => $"Set Azure DevOps OAuth scope [currently: {Program.config.Ado.AdoOauthScope}]",
+                    Name = "AdoOAuthScope", Description = () => $"Set Azure DevOps OAuth scope [currently: {Program.config.Ado.AdoOauthScope}]",
                     Action = () =>
                     {
                         Console.Write("Enter new Azure DevOps OAuth scope (GUID): ");
@@ -92,6 +92,222 @@ public partial class CommandManager : Command
                             return Task.FromResult(Command.Result.Success);
                         }
                         return Task.FromResult(Command.Result.Cancelled);
+                    }
+                },
+                new Command
+                {
+                    Name = "Insights", Description = () => "Configure Insights settings",
+                    SubCommands = new List<Command>
+                    {
+                        new Command
+                        {
+                            Name = "fresh days", Description = () => $"Set the number of days that counts as being 'fresh' [currently: {Program.config.Ado.Insights.FreshDays}]",
+                            Action = () =>
+                            {
+                                Console.Write("Enter new number of fresh days: ");
+                                if (int.TryParse(Console.ReadLine(), out var freshDays))
+                                {
+                                    Program.config.Ado.Insights.FreshDays = freshDays;
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine($"Fresh days set to: {freshDays}");
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                                return Task.FromResult(Command.Result.Cancelled);
+                            }
+                        },
+                        new Command
+                        {
+                            Name = "soon days", Description = () => $"Set the number of days that counts for 'soon' [currently: {Program.config.Ado.Insights.SoonDays}]",
+                            Action = () =>
+                            {
+                                Console.Write("Enter new number of soon days: ");
+                                if (int.TryParse(Console.ReadLine(), out var soonDays))
+                                {
+                                    Program.config.Ado.Insights.SoonDays = soonDays;
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine($"Soon days set to: {soonDays}");
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                                return Task.FromResult(Command.Result.Cancelled);
+                            }
+                        },
+                        new Command
+                        {
+                            Name = "freshness weight", Description = () => $"Set how much to weigh freshness [currently: {Program.config.Ado.Insights.W_Fresh}]",
+                            Action = () =>
+                            {
+                                Console.Write("Enter new weight for fresh insights: ");
+                                if (int.TryParse(Console.ReadLine(), out var weight))
+                                {
+                                    Program.config.Ado.Insights.W_Fresh = weight;
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine($"Weight for fresh insights set to: {weight}");
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                                return Task.FromResult(Command.Result.Cancelled);
+                            }
+                        },
+                        new Command
+                        {
+                            Name = "recent change weight", Description = () => $"Set how much to weigh recent changes [currently: {Program.config.Ado.Insights.W_RecentChange}]",
+                            Action = () =>
+                            {
+                                Console.Write("Enter new weight for recent changes: ");
+                                if (int.TryParse(Console.ReadLine(), out var weight))
+                                {
+                                    Program.config.Ado.Insights.W_RecentChange = weight;
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine($"Weight for recent changes set to: {weight}");
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                                return Task.FromResult(Command.Result.Cancelled);
+                            }
+                        },
+                        new Command
+                        {
+                            Name ="unassigned weight", Description = () => $"Set how much to weigh unassigned changes [currently: {Program.config.Ado.Insights.W_Unassigned}]",
+                            Action = () =>
+                            {
+                                Console.Write("Enter new weight for unassigned changes: ");
+                                if (int.TryParse(Console.ReadLine(), out var weight))
+                                {
+                                    Program.config.Ado.Insights.W_Unassigned = weight;
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine($"Weight for unassigned changes set to: {weight}");
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                                return Task.FromResult(Command.Result.Cancelled);
+                            }
+                        },
+                        new Command
+                        {
+                            Name ="high priority weight", Description = () => $"Set how much to weigh high priority (P1/P2) items [currently: {Program.config.Ado.Insights.W_PriorityHigh}]",
+                            Action = () =>
+                            {
+                                Console.Write("Enter new weight for high priority changes: ");
+                                if (int.TryParse(Console.ReadLine(), out var weight))
+                                {
+                                    Program.config.Ado.Insights.W_PriorityHigh = weight;
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine($"Weight for high priority changes set to: {weight}");
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                                return Task.FromResult(Command.Result.Cancelled);
+                            }
+                        },
+                        new Command
+                        {
+                            Name ="critical tag weight", Description = () => $"Set how much to weigh critical tags [currently: {Program.config.Ado.Insights.W_CriticalTag}]",
+                            Action = () =>
+                            {
+                                Console.Write("Enter new weight for critical tags: ");
+                                if (int.TryParse(Console.ReadLine(), out var weight))
+                                {
+                                    Program.config.Ado.Insights.W_CriticalTag = weight;
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine($"Weight for critical tags set to: {weight}");
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                                return Task.FromResult(Command.Result.Cancelled);
+                            }
+                        },
+                        new Command
+                        {
+                            Name = "Due soon weight", Description = () => $"Set how much to weigh items due soon [currently: {Program.config.Ado.Insights.W_DueSoon}]",
+                            Action = () =>
+                            {
+                                Console.Write("Enter new weight for items due soon: ");
+                                if (int.TryParse(Console.ReadLine(), out var weight))
+                                {
+                                    Program.config.Ado.Insights.W_DueSoon = weight;
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine($"Weight for items due soon set to: {weight}");
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                                return Task.FromResult(Command.Result.Cancelled);
+                            }
+                        },
+                        // CRUD commands for Critical Tags
+                        new Command
+                        {
+                            Name = "Critical Tags", Description = () => "add/remove/edit 'critical tags'",
+                            SubCommands = new List<Command>
+                            {
+                                new Command
+                                {
+                                    Name = "list", Description = () => "List current critical tags",
+                                    Action = () =>
+                                    {
+                                        Console.WriteLine("Current critical tags:");
+                                        foreach (var tag in Program.config.Ado.Insights.CriticalTags)
+                                        {
+                                            Console.WriteLine($" - {tag}");
+                                        }
+                                        return Task.FromResult(Command.Result.Success);
+                                    }
+                                },
+                                new Command
+                                {
+                                    Name = "add", Description = () => "Add a new critical tag",
+                                    Action = () =>
+                                    {
+                                        while (true)
+                                        {
+                                            Console.Write("Enter new critical tag: ");
+                                            var tag = Console.ReadLine();
+                                            if (!string.IsNullOrWhiteSpace(tag))
+                                            {
+                                                Program.config.Ado.Insights.CriticalTags.Add(tag);
+                                                Config.Save(Program.config, Program.ConfigFilePath);
+                                                Console.WriteLine($"Critical tag added: {tag}");
+                                                Console.WriteLine("Add another? (y/n)");
+                                                var response = Console.ReadLine();
+                                                response = response?.Trim().ToLower();
+                                                if (string.IsNullOrWhiteSpace(response) || response.StartsWith("y"))
+                                                {
+                                                    continue;
+                                                }
+
+                                                return Task.FromResult(Command.Result.Success);
+                                            }
+                                            return Task.FromResult(Command.Result.Cancelled);
+                                        }
+                                    }
+                                },
+                                new Command
+                                {
+                                    Name = "remove", Description = () => "Remove a critical tag",
+                                    Action = () =>
+                                    {
+                                        while (true)
+                                        {
+                                            var choices = Program.config.Ado.Insights.CriticalTags.ToList();
+                                            var header = "Select a critical tag to remove:\n" + new string('─', Math.Max(60, Console.WindowWidth - 1));
+                                            var selected = User.RenderMenu(header, choices);
+
+                                            if (string.IsNullOrWhiteSpace(selected))
+                                            {
+                                                return Task.FromResult(Command.Result.Cancelled);
+                                            }
+
+                                            if (Program.config.Ado.Insights.CriticalTags.Remove(selected))
+                                            {
+                                                Config.Save(Program.config, Program.ConfigFilePath);
+                                                Console.WriteLine($"Critical tag removed: {selected}");
+                                                Console.WriteLine("Remove another? (y/n)");
+                                                var response = Console.ReadLine();
+                                                response = response?.Trim().ToLower();
+                                                if (string.IsNullOrWhiteSpace(response) || response.StartsWith("y"))
+                                                {
+                                                    continue;
+                                                }
+                                                return Task.FromResult(Command.Result.Success);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

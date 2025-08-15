@@ -27,6 +27,7 @@ public class AdoConfig
     public string RepositoryName { get; set; } = "YourRepositoryName";
     public bool UseOAuthScope { get; set; } = false;
     public string AdoOauthScope { get; set; } = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF";
+    public AdoInsightsConfig Insights { get; set; } = new AdoInsightsConfig();
 }
 
 [IsConfigurable("Ado")]

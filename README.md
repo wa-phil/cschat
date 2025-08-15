@@ -153,15 +153,85 @@ The Subsystem Manager is designed to manage and enable various subsystems dynami
 - **Configuration Persistence**: Changes to subsystem states are saved to the configuration file.
 
 ### ADO Subsystem
-The ADO (Azure DevOps) Subsystem is a specialized subsystem that integrates Azure DevOps functionalities into `cschat`. It provides commands and tools to interact with Azure DevOps work items, queries, and more. Key features include:
+The ADO (Azure DevOps) Subsystem integrates Azure DevOps functionality into `cschat`. It exposes interactive commands for browsing queries, selecting saved queries, summarizing and triaging work items, and producing manager-facing briefings and action plans.
 
-- **Work Item Management**: Retrieve and summarize work items by ID or query.
-- **Query Navigation**: Browse and select Azure DevOps queries interactively.
-- **Personal Access Token (PAT) Management**: Supports fetching PATs from environment variables, Azure CLI, or user input.
-- **Summarization**: Automatically generates concise summaries of work items for team collaboration.
-- **Extensions**: Includes utility methods for formatting and displaying work item data.
+Files of interest:
+- `Subsytems/ADO/ADOInsights.cs` — scoring and briefing helpers
+- `Subsytems/ADO/ADOCommands.cs` — interactive ADO commands exposed to the menu/CLI
+- `Subsytems/ADO/ADOConfigCommands.cs` — runtime configuration commands for ADO (including insights weights)
+- `Subsytems/UserManagedData/UserSelectedQuery.cs` — the user-managed saved-query model
 
-The ADO Subsystem enhances productivity by streamlining interactions with Azure DevOps, making it easier to manage work items and queries directly from the `cschat` interface.
+ADOInsights (what it does)
+- Purpose: analyze a set of `WorkItemSummary` entries and surface "attention" signals so you can focus triage on the most important items.
+- Key types:
+  - `AdoInsightsConfig` — holds tunable parameters and weights (fresh/soon windows, per-signal weights, and a list of critical tags).
+  - `ScoredItem` — pairs a `WorkItemSummary` with a numeric `Score` and a `Factors` dictionary describing which signals contributed to the score.
+- How scoring works (high level):
+  1. For each work item, `AdoInsights.Analyze` accumulates a score by adding configured weights for detected signals:
+     - "fresh": item created within `FreshDays` → add `W_Fresh`
+     - "recentChange": changed within `FreshDays` → add `W_RecentChange`
+     - "unassigned": no assignee or explicitly unassigned → add `W_Unassigned`
+     - "priorityHigh": priority numeric value ≤ 2 (P1/P2) → add `W_PriorityHigh`
+     - "dueSoon": due date within `SoonDays` → add `W_DueSoon`
+     - "criticalTag": any tag that matches an entry in `CriticalTags` (case-insensitive contains) → add `W_CriticalTag`
+  2. The result is a `ScoredItem` per work item; the list is sorted by descending score, then by due date, then by priority.
+  3. `Analyze` also returns simple aggregates: counts by state, tag and area (useful for snapshots and the manager briefing prompt).
+- Prompts: `ADOInsights` also provides helpers that build LLM prompts:
+  - `MakeManagerBriefingPrompt(...)` — creates a concise prompt to ask the model for a 30-second manager briefing based on aggregates and sample titles.
+  - `MakeActionPlanPrompt(...)` — formats the top scored items into a prompt asking for a triage-style action plan (assign, next step, likely resolution, preventative work).
+
+Configuration (how to tune scoring)
+- All of the numeric windows and weights live on `Program.config.Ado.Insights` (an `AdoInsightsConfig` instance) and are editable at runtime via the ADO config commands found under the top-level config command group.
+- The available config commands (see `Subsytems/ADO/ADOConfigCommands.cs`) include:
+  - `Insights -> fresh days` (sets `FreshDays`)
+  - `Insights -> soon days` (sets `SoonDays`)
+  - `Insights -> freshness weight` (`W_Fresh`)
+  - `Insights -> recent change weight` (`W_RecentChange`)
+  - `Insights -> unassigned weight` (`W_Unassigned`)
+  - `Insights -> high priority weight` (`W_PriorityHigh`)
+  - `Insights -> critical tag weight` (`W_CriticalTag`)
+  - `Insights -> Due soon weight` (`W_DueSoon`)
+  - `Insights -> Critical Tags -> list/add/remove` (manage the `CriticalTags` list)
+- When you change a value via those commands, the code calls `Config.Save(...)` so changes persist to `config.json`.
+
+ADOCommands (what they do and how they work)
+- Location: `Subsytems/ADO/ADOCommands.cs`.
+- Top-level command: `ADO` with two primary groups: `workitem` and `queries`.
+
+- `ADO workitem` subcommands:
+  - `lookup by ID` — prompts for a numeric work item ID, calls `AdoClient.GetWorkItemSummaryById(id)` and prints the result.
+  - `summarize item` — lets you pick one of your saved queries (from `UserSelectedQuery` stored in the UserManagedData subsystem), lists the query results in an aligned interactive menu, then runs a concise LLM summarization of the chosen work item via `Engine.Provider.PostChatAsync(...)` (falls back to raw detail text on failure).
+  - `top` — pick a saved query, fetch its work items, run `AdoInsights.Analyze(...)` with the current `Program.config.Ado.Insights`, and print the top-N items ranked by score (score-only table). Useful quick triage list.
+  - `summarize query` — compute aggregates for a saved query (counts by state/tag/area), print a numeric snapshot then ask the model for a 30-second briefing (via `MakeManagerBriefingPrompt`).
+  - `triage` — end-to-end triage flow: pick a saved query, compute `Analyze`, print a manager briefing, list the top items (with scores), and request an LLM-generated action plan for the top subset.
+
+- `ADO queries browse`:
+  - Opens an interactive folder-style picker for your ADO project's queries (My/Shared Queries). You can navigate folders with the menu and when you pick a query the code will add that query to the user's saved queries collection using:
+    - `Program.SubsystemManager.Get<UserManagedData>().AddItem(new UserSelectedQuery(...))`
+  - After adding the saved query the command calls `Config.Save(Program.config, Program.ConfigFilePath)` so your selection persists to `config.json`.
+
+Interaction with UserSelectedQuery and the menu system
+- `UserSelectedQuery` is a small user-managed type (see `Subsytems/UserManagedData/UserSelectedQuery.cs`) that stores a query's GUID, name, project and path. It's discoverable and editable via the `Data` subsystem menu (the UserManagedData subsystem exposes per-type `list/add/update/delete` commands automatically).
+- Many ADO commands obtain the user's saved queries via:
+  - `var saved = Program.SubsystemManager.Get<UserManagedData>().GetItems<UserSelectedQuery>()`
+  - They then build a human-friendly list of choices like `$"{q.Name} ({q.Project}) - {q.Path}"` and call `User.RenderMenu(header, choices)` to let the user pick one.
+- The same `User.RenderMenu(...)` infra is used throughout ADO commands to:
+  - Present saved queries to pick which query to act on
+  - Present work-item rows (formatted via `ToMenuRows()`/aligned columns) so you can pick a row to summarize
+  - Navigate query folders when browsing
+- The `Data` menu (UserManagedData subsystem) is how you manage stored `UserSelectedQuery` entries directly (edit, delete, list). `ADO queries browse` is a convenience that discovers queries in ADO and automatically adds them to that collection.
+
+Practical notes / examples
+- To add a query to your saved queries: `ADO queries browse` → navigate to the desired query → it will be added to your `User Selected Query` collection and saved to `config.json`.
+- To run a quick attention list: `ADO workitem top` → choose one of your saved queries → see the top-N scored items (scores come from `AdoInsights` and are influenced by the weights in config).
+- To tune what "top" means, open the config and adjust weights: from the top-level menu run the ADO configuration commands (group shown as `Azure Dev Ops (ADO)` in the configuration command group) and modify the `Insights` settings — changes persist immediately.
+
+Implementation pointers
+- Scoring and prompt construction live entirely in `Subsytems/ADO/ADOInsights.cs`.
+- Runtime editing of weights and tags lives in `Subsytems/ADO/ADOConfigCommands.cs` and persists via `Config.Save(...)`.
+- The interactive commands that fetch work items and call `AdoClient` are in `Subsytems/ADO/ADOCommands.cs` and rely on the `Program.SubsystemManager` to obtain `AdoClient` and `UserManagedData` instances.
+
+This expanded documentation should help you understand where the scoring lives, how the signals are combined, how to tune the behavior at runtime, and how the ADO commands interact with the saved-query menu integration via `UserSelectedQuery`.
 
 ### UserManagedData Subsystem
 

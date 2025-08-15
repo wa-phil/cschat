@@ -194,8 +194,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                     return Command.Result.Success;
                                 }
 
-                                var cfg = new AdoInsightsConfig();
-                                var (ranked, _, _, _) = AdoInsights.Analyze(items, cfg);
+                                var (ranked, _, _, _) = AdoInsights.Analyze(items, Program.config.Ado.Insights);
 
                                 topN = Math.Min(topN, ranked.Count);
                                 Console.WriteLine();
@@ -246,21 +245,28 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                 }
 
                                 // Compute aggregates
-                                var cfg = new AdoInsightsConfig();
-                                var (_, byState, byTag, byArea) = AdoInsights.Analyze(items, cfg);
+                                var (_, byState, byTag, byArea) = AdoInsights.Analyze(items, Program.config.Ado.Insights);
 
                                 // Print a quick numeric snapshot (useful even if LLM fails)
                                 Console.WriteLine();
                                 Console.WriteLine("—— Snapshot ——");
                                 Console.WriteLine("By State:");
                                 foreach (var kv in byState.OrderByDescending(kv => kv.Value).Take(10))
+                                {
                                     Console.WriteLine($"  {kv.Key,-16} {kv.Value,5}");
+                                }
+
                                 Console.WriteLine("Top Tags:");
                                 foreach (var kv in byTag.OrderByDescending(kv => kv.Value).Take(10))
+                                {
                                     Console.WriteLine($"  {kv.Key,-16} {kv.Value,5}");
+                                }
+
                                 Console.WriteLine("Top Areas:");
                                 foreach (var kv in byArea.OrderByDescending(kv => kv.Value).Take(10))
+                                {
                                     Console.WriteLine($"  {kv.Key,-32} {kv.Value,5}");
+                                }
 
                                 // Ask LLM for a crisp briefing
                                 try
@@ -313,8 +319,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                 }
 
                                 // Insights + scoring
-                                var cfg = new AdoInsightsConfig();
-                                var (ranked, byState, byTag, byArea) = AdoInsights.Analyze(items, cfg);
+                                var (ranked, byState, byTag, byArea) = AdoInsights.Analyze(items, Program.config.Ado.Insights);
 
                                 // 1) Manager’s 30-sec briefing
                                 try

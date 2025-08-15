@@ -45,24 +45,6 @@ public static class ADOExtensions
         }
     }
 
-    public static string ToTable(this IEnumerable<WorkItemSummary> summaries)
-    {
-        if (!summaries.Any())
-            return "(no work items found)";
-
-        var header = $"{"ID",6} {"State",-12} {"Priority",8} {"Assigned",-20} {"Title"}";
-        var rows = summaries.Select(s =>
-            $"{s.Id,6} {s.State,-12} {s.Priority,8} {Truncate(s.AssignedTo, 20),-20} {Truncate(s.Title, 80)}");
-
-        return header + "\n" + string.Join("\n", rows);
-    }
-
-    private static string Truncate(string? input, int maxLength)
-    {
-        if (string.IsNullOrWhiteSpace(input)) return "";
-        return input.Length <= maxLength ? input : input.Substring(0, maxLength - 3) + "...";
-    }
-
     public static string ToDetailText(this WorkItemSummary s)
     {
         var sb = new StringBuilder();
@@ -92,13 +74,5 @@ public static class ADOExtensions
             foreach (var line in s.Discussion) sb.AppendLine("- " + line);
         }
         return sb.ToString();
-    }
-    
-    public static string ToTreeRow(this AdoQueryRow row, int assignedNameWidth = 0)
-    {
-        // Simple “tree” indent; avoids fancy ├/└ complexity while remaining readable
-        var indent = new string(' ', Math.Max(0, row.Depth * 2));
-        var icon = row.IsFolder ? "📁" : "📃";
-        return $"{indent}{icon} {row.Name}";
-    }    
+    }   
 }
