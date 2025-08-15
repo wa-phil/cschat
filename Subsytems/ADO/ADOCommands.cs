@@ -88,55 +88,72 @@ public static class ADOCommands
                                     $"{ "ID".PadLeft(idW) } {"Changed".PadLeft(changedW)} {"Assigned".PadRight(assignedW)} Title\n" +
                                     new string('─', Math.Max(60, consoleW - 1));
 
-                                // Use the existing interactive menu infra
-                                var selectedWorkItem = User.RenderMenu(workItemHeader, workItemChoices); // returns selected row text or null
-                                if (string.IsNullOrWhiteSpace(selectedWorkItem))
+                                // Loop: show work-item menu, summarize chosen item, then ask to repeat
+                                while (true)
                                 {
-                                    return Command.Result.Cancelled;
-                                }
+                                    // Use the existing interactive menu infra
+                                    var selectedWorkItem = User.RenderMenu(workItemHeader, workItemChoices); // returns selected row text or null
+                                    if (string.IsNullOrWhiteSpace(selectedWorkItem))
+                                    {
+                                        return Command.Result.Cancelled;
+                                    }
 
-                                // Parse the ID from the selected row (first column)
-                                var idText = selectedWorkItem.Substring(0, Math.Min(selectedWorkItem.Length, 6)).Trim();
-                                var m = Regex.Match(selectedWorkItem, @"^\s*(\d+)");
-                                if (!m.Success || !int.TryParse(m.Groups[1].Value, out var selectedId))
-                                {
-                                    Console.WriteLine("Could not determine selected work item ID.");
-                                    return Command.Result.Failed;
-                                }
+                                    // Parse the ID from the selected row (first column)
+                                    var idText = selectedWorkItem.Substring(0, Math.Min(selectedWorkItem.Length, 6)).Trim();
+                                    var m = Regex.Match(selectedWorkItem, @"^\s*(\d+)");
+                                    if (!m.Success || !int.TryParse(m.Groups[1].Value, out var selectedId))
+                                    {
+                                        Console.WriteLine("Could not determine selected work item ID.");
+                                        return Command.Result.Failed;
+                                    }
 
-                                var picked = results.FirstOrDefault(r => r.Id == selectedId);
-                                if (picked == null)
-                                {
-                                    Console.WriteLine("Selected work item not found.");
-                                    return Command.Result.Failed;
-                                }
+                                    var picked = results.FirstOrDefault(r => r.Id == selectedId);
+                                    if (picked == null)
+                                    {
+                                        Console.WriteLine("Selected work item not found.");
+                                        return Command.Result.Failed;
+                                    }
 
-                                // Build a details blob and summarize it (same pattern as misc_tools TextSummary)
-                                var blob = picked.ToDetailText();
+                                    // Build a details blob and summarize it (same pattern as misc_tools TextSummary)
+                                    var blob = picked.ToDetailText();
 
-                                try
-                                {
-                                    var prompt =
+                                    try
+                                    {
+                                        var prompt =
 @"Summarize this Azure DevOps work item for a teammate.
 Focus on: current state, priority, assignee, most recent changes, and key discussion points.
 Be concise and include a short bullet list of actionable next steps if any.";
-                                    var ctx = new Context(prompt);
-                                    ctx.AddUserMessage(blob);
-                                    var summary = await Engine.Provider!.PostChatAsync(ctx, 0.2f);
+                                        var ctx = new Context(prompt);
+                                        ctx.AddUserMessage(blob);
+                                        var summary = await Engine.Provider!.PostChatAsync(ctx, 0.2f);
 
-                                    Console.WriteLine();
-                                    Console.WriteLine($"URL: {Program.SubsystemManager.Get<AdoClient>().GetOrganizationUrl()}/_workitems/edit/{picked.Id}");
-                                    Console.WriteLine("—— Work Item Summary ——");
-                                    Console.WriteLine(summary);
-                                    Console.WriteLine("—— End Summary ——");
-                                }
-                                catch (Exception ex)
-                                {
-                                    Console.WriteLine("Summarization failed; showing raw details instead.");
-                                    Console.WriteLine();
-                                    Console.WriteLine(blob);
-                                    Console.WriteLine();
-                                    Console.WriteLine($"[error: {ex.Message}]");
+                                        Console.WriteLine();
+                                        Console.WriteLine($"URL: {Program.SubsystemManager.Get<AdoClient>().GetOrganizationUrl()}/_workitems/edit/{picked.Id}");
+                                        Console.WriteLine("—— Work Item Summary ——");
+                                        Console.WriteLine(summary);
+                                        Console.WriteLine("—— End Summary ——");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Console.WriteLine("Summarization failed; showing raw details instead.");
+                                        Console.WriteLine();
+                                        Console.WriteLine(blob);
+                                        Console.WriteLine();
+                                        Console.WriteLine($"[error: {ex.Message}]");
+                                    }
+
+                                    // Ask whether to show another item; default is Yes on empty input
+                                    Console.Write("Look at another item? [Y/n]: ");
+                                    var ans = Console.ReadLine();
+                                    ans = ans?.Trim() ?? string.Empty;
+                                    if (string.IsNullOrWhiteSpace(ans) || ans.Equals("y", StringComparison.OrdinalIgnoreCase) || ans.StartsWith("y", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        // default Yes -> continue loop
+                                        continue;
+                                    }
+
+                                    // anything else -> stop
+                                    break;
                                 }
 
                                 return Command.Result.Success;

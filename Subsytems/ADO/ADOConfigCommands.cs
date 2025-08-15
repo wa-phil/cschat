@@ -68,7 +68,18 @@ public partial class CommandManager : Command
                 },
                 new Command
                 {
-                    Name= "AdoOauthScope", Description = () => $"Set Azure DevOps OAuth scope [currently: {Program.config.Ado.AdoOauthScope}]",
+                    Name ="Use OAuth Scope", Description = () => $"Toggle using Azure DevOps OAuth scope for authentication [currently: {Program.config.Ado.UseOAuthScope}]",
+                    Action = () =>
+                    {
+                        Program.config.Ado.UseOAuthScope = !Program.config.Ado.UseOAuthScope;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        Console.WriteLine($"Use Azure DevOps OAuth scope for authentication set to: {Program.config.Ado.UseOAuthScope}");
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name= "AdoOAuthScope", Description = () => $"Set Azure DevOps OAuth scope [currently: {Program.config.Ado.AdoOauthScope}]",
                     Action = () =>
                     {
                         Console.Write("Enter new Azure DevOps OAuth scope (GUID): ");

@@ -25,6 +25,7 @@ public class AdoConfig
     public string Organization { get; set; } = "yourorganization";
     public string ProjectName { get; set; } = "YourProjectName";
     public string RepositoryName { get; set; } = "YourRepositoryName";
+    public bool UseOAuthScope { get; set; } = false;
     public string AdoOauthScope { get; set; } = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF";
 }
 
@@ -396,10 +397,14 @@ public static class AdoCredentialHelper
 
     private static string? TryGetTokenFromAzCli() => Log.Method(ctx =>
     {
+        var args = Program.config.Ado.UseOAuthScope ?
+            $@"/c az.cmd account get-access-token --resource={Program.config.Ado.AdoOauthScope} --query=accessToken --output tsv" :
+            $@"/c az.cmd account get-access-token --query=accessToken --output tsv";
+
         var psi = new ProcessStartInfo
         {
             FileName = "cmd.exe",
-            Arguments = $@"/c az.cmd account get-access-token --resource={Program.config.Ado.AdoOauthScope} --query=accessToken --output tsv",
+            Arguments = args,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
