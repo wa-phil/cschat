@@ -21,13 +21,22 @@ public static class JSONParser
         propertyInfoCache ??= new Dictionary<Type, Dictionary<string, PropertyInfo>>();
         return (T?)ParseValue(typeof(T), json);
     }
+    
+    public static object? FromJson(this string json, Type type)
+    {
+        splitArrayPool ??= new Stack<List<string>>();
+        stringBuilder ??= new StringBuilder(2048);
+        fieldInfoCache ??= new Dictionary<Type, Dictionary<string, FieldInfo>>();
+        propertyInfoCache ??= new Dictionary<Type, Dictionary<string, PropertyInfo>>();
+        return ParseValue(type, json);
+    }
 
     public static object? ParseValue(Type type, string json)
     {
         json = json.Trim();
         if (json == "null") return null;
 
-        if (type == typeof(string)) 
+        if (type == typeof(string))
         {
             // Check if the string is properly quoted and has enough length
             if (json.Length < 2 || json[0] != '"' || json[json.Length - 1] != '"')

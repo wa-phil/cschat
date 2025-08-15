@@ -72,7 +72,6 @@ public class SubsystemManager
 
         subsystem!.IsEnabled = enabled;
         Program.config.Subsystems[name] = enabled; // Update the config
-        Config.Save(Program.config, Program.ConfigFilePath); // Save the config
         ctx.Append(Log.Data.Message, $"Subsystem '{name}' is now {(enabled ? "enabled" : "disabled")}.");
         ctx.Succeeded();
         return;
@@ -100,7 +99,7 @@ public class SubsystemManager
             {
                 Console.Write($"Connecting to subsystem '{kv.Key}'...");
             }
-            
+
             Program.SubsystemManager.SetEnabled(kv.Key, kv.Value);
 
             if (kv.Value)
@@ -108,6 +107,7 @@ public class SubsystemManager
                 Console.WriteLine("connected.");
             }
         }
+        Config.Save(Program.config, Program.ConfigFilePath); // Save the config
         ctx.Succeeded();
     });
 

@@ -142,6 +142,27 @@ var result = await Log.MethodAsync(
     });
 ```
 
+## Subsystem Manager and ADO Subsystem
+
+### Subsystem Manager
+The Subsystem Manager is designed to manage and enable various subsystems dynamically. It provides a centralized way to register, enable, and interact with subsystems, ensuring modularity and scalability. Key features include:
+
+- **Dynamic Registration**: Subsystems can be registered dynamically using a dictionary of subsystem types.
+- **Enable/Disable Functionality**: Subsystems can be enabled or disabled based on configuration settings.
+- **Service Provider Integration**: The manager integrates with the service provider to fetch subsystem instances.
+- **Configuration Persistence**: Changes to subsystem states are saved to the configuration file.
+
+### ADO Subsystem
+The ADO (Azure DevOps) Subsystem is a specialized subsystem that integrates Azure DevOps functionalities into `cschat`. It provides commands and tools to interact with Azure DevOps work items, queries, and more. Key features include:
+
+- **Work Item Management**: Retrieve and summarize work items by ID or query.
+- **Query Navigation**: Browse and select Azure DevOps queries interactively.
+- **Personal Access Token (PAT) Management**: Supports fetching PATs from environment variables, Azure CLI, or user input.
+- **Summarization**: Automatically generates concise summaries of work items for team collaboration.
+- **Extensions**: Includes utility methods for formatting and displaying work item data.
+
+The ADO Subsystem enhances productivity by streamlining interactions with Azure DevOps, making it easier to manage work items and queries directly from the `cschat` interface.
+
 ## How it works
 - On startup, loads or creates a configuration file (`config.json`) for provider, host, model, and system prompt.
 - Initializes providers, command system, and in-memory chat history.

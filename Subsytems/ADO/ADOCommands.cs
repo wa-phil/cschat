@@ -35,15 +35,39 @@ public static class ADOCommands
                         },
                         new Command
                         {
-                            Name = "get by query id", Description = () => "Query work items by query ID",
+                            Name = "get by query id", Description = () => "Query work items by saved query",
                             Action = async () =>
                             {
-                                Console.Write("Enter query ID (GUID): ");
-                                if (!Guid.TryParse(Console.ReadLine(), out var queryId))
+                                // Get saved queries from UserManagedData
+                                var userManagedData = Program.SubsystemManager.Get<UserManagedData>();
+                                var savedQueries = userManagedData.GetItems<UserSelectedQuery>();
+                                
+                                if (savedQueries == null || savedQueries.Count == 0)
                                 {
-                                    Console.WriteLine("Invalid query ID.");
+                                    Console.WriteLine("No saved queries found. Use 'ADO queries browse' to add queries first.");
                                     return Command.Result.Cancelled;
                                 }
+
+                                // Build menu choices from saved queries
+                                var choices = savedQueries.Select(q => $"{q.Name} ({q.Project}) - {q.Path}").ToList();                                
+                                var header = "Select a saved query:\n" + new string('─', Math.Max(60, Console.WindowWidth - 1));
+                                var selected = User.RenderMenu(header, choices);
+                                
+                                if (string.IsNullOrWhiteSpace(selected))
+                                {
+                                    return Command.Result.Cancelled;
+                                }
+
+                                // Find the selected query by matching the display text
+                                var selectedIndex = choices.IndexOf(selected);
+                                if (selectedIndex < 0 || selectedIndex >= savedQueries.Count)
+                                {
+                                    Console.WriteLine("Invalid selection.");
+                                    return Command.Result.Failed;
+                                }
+
+                                var selectedQuery = savedQueries[selectedIndex];
+                                var queryId = selectedQuery.Id;
 
                                 var ado = Program.SubsystemManager.Get<AdoClient>();
                                 var results = await ado.GetWorkItemSummariesByQueryId(queryId);
@@ -54,26 +78,26 @@ public static class ADOCommands
                                 }
 
                                 // Build aligned rows for the interactive menu
-                                var choices = results.ToMenuRows();
+                                var workItemChoices = results.ToMenuRows();
 
                                 // Header text with aligned columns
                                 const int idW = 9, changedW = 10, assignedW = 25;
                                 int consoleW = Console.WindowWidth;
 
-                                var header =
+                                var workItemHeader =
                                     $"{ "ID".PadLeft(idW) } {"Changed".PadLeft(changedW)} {"Assigned".PadRight(assignedW)} Title\n" +
                                     new string('─', Math.Max(60, consoleW - 1));
 
                                 // Use the existing interactive menu infra
-                                var selected = User.RenderMenu(header, choices); // returns selected row text or null
-                                if (string.IsNullOrWhiteSpace(selected))
+                                var selectedWorkItem = User.RenderMenu(workItemHeader, workItemChoices); // returns selected row text or null
+                                if (string.IsNullOrWhiteSpace(selectedWorkItem))
                                 {
                                     return Command.Result.Cancelled;
                                 }
 
                                 // Parse the ID from the selected row (first column)
-                                var idText = selected.Substring(0, Math.Min(selected.Length, 6)).Trim();
-                                var m = Regex.Match(selected, @"^\s*(\d+)");
+                                var idText = selectedWorkItem.Substring(0, Math.Min(selectedWorkItem.Length, 6)).Trim();
+                                var m = Regex.Match(selectedWorkItem, @"^\s*(\d+)");
                                 if (!m.Success || !int.TryParse(m.Groups[1].Value, out var selectedId))
                                 {
                                     Console.WriteLine("Could not determine selected work item ID.");
@@ -123,7 +147,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                 new Command
                 {
                     Name = "queries",
-                    Description = () => "Browse ADO queries and get a query ID",
+                    Description = () => "Browse ADO queries and add to Data->User Selected Queries",
                     SubCommands = new List<Command>
                     {
                         new Command
@@ -190,7 +214,10 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                         // It's a query → print the GUID
                                         if (picked.Id.HasValue)
                                         {
-                                            Console.WriteLine(picked.Id.Value);
+                                            var userManagedData = Program.SubsystemManager.Get<UserManagedData>();
+                                            userManagedData.AddItem(new UserSelectedQuery(picked.Id.Value, picked.Name, project, picked.Path));
+                                            Console.WriteLine($"Added query '{picked.Name}' (ID: {picked.Id.Value}) to User Selected Queries.");
+                                            Config.Save(Program.config, Program.ConfigFilePath);
                                             return Command.Result.Success;
                                         }
 

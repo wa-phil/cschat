@@ -37,6 +37,11 @@ public class RagSettings
     public Dictionary<string, FileFilterRules> FileFilters { get; set; } = new();
 }
 
+public class UserManagedDataConfig
+{
+    public Dictionary<string, List<Dictionary<string, object>>> TypedData { get; set; } = new();
+}
+
 public class Config
 {
     public string Provider { get; set; } = "Ollama";
@@ -67,9 +72,11 @@ public class Config
     public Dictionary<string, bool> Subsystems { get; set; } = new Dictionary<string, bool>
     {
         { "Ado", false },
+        { "UserManagedData", true },
     };
 
     public AdoConfig Ado { get; set; } = new AdoConfig();
+    public UserManagedDataConfig UserManagedData { get; set; } = new UserManagedDataConfig();
 
     public static Config Load(string configFilePath)
     {
