@@ -344,7 +344,7 @@ namespace unittests
             var output = obj.ToJson();
             Assert.Equal("{\"Timestamp\":\"07/03/2025 04:29:08\",\"Level\":\"Information\",\"Method\":\"Engine.SetProvider\",\"Source\":\"IChatProvider.cs:232\",\"Success\":true,\"Provider\":\"AzureAI\",\"ProviderSet\":true}", output);
         }
-        
+
         [Fact]
         public void JSONParser_ShouldParseConfigFromComplexJSON()
         {
@@ -361,7 +361,7 @@ namespace unittests
             Assert.Equal("http://localhost:11434", config.Host);
             Assert.Equal(32000, config.MaxTokens);
             Assert.Equal(0.7f, config.Temperature);
-            
+
             // Verify RagSettings
             Assert.NotNull(config.RagSettings);
             Assert.Equal("SmartChunk", config.RagSettings.ChunkingStrategy);
@@ -405,13 +405,73 @@ namespace unittests
             // Previously this would throw ArgumentOutOfRangeException, now it should handle it gracefully
             var result = "".FromJson<string>();
             Assert.Equal(string.Empty, result);
-            
+
             // Test other edge cases
             var shortResult = "\"".FromJson<string>();
             Assert.Equal(string.Empty, shortResult);
-            
+
             var validResult = "\"hello\"".FromJson<string>();
             Assert.Equal("hello", validResult);
-        }        
+        }
+
+        class TestClassWithGuid
+        {
+            public Guid guid { get; set; }
+        }
+
+        [Fact]
+        public void JSONParser_ShouldHandleGUIDs()
+        {
+            var guid = Guid.NewGuid();
+            var json = $"{{\"guid\": \"{guid}\"}}";
+            var parsedGuid = json.FromJson<Dictionary<string, object>>();
+            Assert.Equal(guid.ToString(), parsedGuid["guid"].ToString());
+
+            // Test with null
+            var nullJson = "{\"guid\": null}";
+            var parsedNull = nullJson.FromJson<Dictionary<string, object>>();
+            Assert.Null(parsedNull["guid"]);
+
+            // Test with empty string
+            var emptyJson = "{\"guid\": \"\"}";
+            var parsedEmpty = emptyJson.FromJson<Dictionary<string, object>>();
+            Assert.Equal(string.Empty, parsedEmpty["guid"]);
+
+            // Test with empty GUID
+            var emptyGuidJson = "{\"guid\": \"00000000-0000-0000-0000-000000000000\"}";
+            var parsedEmptyGuid = emptyGuidJson.FromJson<TestClassWithGuid>();
+            Assert.Equal(Guid.Empty, parsedEmptyGuid.guid);
+
+            // Test with valid GUID
+            var newGuid = new Guid("12345678-1234-1234-1234-123456789012");
+            var validGuidJson = "{\"guid\": \"12345678-1234-1234-1234-123456789012\"}";
+            var parsedValidGuid = validGuidJson.FromJson<TestClassWithGuid>();
+            Assert.Equal(newGuid, parsedValidGuid.guid);
+
+            // Test with valid GUIDs in different formats
+            var guidFormats = new[]
+            {
+                "12345678-1234-1234-1234-123456789012",
+                "12345678123412341234123456789012",
+                "12345678-1234-1234-1234-123456789012",
+                "{12345678-1234-1234-1234-123456789012}",
+                "(12345678-1234-1234-1234-123456789012)"
+            };
+            foreach (var format in guidFormats)
+            {
+                var formattedJson = $"{{\"guid\": \"{format}\"}}";
+                var parsedFormat = formattedJson.FromJson<TestClassWithGuid>();
+                Assert.Equal(new Guid(format), parsedFormat.guid);
+            }
+
+            // Test with a new instance of TestClassWithGuid
+            var test = new TestClassWithGuid
+            {
+                guid = Guid.NewGuid()
+            };
+            var testJson = test.ToJson();
+            var parsedTest = testJson.FromJson<TestClassWithGuid>();
+            Assert.Equal(test.guid, parsedTest.guid);
+        }
     }
 }

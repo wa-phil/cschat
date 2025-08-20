@@ -16,7 +16,7 @@ using Microsoft.Extensions.Logging;
 using System.ClientModel.Primitives;
 
 [IsConfigurable("AzureAI")]
-public class AzureAI : IChatProvider, IEmbeddingProvider
+public class AzureAI : IChatProvider, IEmbeddingProvider 
 {
     private Config config = null!;
     private AzureOpenAIClient azureClient = null!;
@@ -155,7 +155,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
             return Array.Empty<float>();
         }
     });
-    
+
     public async Task<IReadOnlyList<float[]>> GetEmbeddingsAsync(
         IEnumerable<string> texts,
         CancellationToken ct = default
@@ -163,7 +163,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
     {
         ctx.OnlyEmitOnFailure();
         var list = texts?.ToList() ?? new();
-        if (list.Count == 0) 
+        if (list.Count == 0)
         {
             ctx.Succeeded();
             return (IReadOnlyList<float[]>)Array.Empty<float[]>();
@@ -185,7 +185,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
 
             // Per-request timeout that still respects the outer token
             using var sliceCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            sliceCts.CancelAfter(TimeSpan.FromSeconds(90));   
+            sliceCts.CancelAfter(TimeSpan.FromSeconds(90));
 
             int attempt = 0;
 

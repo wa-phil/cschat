@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -12,8 +13,8 @@ public class Context
     protected List<ChatMessage> _messages = new List<ChatMessage>();
     protected List<(string Reference, string Chunk)> _context = new List<(string Reference, string Chunk)>();
     private DateTime _conversationStartTime = DateTime.Now;
-    
-    public Context(string? systemPrompt = null) 
+
+    public Context(string? systemPrompt = null)
     {
         _conversationStartTime = DateTime.Now;
         AddSystemMessage(systemPrompt ?? Program.config.SystemPrompt);
@@ -65,9 +66,9 @@ public class Context
 
     public void SetSystemMessage(string content)
     {
-        _systemMessage = new ChatMessage 
-        { 
-            Role = Roles.System, 
+        _systemMessage = new ChatMessage
+        {
+            Role = Roles.System,
             Content = content,
             CreatedAt = _conversationStartTime
         };
@@ -126,11 +127,11 @@ public class Context
     {
         return new Context
         {
-            _systemMessage = new ChatMessage 
-            { 
-                Role = Roles.System, 
+            _systemMessage = new ChatMessage
+            {
+                Role = Roles.System,
                 Content = $"{_systemMessage.Content}", // Ensure a deep copy of the content for system message -- SUPER IMPORTANT
-                CreatedAt = _systemMessage.CreatedAt 
+                CreatedAt = _systemMessage.CreatedAt
             },
             _messages = new List<ChatMessage>(_messages),
             _context = new List<(string Reference, string Chunk)>(_context),
@@ -157,6 +158,7 @@ public class ContextManager
         var hash = System.Security.Cryptography.SHA256.HashData(bytes);
         return Convert.ToHexString(hash); // 64-char hex
     }
+    public static GraphStore GraphStore { get; } = new GraphStore();
     
     public static List<(Reference Reference, string MergedContent)> Flatten(List<(Reference Reference, string Content)> entries)
     {
@@ -322,6 +324,26 @@ public class ContextManager
         Engine.VectorStore.Add(entries);
         ctx.Succeeded(entries.Count > 0);
     });
+
+    public static async Task AddGraphContent(string content, string reference = "content") => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
+
+        ctx.Append(Log.Data.Reference, reference);
+        var chunks = Engine.TextChunker!.ChunkText(reference, content);
+        ctx.Append(Log.Data.Count, chunks.Count);
+
+        // Use LINQ to create a list of tasks
+        var tasks = chunks.Select(chunk =>
+            GraphStoreManager.ExtractAndStoreAsync(chunk.Content, chunk.Reference.ToString())
+        ).ToList();
+        
+        await Task.WhenAll(tasks); // Await all tasks at once
+
+        ctx.Append(Log.Data.Result, $"Processed {tasks.Count} chunks and stored graph data");
+        ctx.Succeeded(tasks.Count > 0);        
+    });    
 
     public static async Task<List<SearchResult>> SearchReferences(string reference) => await Log.Method(ctx =>
     {

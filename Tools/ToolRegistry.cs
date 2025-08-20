@@ -30,12 +30,12 @@ public static class ToolRegistry
         ctx.Succeeded();
     });
 
-    public static void RegisterMcpTool(string toolName, ITool tool)
+    public static void RegisterTool(string toolName, ITool tool)
     {
         _tools[toolName] = tool;
     }
 
-    public static void UnregisterMcpTool(string toolName)
+    public static void UnregisterTool(string toolName)
     {
         _tools.Remove(toolName);
     }

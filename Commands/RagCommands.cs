@@ -35,6 +35,21 @@ public partial class CommandManager
                 },
                 new Command
                 {
+                    Name = "Graph Add File", Description = () => "Add a file to the Graph RAG store",
+                    Action = async () =>
+                    {
+                        Console.Write("Enter graph file path: ");
+                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: false);
+                        if (!string.IsNullOrWhiteSpace(input))
+                        {
+                            await Engine.AddFileToGraphStore(input);
+                            Console.WriteLine($"Added file '{input}' to RAG.");
+                        }
+                        return Command.Result.Success;
+                    }
+                },
+                new Command
+                {
                     Name = "add directory", Description = () => "Add a directory to the RAG store",
                     Action = async () =>
                     {
@@ -43,6 +58,21 @@ public partial class CommandManager
                         if (!string.IsNullOrWhiteSpace(input))
                         {
                             await Engine.AddDirectoryToVectorStore(input);
+                            Console.WriteLine($"Added directory '{input}' to RAG.");
+                        }
+                        return Command.Result.Success;
+                    }
+                },
+                new Command
+                {
+                    Name = "Graph Add Directory", Description = () => "Add a directory to the Graph RAG store",
+                    Action = async () =>
+                    {
+                        Console.Write("Enter directory path: ");
+                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: true);
+                        if (!string.IsNullOrWhiteSpace(input))
+                        {
+                            await Engine.AddDirectoryToGraphStore(input);
                             Console.WriteLine($"Added directory '{input}' to RAG.");
                         }
                         return Command.Result.Success;
@@ -98,6 +128,96 @@ public partial class CommandManager
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
+                new Command
+                {
+                    Name = "Graph Walk", Description = () => "do a n-hop node walk on the Knowledge Graph",
+                    Action = () =>
+                    {
+                        Console.Write("Enter search query: ");
+                        var query = Console.ReadLine();
+                        
+                        Console.WriteLine("Enter the number of hops to walk (default is 2): ");
+                        var hopsInput = Console.ReadLine();
+
+                        int hops = 2;
+                        if (int.TryParse(hopsInput, out int parsedHops))
+                        {
+                            hops = parsedHops;
+                        }
+                        GraphStoreManager.Graph.PrintEntitiesWithinHops(query ?? string.Empty, hops);
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "Graph Dump", Description = () => "display a range of entries from the Graph RAG store",
+                    Action = () =>
+                    {
+                        GraphStoreManager.Graph.PrintGraph();
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "Graph Community Info", Description = () => "Show detailed information about graph communities",
+                    Action = () =>
+                    {
+                        if (GraphStoreManager.Graph.IsEmpty)
+                        {
+                            Console.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+
+                        Console.Write("Enter community ID (leave blank for all communities): ");
+                        var input = Console.ReadLine();
+                        
+                        if (string.IsNullOrWhiteSpace(input))
+                        {
+                            GraphStoreManager.Graph.PrintDetailedCommunityInfo();
+                        }
+                        else if (int.TryParse(input, out int communityId))
+                        {
+                            GraphStoreManager.Graph.PrintDetailedCommunityInfo(communityId);
+                        }
+                        else
+                        {
+                            Console.WriteLine("Invalid community ID. Please enter a number or leave blank for all communities.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+                        
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "Graph Community Summary", Description = () => "Show summary table of all graph communities",
+                    Action = () =>
+                    {
+                        if (GraphStoreManager.Graph.IsEmpty)
+                        {
+                            Console.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+                        
+                        GraphStoreManager.Graph.PrintCommunitySummaryTable();
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "Graph Community Detection", Description = () => "Detect communities in the graph using Louvain algorithm",
+                    Action = () =>
+                    {
+                        if (GraphStoreManager.Graph.IsEmpty)
+                        {
+                            Console.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
+                            return Task.FromResult(Command.Result.Failed);
+                        }
+
+                        GraphStoreManager.Graph.PrintCommunityAnalysis();
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
                 new Command {
                     Name = "export summary",
                     Description = () => "Filter entries by reference and export a de-duped summary",
@@ -111,7 +231,7 @@ public partial class CommandManager
                             return Task.FromResult(Command.Result.Cancelled);
                         }
 
-                        var entries = Engine.VectorStore.GetEntries((refStr, content) => 
+                        var entries = Engine.VectorStore.GetEntries((refStr, content) =>
                             refStr.Source.Contains(filter, StringComparison.OrdinalIgnoreCase));
 
                         var merged = ContextManager.Flatten(entries);

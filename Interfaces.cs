@@ -18,6 +18,41 @@ public class ExampleText : Attribute
     public ExampleText(string text) => Text = text;
 }
 
+// Attribute to mark types for inclusion in UserManagedData subsystem
+[AttributeUsage(AttributeTargets.Class, Inherited = false)]
+public class UserManagedAttribute : Attribute
+{
+    public string Name { get; }
+    public string Description { get; }
+    public UserManagedAttribute(string name, string description)
+    {
+        Name = name;
+        Description = description;
+    }
+}
+
+[AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+public sealed class UserFieldAttribute : Attribute
+{
+    public bool Required { get; }
+    public string? Display { get; }
+    public string? Hint { get; }
+
+    public UserFieldAttribute(bool required = false, string? display = null, string? hint = null)
+    {
+        Required = required;
+        Display = display;
+        Hint = hint;
+    }
+}
+
+/// <summary>
+/// Marks the property used as the logical key for updates.
+/// If absent, a property named "Id" (case-insensitive) will be used if present.
+/// </summary>
+[AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+public sealed class UserKeyAttribute : Attribute { }
+
 public interface IChatProvider
 {
     Task<List<string>> GetAvailableModelsAsync();
@@ -79,4 +114,11 @@ public interface ITool
     Type InputType { get; } // The type expected for the input parameter
     string InputSchema { get; }
     Task<ToolResult> InvokeAsync(object input, Context Context); // Returns response text, and optionally modifies Context for context
+}
+
+public interface ISubsystem
+{
+    Type ConfigType { get; }
+    bool IsAvailable { get; }
+    bool IsEnabled { get; set; }
 }

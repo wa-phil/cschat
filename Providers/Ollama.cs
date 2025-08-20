@@ -135,7 +135,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         ctx.Succeeded();
         return embedding.Select(Convert.ToSingle).ToArray();
     });
-    
+
     public async Task<IReadOnlyList<float[]>> GetEmbeddingsAsync(
         IEnumerable<string> texts,
         CancellationToken ct = default
@@ -169,5 +169,5 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         ctx.Succeeded();
         return results;
     });
-
+    
 }
