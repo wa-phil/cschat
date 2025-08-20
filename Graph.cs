@@ -370,6 +370,126 @@ public class GraphStore
         Console.WriteLine("============================\n");
     }
 
+    public string GetGraphData0()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("\nEntities with Directional Relationships:");
+        foreach (var entity in Entities.Values)
+        {
+            var counts = entity.GetRelationshipCounts();
+            sb.AppendLine($"- {entity} [Out: {counts.OutgoingCount}, In: {counts.IncomingCount}, Total: {counts.TotalCount}]");
+
+            // Show outgoing relationships
+            var outgoingTypes = entity.GetOutgoingRelationshipTypes();
+            if (outgoingTypes.Count > 0)
+            {
+                sb.AppendLine($"  Outgoing Relationships ({counts.OutgoingCount}):");
+                foreach (var relType in outgoingTypes)
+                {
+                    var targets = entity.GetOutgoingNeighborsByType(relType);
+                    sb.AppendLine($"    --[{relType}]--> {string.Join(", ", targets.Select(n => n.Name))}");
+                }
+            }
+
+            // Show incoming relationships
+            var incomingTypes = entity.GetIncomingRelationshipTypes();
+            if (incomingTypes.Count > 0)
+            {
+                sb.AppendLine($"  Incoming Relationships ({counts.IncomingCount}):");
+                foreach (var relType in incomingTypes)
+                {
+                    var sources = entity.GetIncomingNeighborsByType(relType);
+                    sb.AppendLine($"    <--[{relType}]-- {string.Join(", ", sources.Select(n => n.Name))}");
+                }
+            }
+
+            if (counts.TotalCount == 0)
+            {
+                sb.AppendLine("  No relationships");
+            }
+        }
+
+        sb.AppendLine("\nDirect Relationships:");
+        foreach (var rel in Relationships)
+            sb.AppendLine($"- {rel}");
+
+        return sb.ToString();
+    }    
+
+    public string GetGraphData()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Knowledge Graph Summary:\n");
+
+        foreach (var entity in Entities.Values)
+        {
+            sb.AppendLine($"**{entity.Name}** ({entity.Type})");
+
+            // Optional: Add description if available
+            if (!string.IsNullOrWhiteSpace(entity.Attributes))
+            {
+                sb.AppendLine($"{entity.Attributes}");
+            }
+
+            // Outgoing relationships
+            if (entity.OutgoingRelationships.Any())
+            {
+                sb.AppendLine($"\n{entity.Name} has the following outgoing relationships:");
+                foreach (var kvp in entity.OutgoingRelationships)
+                {
+                    string relationType = kvp.Key;
+                    foreach (var (targetEntity, _, description) in kvp.Value)
+                    {
+                        sb.AppendLine($"- {entity.Name} {ToVerb(relationType)} {targetEntity.Name}: {description}");
+                    }
+                }
+            }
+
+            // Incoming relationships
+            if (entity.IncomingRelationships.Any())
+            {
+                sb.AppendLine($"\n{entity.Name} is involved in the following incoming relationships:");
+                foreach (var kvp in entity.IncomingRelationships)
+                {
+                    string relationType = kvp.Key;
+                    foreach (var (sourceEntity, _, description) in kvp.Value)
+                    {
+                        sb.AppendLine($"- {sourceEntity.Name} {ToVerb(relationType)} {entity.Name}: {description}");
+                    }
+                }
+            }
+
+            sb.AppendLine("\n---\n");
+        }
+
+        return sb.ToString();
+    }
+
+    // Helper to convert relationship types to natural verbs
+    private string ToVerb(string relationshipType)
+    {
+        return relationshipType switch
+        {
+            "works_for" => "works for",
+            "located_in" => "is located in",
+            "part_of" => "is part of",
+            "uses" => "uses",
+            "consumes" => "consumes",
+            "orchestrates" => "orchestrates",
+            "developed_in" => "is developed in",
+            "packaged_as" => "is packaged as",
+            "tests" => "tests",
+            "depends_on" => "depends on",
+            "permission_required_for" => "requires permission for",
+            "created_by" => "is created by",
+            "edited_in" => "is edited in",
+            "supports" => "supports",
+            "used_by" => "is used by",
+            "used_for" => "is used for",
+            _ => $"has a '{relationshipType}' relationship with"
+        };
+    }
+
     // Print detailed graph analysis
     public void PrintGraphAnalysis()
     {
@@ -1057,6 +1177,90 @@ public class GraphMetrics
 
 public static class GraphStoreManager
 {
+    /// <summary>
+    /// Generates reference documentation for the current knowledge graph, following strict reference guide principles.
+    /// Output is Markdown, neutral, factual, and structured according to the graph's machinery.
+    /// </summary>
+    public static async Task GenerateReferenceDocumentationAsync(/*string content*/) => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        //ctx.Append(Log.Data.Reference, content);
+
+        try
+        {
+            var working = new Context(@"""
+You are a senior developer writing internal documentation for new team members.
+
+Using the following knowledge graph, write a developer-friendly guide that introduces each tool, repository, and process in natural language.
+
+Avoid technical jargon unless necessary, and don't use ontology-style formatting like arrows or relationship labels.
+
+Instead, explain how each entity fits into the overall build and deployment workflow, what it’s used for, and how it interacts with other components.
+
+Use a conversational tone, like you're walking a teammate through the system.
+
+Here's an example of the style I want:
+
+Forge is our main build orchestration tool. It handles over 30 actions during the Click-to-Run (C2R) deployment process, including packaging and telemetry. It pulls configuration from DeployTools and relies on RepoMan to create Unity packages. We distribute Forge as a NuGet package, and all changes go through CloudBuild for testing before release.
+
+Now, write similar descriptions for the rest of the entities in the graph consisting of entities and relationships.
+Each entity contains:
+- Entity name
+- Entity type (Person, Organization, Location, Concept, etc.)
+- Key attributes or descriptions
+- List of incoming and outgoing relationships
+
+Each relationship contains:
+- Source entity
+- Target entity  
+- Relationship type (works_for, located_in, part_of, etc.)
+- Relationship description
+
+Given the context of the knowledge graph, generate comprehensive reference documentation that includes:
+
+1. An overview of the graph structure, including key entities and their relationships.
+2. Detailed descriptions of each entity, including attributes, types, and relationships.
+3. Explanations of the significance of each relationship within the graph.
+
+The output should be well-structured, easy to navigate, and suitable for both technical audiences. Generate it in markdown format.
+
+Use the following philosphy:
+Reference material provides accurate, neutral, and structured descriptions of a product—especially software—serving as an authoritative source users consult for clarity and certainty in their work. Unlike tutorials or how-to guides, it avoids explanation or instruction, focusing solely on describing the product’s components (e.g., APIs, functions) in alignment with its internal structure. The tone should be objective and austere, using standard patterns for consistency, and may include concise examples to illustrate usage without drifting into teaching. Good reference material is essential for confident, informed use of a system.
+""");
+            string content = GraphStoreManager.Graph.GetGraphData();
+            working.AddUserMessage(content);
+
+            var response = await TypeParser.GetAsync(working, typeof(string));
+            if (response == null)// || response is not GraphDto graphDtoObject)
+            {
+                Console.WriteLine($"JSON processing issue");
+                return;
+            }
+            Console.WriteLine($"\n=== Extracted from {response} ===");
+
+            /*if (graphDtoObject != null)
+            {
+                GraphStoreManager.ParseGraphFromJson(graphDtoObject);
+                await GenerateEntityEmbeddingsAsync(graphDtoObject.Entities);
+                Console.WriteLine($"Successfully processed {graphDtoObject.Entities?.Count ?? 0} entities and {graphDtoObject.Relationships?.Count ?? 0} relationships");
+            }
+            else
+            {
+                Console.WriteLine("Failed to parse JSON response into GraphDto");
+            }*/
+
+            Console.WriteLine("=================================\n");
+
+            //ctx.Append(Log.Data.Result, $"Extracted {GraphStoreManager.Graph.EntityCount} entities and {GraphStoreManager.Graph.RelationshipCount} relationships from {reference}");
+            ctx.Succeeded();
+        }
+        catch (Exception ex)
+        {
+            ctx.Failed($"Failed to extract entities and relationships", ex);
+            Console.WriteLine($"Failed to extract entities and relationships: {ex.Message}");
+        }
+    });
+
     public static GraphStore Graph { get; } = new GraphStore();
 
     // Add embeddings storage for entities
@@ -1128,7 +1332,7 @@ For each relationship, identify:
     });
 
     /// <summary>
-    /// 🔥 THIS IS THE KEY METHOD THAT POPULATES EntityEmbeddings 🔥
+    /// THIS IS THE KEY METHOD THAT POPULATES EntityEmbeddings
     /// Called automatically when new entities are extracted from documents
     /// </summary>
     private static async Task GenerateEntityEmbeddingsAsync(List<EntityDto> entities)
