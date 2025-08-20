@@ -80,6 +80,15 @@ public partial class CommandManager
                 },
                 new Command
                 {
+                    Name = "Graph Generate Documentation", Description = () => "Generate documentation for the Knowledge Graph",
+                    Action = async () =>
+                    {
+                        await Engine.GetDocumentation();
+                        return Command.Result.Success;
+                    }
+                },
+                new Command
+                {
                     Name = "add zip contents", Description = () => "Add contents of a zip file to the RAG store",
                     Action = async () =>
                     {

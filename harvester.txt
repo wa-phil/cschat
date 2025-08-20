@@ -1,0 +1,24 @@
+Overview of Harvester
+Harvester is the main tool used to extract (harvest) setup authoring information from the msi* projects outputs and convert it into a format suitable for consumption by C2R.
+
+There are currently two versions of Harvester:
+
+Harvester V2
+This is the legacy/old Harvester. It is the one currently being used but is expected to be replaced by New Harvester soon after the WiX 4.0 conversion effort is completed.
+
+Harvester V2 is built by the click2run project, in the x86 platform build.
+
+Harvester V2 is a native code (C++ sources) application, sources are in click2run\HarvesterV2.
+
+Harvester V2 is packaged as Nuget package 'Office.Wixpipeline.Harvester' with 16.0.<major>{=html}.<minor>{=html} version.
+
+This package is built by the pkgnuget_wixtools project.
+
+New Harvester
+This is the modern/future Harvester. It is not currently used by default but is expected to become the default soon after the WiX 4.0 conversion effort is completed.
+
+New Harvester V2 is a managed code (C# sources) application located in WixTools project.
+
+The Forge will use this version if the USE_NEW_HARVESTER macro is set to 1.
+
+By default, Forge use the HarvesterV2 from the 16.0.0.0 versions of Office.Wixpipeline.Harvester, as per previous section.

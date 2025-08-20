@@ -69,6 +69,32 @@ public static class Engine
         }
     });
 
+    public static async Task GetDocumentation() => await Log.MethodAsync(async ctx =>
+    {
+        try
+        {
+            ctx.OnlyEmitOnFailure();
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var countItems = 0;
+            var knownFiles = new StringBuilder();
+
+            Console.WriteLine("Started processing files for RAG store...");
+
+            await ContextManager.GenerateDocumentationFromGraphContent();
+
+            //await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
+
+            stopwatch.Stop();
+            Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
+            ctx.Succeeded();
+        }
+        finally
+        {
+            Console.ResetColor();
+        }
+    });
+
+
     public static string BuildCommandTreeArt(IEnumerable<Command> commands, string indent = "", bool isLast = true, bool showText = true)
     {
         var sb = new StringBuilder();
