@@ -221,65 +221,67 @@ public partial class CommandManager : Command
 
     private static Command CreateToolsCommands()
     {
-        var toolSubcommands = ToolRegistry.GetRegisteredTools().Select(tool =>
-            new Command
-            {
-                Name = tool.Name,
-                Description = () => tool.Description,
-                Action = async () =>
-                {
-                    Console.WriteLine($"Using tool: {tool.Name}");
-                    Console.WriteLine($"Description: {tool.Description}");
-                    Console.WriteLine($"Usage: {tool.Usage}");
-                    Console.WriteLine();
-
-                    var toolInstance = ToolRegistry.GetTool(tool.Name);
-                    if (toolInstance == null)
-                    {
-                        Console.WriteLine($"Tool '{tool.Name}' not found.");
-                        return Command.Result.Failed;
-                    }
-
-                    // Show input format guidance
-                    object toolInput = new NoInput(); // Default to NoInput
-                    string? input = null;
-                    var (guidance, isRequired) = GetInputFormatGuidance(toolInstance);
-                    if (isRequired)
-                    {
-                        Console.WriteLine(guidance);
-                        Console.WriteLine();
-                        Console.Write("Enter input: ");
-                                                            
-                        // Get user input
-                        input = User.ReadLineWithHistory();
-                        try
-                        {
-                            // Parse input based on the tool's expected input type
-                            toolInput = ParseToolInput(toolInstance, input ?? string.Empty);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Error parsing input: {ex.Message}");
-                            return Command.Result.Failed;
-                        }
-                    }
-
-                    var tempContext = new Context(string.Empty); // Create temporary Context for command execution
-                    var result = await ToolRegistry.InvokeToolAsync(tool.Name, toolInput, tempContext) ?? string.Empty;
-                    Console.WriteLine($"Tool result: {result}");
-                    Console.WriteLine("Tool Context:");
-                    User.RenderChatHistory(tempContext.Messages());
-                    return Command.Result.Success;
-                }
-            }).ToList();
-
+        // Build the tools submenu dynamically when invoked so newly-registered tools (e.g. from MCP servers)
+        // appear without restarting the application.
         return new Command
         {
             Name = "tools",
             Description = () => "Invoke/run tools",
-            SubCommands = toolSubcommands,
+            SubCommands = new List<Command>(),
             Action = async () =>
             {
+                var toolSubcommands = ToolRegistry.GetRegisteredTools().Select(tool =>
+                    new Command
+                    {
+                        Name = tool.Name,
+                        Description = () => tool.Description,
+                        Action = async () =>
+                        {
+                            Console.WriteLine($"Using tool: {tool.Name}");
+                            Console.WriteLine($"Description: {tool.Description}");
+                            Console.WriteLine($"Usage: {tool.Usage}");
+                            Console.WriteLine();
+
+                            var toolInstance = ToolRegistry.GetTool(tool.Name);
+                            if (toolInstance == null)
+                            {
+                                Console.WriteLine($"Tool '{tool.Name}' not found.");
+                                return Command.Result.Failed;
+                            }
+
+                            // Show input format guidance
+                            object toolInput = new NoInput(); // Default to NoInput
+                            string? input = null;
+                            var (guidance, isRequired) = GetInputFormatGuidance(toolInstance);
+                            if (isRequired)
+                            {
+                                Console.WriteLine(guidance);
+                                Console.WriteLine();
+                                Console.Write("Enter input: ");
+
+                                // Get user input
+                                input = User.ReadLineWithHistory();
+                                try
+                                {
+                                    // Parse input based on the tool's expected input type
+                                    toolInput = ParseToolInput(toolInstance, input ?? string.Empty);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"Error parsing input: {ex.Message}");
+                                    return Command.Result.Failed;
+                                }
+                            }
+
+                            var tempContext = new Context(string.Empty); // Create temporary Context for command execution
+                            var result = await ToolRegistry.InvokeToolAsync(tool.Name, toolInput, tempContext) ?? string.Empty;
+                            Console.WriteLine($"Tool result: {result}");
+                            Console.WriteLine("Tool Context:");
+                            User.RenderChatHistory(tempContext.Messages());
+                            return Command.Result.Success;
+                        }
+                    }).ToList();
+
                 return await new Command
                 {
                     Name = "tools",

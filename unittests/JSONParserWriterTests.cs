@@ -386,7 +386,6 @@ namespace unittests
             Assert.Contains("DroppedAggregatedActivity", logFilter.Exclude);
 
             // Verify other config properties
-            Assert.Equal("./mcp_servers", config.McpServerDirectory);
             Assert.False(config.VerboseEventLoggingEnabled);
             Assert.Equal(25, config.MaxSteps);
             Assert.Equal(10, config.MaxMenuItems);

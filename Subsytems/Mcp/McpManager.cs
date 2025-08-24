@@ -3,24 +3,72 @@ using System.IO;
 using System.Linq;
 using System.Diagnostics;
 using System.Threading;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Text.Json;
 
-public class McpManager
+[IsConfigurable("Mcp")]
+public class McpManager : ISubsystem
 {
     private static McpManager? _instance;
     public static McpManager Instance => _instance ??= new McpManager();
 
     private readonly ConcurrentDictionary<string, McpClient> _clients = new();
     private readonly ConcurrentDictionary<string, List<McpTool>> _serverTools = new();
-    private readonly string _serverDefinitionsPath;
+    private bool _isEnabled = false;
 
-    private McpManager()
+    public bool IsAvailable { get; } = true;
+    public bool IsEnabled
     {
-        _serverDefinitionsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Program.config.McpServerDirectory);
-        Directory.CreateDirectory(_serverDefinitionsPath);
+        get => _isEnabled;
+        set
+        {
+            if (value && !_isEnabled)
+            {
+                // Enable: load configured servers
+                // Run synchronously to match pattern in other subsystems
+                LoadAllServersAsync().GetAwaiter().GetResult();
+                _isEnabled = true;
+                // Register MCP commands into the global command manager so they appear in the menu
+                try
+                {
+                    if (Program.commandManager != null)
+                    {
+                        Program.commandManager.SubCommands.Add(Subsytems.Mcp.CommandManager.CreateMcpSubsystemCommands());
+                    }
+                }
+                catch
+                {
+                    // ignore failures to register commands
+                }
+            }
+            else if (!value && _isEnabled)
+            {
+                // Disable: shutdown all MCP clients
+                ShutdownAllAsync().GetAwaiter().GetResult();
+                _isEnabled = false;
+                // Remove MCP commands from the global command manager
+                try
+                {
+                    if (Program.commandManager != null)
+                    {
+                        Program.commandManager.SubCommands.RemoveAll(cmd => cmd.Name.Equals("mcp", StringComparison.OrdinalIgnoreCase));
+                    }
+                }
+                catch
+                {
+                    // ignore failures to unregister commands
+                }
+            }
+
+            // Persist desired enabled state to global config so SubsystemManager can save/restore
+            // Use the logical configurable name (IsConfigurable attribute) when present so the
+            // config uses stable, user-oriented keys (e.g. "Mcp") instead of concrete type names.
+            var cfgName = this.GetType().GetCustomAttribute<IsConfigurable>()?.Name ?? this.GetType().Name;
+            Program.config.Subsystems[cfgName] = _isEnabled;
+        }
     }
 
     public async Task<bool> AddServerAsync(McpServerDefinition serverDef) => await Log.MethodAsync(async ctx =>
@@ -29,11 +77,9 @@ public class McpManager
         
         try
         {
-            // Save the server definition first
-            var filePath = Path.Combine(_serverDefinitionsPath, $"{serverDef.Name}.json");
-            var json = serverDef.ToJson();
-            await File.WriteAllTextAsync(filePath, json);
-            Console.WriteLine($"Saved server definition to: {filePath}");
+            // Persist the server definition using UserManagedData if available
+            Program.SubsystemManager.Get<UserManagedData>().AddItem(serverDef);
+            ctx.Append(Log.Data.Message, "Persisted server definition to UserManagedData subsystem");
 
             // Connect to the server and register tools
             var success = await ConnectToServerAsync(serverDef);
@@ -65,11 +111,12 @@ public class McpManager
             // Disconnect from server and remove tools
             await DisconnectFromServerAsync(serverName);
 
-            // Remove the server definition file
-            var filePath = Path.Combine(_serverDefinitionsPath, $"{serverName}.json");
-            if (File.Exists(filePath))
+            // Remove persisted server definition (try UserManagedData first, then filesystem)
+            var umd = Program.SubsystemManager.Get<UserManagedData>();
+            if (umd != null)
             {
-                File.Delete(filePath);
+                // Remove entries matching this server name
+                umd.DeleteItem<McpServerDefinition>(s => string.Equals(s.Name, serverName, StringComparison.OrdinalIgnoreCase));
             }
 
             ctx.Succeeded();
@@ -85,21 +132,24 @@ public class McpManager
     public async Task LoadAllServersAsync() => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        
-        var serverFiles = Directory.GetFiles(_serverDefinitionsPath, "*.json");
+        var serverDefs = new List<McpServerDefinition>();
+        // Try to load from UserManagedData subsystem first
+        var umd = Program.SubsystemManager.Get<UserManagedData>();
+        if (umd != null)
+        {
+            var items = umd.GetItems<McpServerDefinition>();
+            if (items != null && items.Count > 0)
+            {
+                serverDefs.AddRange(items);
+            }
+        }
+
         var loadedCount = 0;
-        
-        foreach (var file in serverFiles)
+        foreach (var serverDef in serverDefs)
         {
             try
             {
-                Console.ForegroundColor = ConsoleColor.DarkYellow;
-                Console.WriteLine($"Loading MCP server from {Path.GetFileName(file)}...");
-                Console.ResetColor();
-                var json = await File.ReadAllTextAsync(file);
-                var serverDef = json.FromJson<McpServerDefinition>();
-
-                if (serverDef != null && serverDef.Enabled)
+                if (serverDef != null)
                 {
                     ctx.Append(Log.Data.Name, serverDef.Name);
                     ctx.Append(Log.Data.Command, serverDef.Command);
@@ -122,12 +172,11 @@ public class McpManager
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"Warning: Failed to load MCP server from {Path.GetFileName(file)}: {ex.Message}.  See system logs for additional details.");
+                Console.WriteLine($"Warning: Failed to load MCP server {serverDef?.Name}: {ex.Message}.  See system logs for additional details.");
                 Console.ResetColor();
-                return;
             }
         }
-        
+
         ctx.Append(Log.Data.Count, loadedCount);
         ctx.Succeeded();
     });
@@ -252,37 +301,7 @@ public class McpManager
         }
     });
 
-    public List<McpServerDefinition> GetServerDefinitions()
-    {
-        var servers = new List<McpServerDefinition>();
-        
-        try
-        {
-            var serverFiles = Directory.GetFiles(_serverDefinitionsPath, "*.json");
-            foreach (var file in serverFiles)
-            {
-                try
-                {
-                    var json = File.ReadAllText(file);  
-                    var serverDef = json.FromJson<McpServerDefinition>();
-                    if (serverDef != null)
-                    {
-                        servers.Add(serverDef);
-                    }
-                }
-                catch
-                {
-                    // Ignore invalid server definition files
-                }
-            }
-        }
-        catch
-        {
-            // Ignore directory access errors
-        }
-
-        return servers;
-    }
+    public List<McpServerDefinition> GetServerDefinitions() => Program.SubsystemManager.Get<UserManagedData>().GetItems<McpServerDefinition>();
 
     public List<(string ServerName, List<McpTool> Tools)> GetConnectedServers() => _serverTools.Select(kvp => (kvp.Key, kvp.Value)).ToList();
 

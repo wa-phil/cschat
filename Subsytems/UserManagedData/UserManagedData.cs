@@ -10,7 +10,6 @@ public class UserManagedData : ISubsystem
     private readonly Dictionary<Type, UserManagedAttribute> _registeredTypes = new();
     private bool _connected = false;
 
-    public Type ConfigType => typeof(UserManagedDataConfig);
     public bool IsAvailable { get; } = true;
     public bool IsEnabled
     {

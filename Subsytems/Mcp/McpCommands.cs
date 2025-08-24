@@ -5,172 +5,84 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
-public partial class CommandManager : Command
+namespace Subsytems.Mcp
 {
-    public static Command CreateMcpCommands()
+    public partial class CommandManager : Command
     {
-        return new Command
+        public static Command CreateMcpSubsystemCommands()
         {
-            Name = "mcp",
-            Description = () => "MCP (Model Context Protocol) server management",
+            return new Command
+            {
+                Name = "MCP", Description = () => "(Model Context Protocol) server management",
             SubCommands = new List<Command>
             {
                 new Command
                 {
-                    Name = "mcp directory",
-                    Description = () => $"Set the directory for MCP server configurations [currently: {Program.config.McpServerDirectory}]",
-                    Action = () =>
-                    {
-                        Console.Write("Enter the path to the MCP server directory (default: ./mcp_servers): ");
-                        var input = Console.ReadLine()?.Trim();
-                        if (string.IsNullOrWhiteSpace(input))
-                        {
-                            input = "./mcp_servers";
-                        }
-                        if (!Directory.Exists(input))
-                        {
-                            Console.WriteLine($"Directory does not exist: {input}");
-                            return Task.FromResult(Command.Result.Failed);
-                        }
-                        Program.config.McpServerDirectory = input;
-                        Console.WriteLine($"MCP server directory set to: {input}");
-                        Config.Save(Program.config, Program.ConfigFilePath);
-                        return Task.FromResult(Command.Result.Success);
-                    }
-                },
-                new Command
-                {
-                    Name = "list",
-                    Description = () => "List configured MCP servers",
-                    Action = () =>
-                    {
-                        var servers = McpManager.Instance.GetServerDefinitions();
-                        if (servers.Count == 0)
-                        {
-                            Console.WriteLine("No MCP servers configured.");
-                            return Task.FromResult(Command.Result.Success);
-                        }
-
-                        Console.WriteLine($"Configured MCP servers ({servers.Count}):");
-                        foreach (var server in servers)
-                        {
-                            var status = McpManager.Instance.GetConnectedServers()
-                                .Any(cs => cs.ServerName == server.Name) ? "Connected" : "Not Connected";
-
-                            Console.WriteLine($"  {server.Name} [{status}]");
-                            Console.WriteLine($"    Description: {server.Description}");
-                            Console.WriteLine($"    Config file: {server.Name}.json");
-                            Console.WriteLine($"    Command: {server.Command}");
-                            if (server.Args.Count > 0)
-                            {
-                                Console.WriteLine($"    Args: {string.Join(" ", server.Args)}");
-                            }
-                            Console.WriteLine($"    Enabled: {server.Enabled}");
-                            Console.WriteLine($"    Created: {server.CreatedAt:yyyy-MM-dd HH:mm:ss}");
-                            Console.WriteLine();
-                        }
-                        return Task.FromResult(Command.Result.Success);
-                    }
-                },
-                new Command
-                {
                     Name = "add",
-                    Description = () => "Add a new MCP server from a configuration file",
+                    Description = () => "Add a new MCP server (enter details or paste JSON)",
                     Action = async () =>
                     {
                         Console.WriteLine("Adding new MCP server configuration...");
                         Console.WriteLine();
-                        Console.Write("Path to MCP server configuration file: ");
-                        
-                        var filePath = User.ReadLineWithHistory();
-                        if (string.IsNullOrWhiteSpace(filePath))
+
+                        Console.WriteLine("You can either paste a JSON server definition now (single line), or press Enter to enter fields interactively.");
+                        Console.Write("Paste JSON or press Enter: ");
+                        var input = User.ReadLineWithHistory();
+
+                        McpServerDefinition serverDef = null!;
+                        if (!string.IsNullOrWhiteSpace(input))
                         {
-                            Console.WriteLine("No file path provided.");
-                            return Command.Result.Cancelled;
+                            try
+                            {
+                                var parsed = input.FromJson<McpServerDefinition>();
+                                if (parsed == null)
+                                {
+                                    Console.WriteLine("Failed to parse server definition JSON.");
+                                    return Command.Result.Failed;
+                                }
+                                serverDef = parsed;
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Invalid JSON provided: {ex.Message}");
+                                return Command.Result.Failed;
+                            }
+                        }
+                        else
+                        {
+                            // Interactive entry
+                            serverDef = new McpServerDefinition();
+                            Console.Write("Server name: ");
+                            var nameInput = User.ReadLineWithHistory();
+                            if (string.IsNullOrWhiteSpace(nameInput)) return Command.Result.Cancelled;
+                            serverDef.Name = nameInput!;
+                            Console.Write("Command to start server (e.g. python server.py): ");
+                            var cmdInput = User.ReadLineWithHistory();
+                            serverDef.Command = string.IsNullOrWhiteSpace(cmdInput) ? string.Empty : cmdInput!;
+                            Console.Write("Optional args (space-separated): ");
+                            var argsLine = User.ReadLineWithHistory();
+                            serverDef.Args = string.IsNullOrWhiteSpace(argsLine) ? new List<string>() : argsLine!.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+                            Console.Write("Description (optional): ");
+                            var descInput = User.ReadLineWithHistory();
+                            serverDef.Description = descInput ?? string.Empty;
                         }
 
-                        // Expand ~ to home directory if needed
-                        if (filePath.StartsWith("~/"))
+                        // Validate name uniqueness
+                        var existingServers = McpManager.Instance.GetServerDefinitions();
+                        if (existingServers.Any(s => s.Name.Equals(serverDef.Name, StringComparison.OrdinalIgnoreCase)))
                         {
-                            filePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), filePath.Substring(2));
-                        }
-
-                        if (!File.Exists(filePath))
-                        {
-                            Console.WriteLine($"File not found: {filePath}");
+                            Console.WriteLine($"A server with the name '{serverDef.Name}' already exists.");
                             return Command.Result.Failed;
                         }
 
-                        try
+                        var success = await McpManager.Instance.AddServerAsync(serverDef);
+                        if (success)
                         {
-                            var configJson = await File.ReadAllTextAsync(filePath);
-                            Console.WriteLine($"Raw JSON content: {configJson}");
-                            
-                            var serverDef = configJson.FromJson<McpServerDefinition>();
-                            
-                            if (serverDef == null)
-                            {
-                                Console.WriteLine("Failed to parse MCP server configuration from file.");
-                                return Command.Result.Failed;
-                            }
-
-                            Console.WriteLine();
-                            Console.WriteLine("Parsed server configuration:");
-                            Console.WriteLine($"  Name: '{serverDef.Name}'");
-                            Console.WriteLine($"  Command: '{serverDef.Command}'");
-                            Console.WriteLine($"  Description: '{serverDef.Description}'");
-                            Console.WriteLine($"  Args: [{string.Join(", ", serverDef.Args.Select(a => $"'{a}'"))}]");
-                            Console.WriteLine();
-
-                            // Ask for a friendly name
-                            Console.Write($"Enter a friendly name for this server (default: {serverDef.Name ?? "mcp-server"}): ");
-                            var friendlyName = User.ReadLineWithHistory();
-                            
-                            if (string.IsNullOrWhiteSpace(friendlyName))
-                            {
-                                friendlyName = serverDef.Name ?? "mcp-server";
-                            }
-
-                            // Check if name already exists
-                            var existingServers = McpManager.Instance.GetServerDefinitions();
-                            if (existingServers.Any(s => s.Name.Equals(friendlyName, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                Console.WriteLine($"A server with the name '{friendlyName}' already exists.");
-                                return Command.Result.Failed;
-                            }
-
-                            // Update the server definition with the friendly name
-                            serverDef.Name = friendlyName;
-                            serverDef.Enabled = true;
-                            serverDef.CreatedAt = DateTime.UtcNow;
-                            serverDef.UpdatedAt = DateTime.UtcNow;
-
-                            var success = await McpManager.Instance.AddServerAsync(serverDef);
-                            if (success)
-                            {
-                                Console.WriteLine($"Successfully added and connected to MCP server '{friendlyName}'.");
-                                
-                                // Show available tools
-                                var connectedServers = McpManager.Instance.GetConnectedServers();
-                                var connectedServer = connectedServers.FirstOrDefault(cs => cs.ServerName == friendlyName);
-                                if (connectedServer.Tools?.Count > 0)
-                                {
-                                    Console.WriteLine($"Available tools from {friendlyName}:");
-                                    foreach (var tool in connectedServer.Tools)
-                                    {
-                                        Console.WriteLine($"  - {tool.ToolName}: {tool.Description}");
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                Console.WriteLine($"Failed to add MCP server '{friendlyName}'. Check the server configuration and ensure the server is accessible.");
-                                return Command.Result.Failed;
-                            }
+                            Console.WriteLine($"Successfully added and connected to MCP server '{serverDef.Name}'.");
                         }
-                        catch (Exception ex)
+                        else
                         {
-                            Console.WriteLine($"Error adding MCP server: {ex.Message}");
+                            Console.WriteLine($"Failed to add MCP server '{serverDef.Name}'.");
                             return Command.Result.Failed;
                         }
 
@@ -279,7 +191,7 @@ public partial class CommandManager : Command
                             return Task.FromResult(Command.Result.Success);
                         }
                         Console.WriteLine("Creating documentation for MCP servers and tools...");
-                        var docPath = Path.Combine(Program.config.McpServerDirectory, "mcp_documentation.md");
+                        var docPath = Path.Combine(Directory.GetCurrentDirectory(), "mcp_documentation.md");
                         using (var writer = new StreamWriter(docPath, false))
                         {
                             writer.WriteLine("# MCP Servers Documentation");
@@ -297,7 +209,10 @@ public partial class CommandManager : Command
                                         exmapleText = exmapleText.Replace("ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.", string.Empty);
                                         writer.WriteLine($"- **Description**: {tool.Description}");
                                         writer.WriteLine($"- **Input Schema**: {tool.InputSchema}");
-                                        writer.WriteLine($"- **Example Input**:\n```json\n{exmapleText}\n```");
+                                        writer.WriteLine("- **Example Input**:");
+                                        writer.WriteLine("```json");
+                                        writer.WriteLine(exmapleText);
+                                        writer.WriteLine("``` ");
                                     }
                                 }
                                 writer.WriteLine();
@@ -349,4 +264,6 @@ public partial class CommandManager : Command
             }
         };
     }
+}
+
 }

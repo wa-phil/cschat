@@ -58,21 +58,32 @@ public class SubsystemManager
     {
         ctx.OnlyEmitOnFailure();
         if (string.IsNullOrEmpty(name)) throw new ArgumentException("Subsystem name cannot be null or empty.", nameof(name));
-        if (!_subsystems.ContainsKey(name))
+        // Allow callers to pass either the configured logical name (from IsConfigurable) or the concrete
+        // type name (older config files may use type names). Map type names to the registered logical name.
+        var key = name;
+        if (!_subsystems.ContainsKey(key))
         {
-            ctx.Failed($"Subsystem '{name}' not found.", Error.InvalidInput);
-            return;
+            // Try to find a registered subsystem whose Type.Name matches the provided name
+            var pair = _subsystems.FirstOrDefault(kvp => string.Equals(kvp.Value.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrEmpty(pair.Key))
+            {
+                ctx.Failed($"Subsystem '{name}' not found.", Error.InvalidInput);
+                return;
+            }
+            key = pair.Key;
         }
 
-        if (!TryGetSubsystem(name, out var subsystem))
+        if (!TryGetSubsystem(key, out var subsystem))
         {
-            ctx.Failed($"Failed to set enabled state for subsystem '{name}'.", Error.InvalidInput);
+            ctx.Failed($"Failed to set enabled state for subsystem '{key}'.", Error.InvalidInput);
             return;
         }
 
         subsystem!.IsEnabled = enabled;
-        Program.config.Subsystems[name] = enabled; // Update the config
-        ctx.Append(Log.Data.Message, $"Subsystem '{name}' is now {(enabled ? "enabled" : "disabled")}.");
+        // Persist using the logical configurable name when available
+        var cfgName = subsystem.GetType().GetCustomAttribute<IsConfigurable>()?.Name ?? key;
+        Program.config.Subsystems[cfgName] = enabled; // Update the config
+        ctx.Append(Log.Data.Message, $"Subsystem '{cfgName}' is now {(enabled ? "enabled" : "disabled")}.");
         ctx.Succeeded();
         return;
     });
@@ -92,7 +103,10 @@ public class SubsystemManager
     public void Connect() => Log.Method(ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        foreach (var kv in Program.config.Subsystems)
+        // Iterate a snapshot of the configured subsystems to avoid
+        // modifying the collection (SetEnabled updates Program.config.Subsystems)
+        var subsystems = Program.config.Subsystems.ToList();
+        foreach (var kv in subsystems)
         {
             ctx.Append(Log.Data.Message, $"Setting subsystem '{kv.Key}' enabled to {kv.Value}.");
             if (kv.Value)
@@ -112,7 +126,12 @@ public class SubsystemManager
     });
 
     public Func<ISubsystem, bool> Enabled => s => null != s ? s.IsEnabled : false;
-    public Func<ISubsystem, bool> ShouldBeEnabled => s => null != s && Program.config.Subsystems.TryGetValue(s.GetType().Name, out var enabled) && enabled;
+    public Func<ISubsystem, bool> ShouldBeEnabled => s =>
+    {
+        if (null == s) return false;
+        var cfgName = s.GetType().GetCustomAttribute<IsConfigurable>()?.Name ?? s.GetType().Name;
+        return Program.config.Subsystems.TryGetValue(cfgName, out var enabled) && enabled;
+    };
 
     public IEnumerable<(string, ISubsystem)> All(Func<ISubsystem, bool>? filter = null)
     {

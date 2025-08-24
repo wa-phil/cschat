@@ -38,7 +38,19 @@ static class Program
         {
             if (typeof(ISubsystem).IsAssignableFrom(item))
             {
-                serviceCollection.AddSingleton(item);
+                // Some subsystems (e.g. McpManager) use private constructors and expose a public static Instance property.
+                // Try to register the existing Instance if present; otherwise register a factory that can create non-public ctors.
+                var instanceProp = item.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                if (instanceProp != null && item.IsAssignableFrom(instanceProp.PropertyType))
+                {
+                    // Register the singleton using the static Instance property
+                    serviceCollection.AddSingleton(item, sp => instanceProp.GetValue(null)!);
+                }
+                else
+                {
+                    // Fallback: register a singleton factory that can create non-public constructors
+                    serviceCollection.AddSingleton(item, sp => Activator.CreateInstance(item, nonPublic: true)!);
+                }
             }
             else
             {
@@ -71,20 +83,19 @@ static class Program
 
     public static async Task InitProgramAsync()
     {
-        Context = new Context(config.SystemPrompt);
-        ToolRegistry.Initialize();
+    Context = new Context(config.SystemPrompt);
+    ToolRegistry.Initialize();
 
-        // Initialize MCP manager and load servers
-        await McpManager.Instance.LoadAllServersAsync();
+    Engine.SupportedFileTypes = config.RagSettings.SupportedFileTypes;
+    Engine.SetProvider(config.Provider);
+    Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
+    Engine.VectorStore.Clear();
 
-        // Create command manager after all tools are registered
-        commandManager = CommandManager.CreateDefaultCommands();
+    // Create command manager before connecting subsystems so subsystems can register/unregister commands (ADO needs this)
+    commandManager = CommandManager.CreateDefaultCommands();
 
-        Engine.SupportedFileTypes = config.RagSettings.SupportedFileTypes;
-        Engine.SetProvider(config.Provider);
-        Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
-        Engine.VectorStore.Clear();
-        SubsystemManager.Connect();
+    // Connect subsystems so their enabled state is initialized
+    SubsystemManager.Connect();
 
         // Add all the tools to the context
         var toolNames = $"You can use the following tools to help the user:\n{ToolRegistry.GetRegisteredTools()

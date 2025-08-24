@@ -117,7 +117,6 @@ public interface ITool
 
 public interface ISubsystem
 {
-    Type ConfigType { get; }
     bool IsAvailable { get; }
     bool IsEnabled { get; set; }
 }
