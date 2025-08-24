@@ -265,7 +265,16 @@ public class ContextManager
 
         ctx.Append(Log.Data.Result, $"Processed {tasks.Count} chunks and stored graph data");
         ctx.Succeeded(tasks.Count > 0);        
-    });    
+    });
+
+    public static async Task GenerateDocumentationFromGraphContent() => await Log.MethodAsync(async ctx =>
+    {
+    ctx.OnlyEmitOnFailure();
+    // Call the async documentation generator (provide output path as needed)
+    await GraphStoreManager.GenerateReferenceDocumentationAsync();
+    ctx.Append(Log.Data.Result, $"Reference documentation generated.");
+    ctx.Succeeded(true);
+    });
 
     public static async Task<List<SearchResult>> SearchReferences(string reference) => await Log.Method(ctx =>
     {
