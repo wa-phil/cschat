@@ -20,6 +20,7 @@ static class Program
     public static CommandManager commandManager = null!;
     public static ServiceProvider serviceProvider = null!;
     public static SubsystemManager SubsystemManager = null!;
+    public static UserManagedData userManagedData = null!;
 
     static Dictionary<string, Type> DictionaryOfTypesToNamesForInterface<T>(ServiceCollection serviceCollection, IEnumerable<Type> types)
         where T : class
@@ -77,25 +78,27 @@ static class Program
         Chunkers = DictionaryOfTypesToNamesForInterface<ITextChunker>(serviceCollection, types);
         Tools = DictionaryOfTypesToNamesForInterface<ITool>(serviceCollection, types);
         SubsystemManager.Register(DictionaryOfTypesToNamesForInterface<ISubsystem>(serviceCollection, types));
-
+        userManagedData = new UserManagedData();
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
     }
 
     public static async Task InitProgramAsync()
     {
-    Context = new Context(config.SystemPrompt);
-    ToolRegistry.Initialize();
+        Context = new Context(config.SystemPrompt);
+        ToolRegistry.Initialize();
 
-    Engine.SupportedFileTypes = config.RagSettings.SupportedFileTypes;
-    Engine.SetProvider(config.Provider);
-    Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
-    Engine.VectorStore.Clear();
+        Engine.SupportedFileTypes = config.RagSettings.SupportedFileTypes;
+        Engine.SetProvider(config.Provider);
+        Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
+        Engine.VectorStore.Clear();
 
-    // Create command manager before connecting subsystems so subsystems can register/unregister commands (ADO needs this)
-    commandManager = CommandManager.CreateDefaultCommands();
+        // Create command manager before connecting subsystems so subsystems can register/unregister commands (ADO needs this)
+        commandManager = CommandManager.CreateDefaultCommands();
 
-    // Connect subsystems so their enabled state is initialized
-    SubsystemManager.Connect();
+        // Connect user-managed data first so annotated types are discovered
+        // before subsystems query or load items from it.
+        userManagedData.Connect();
+        SubsystemManager.Connect();
 
         // Add all the tools to the context
         var toolNames = $"You can use the following tools to help the user:\n{ToolRegistry.GetRegisteredTools()

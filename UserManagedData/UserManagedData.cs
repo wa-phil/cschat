@@ -4,51 +4,36 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
-[IsConfigurable("UserManagedData")]
-public class UserManagedData : ISubsystem
+public class UserManagedData : IDisposable
 {
     private readonly Dictionary<Type, UserManagedAttribute> _registeredTypes = new();
     private bool _connected = false;
 
-    public bool IsAvailable { get; } = true;
-    public bool IsEnabled
+    public void Dispose()
     {
-        get => _connected;
-        set
+        if (_connected)
         {
-            if (value && !_connected)
-            {
-                _connected = true;
-                Connect();
-                Register();
-            }
-            else if (!value && _connected)
-            {
-                Unregister();
-                _connected = false;
-            }
+            Disconnect();
+            _connected = false;
         }
+        GC.SuppressFinalize(this);
     }
 
-    public void Register()
+    public void Connect() => Log.Method(ctx =>
     {
         // Ensure types are discovered before registering commands
         DiscoverTypes();
         Program.commandManager.SubCommands.Add(DataCommands.Commands());
-    }
-
-    public void Unregister()
-    {
-        Program.commandManager.SubCommands.RemoveAll(cmd => cmd.Name.Equals("Data", StringComparison.OrdinalIgnoreCase));
-    }
-
-    private void Connect() => Log.Method(ctx =>
-    {
         ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Message, "Discovering UserManagedData types...");
         DiscoverTypes(ctx);
         ctx.Succeeded();
     });
+
+    private void Disconnect()
+    {
+        Program.commandManager.SubCommands.RemoveAll(cmd => cmd.Name.Equals("Data", StringComparison.OrdinalIgnoreCase));
+    }
 
     private void DiscoverTypes(Log.Context? ctx = null)
     {

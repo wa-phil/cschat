@@ -72,7 +72,6 @@ public class Config
     public Dictionary<string, bool> Subsystems { get; set; } = new Dictionary<string, bool>
     {
         { "Ado", false },
-        { "UserManagedData", true },
         { "Mcp", true },
     };
 

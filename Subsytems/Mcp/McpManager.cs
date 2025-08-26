@@ -78,7 +78,7 @@ public class McpManager : ISubsystem
         try
         {
             // Persist the server definition using UserManagedData if available
-            Program.SubsystemManager.Get<UserManagedData>().AddItem(serverDef);
+            Program.userManagedData.AddItem(serverDef);
             ctx.Append(Log.Data.Message, "Persisted server definition to UserManagedData subsystem");
 
             // Connect to the server and register tools
@@ -111,13 +111,8 @@ public class McpManager : ISubsystem
             // Disconnect from server and remove tools
             await DisconnectFromServerAsync(serverName);
 
-            // Remove persisted server definition (try UserManagedData first, then filesystem)
-            var umd = Program.SubsystemManager.Get<UserManagedData>();
-            if (umd != null)
-            {
-                // Remove entries matching this server name
-                umd.DeleteItem<McpServerDefinition>(s => string.Equals(s.Name, serverName, StringComparison.OrdinalIgnoreCase));
-            }
+            // Remove entries matching this server name
+            Program.userManagedData.DeleteItem<McpServerDefinition>(s => string.Equals(s.Name, serverName, StringComparison.OrdinalIgnoreCase));
 
             ctx.Succeeded();
             return true;
@@ -134,14 +129,10 @@ public class McpManager : ISubsystem
         ctx.OnlyEmitOnFailure();
         var serverDefs = new List<McpServerDefinition>();
         // Try to load from UserManagedData subsystem first
-        var umd = Program.SubsystemManager.Get<UserManagedData>();
-        if (umd != null)
+        var items = Program.userManagedData.GetItems<McpServerDefinition>();
+        if (items != null && items.Count > 0)
         {
-            var items = umd.GetItems<McpServerDefinition>();
-            if (items != null && items.Count > 0)
-            {
-                serverDefs.AddRange(items);
-            }
+            serverDefs.AddRange(items);
         }
 
         var loadedCount = 0;
@@ -301,7 +292,7 @@ public class McpManager : ISubsystem
         }
     });
 
-    public List<McpServerDefinition> GetServerDefinitions() => Program.SubsystemManager.Get<UserManagedData>().GetItems<McpServerDefinition>();
+    public List<McpServerDefinition> GetServerDefinitions() => Program.userManagedData.GetItems<McpServerDefinition>();
 
     public List<(string ServerName, List<McpTool> Tools)> GetConnectedServers() => _serverTools.Select(kvp => (kvp.Key, kvp.Value)).ToList();
 

@@ -25,15 +25,10 @@ public static class DataCommands
 
         try
         {
-            var subsystem = Program.SubsystemManager.Get<UserManagedData>();
-            if (!subsystem.IsEnabled)
-            {
-                return commands;
-            }
 
-            foreach (var type in subsystem.GetRegisteredTypes())
+            foreach (var type in Program.userManagedData.GetRegisteredTypes())
             {
-                var metadata = subsystem.GetTypeMetadata(type);
+                var metadata = Program.userManagedData.GetTypeMetadata(type);
                 var typeCommands = CreateCommandsForType(type, metadata);
                 commands.Add(typeCommands);
             }
@@ -76,7 +71,7 @@ public static class DataCommands
             {
                 try
                 {
-                    var subsystem = Program.SubsystemManager.Get<UserManagedData>();
+                    var subsystem = Program.userManagedData;
                     var method = typeof(UserManagedData).GetMethod("GetItems")?.MakeGenericMethod(type);
                     var items = method?.Invoke(subsystem, null) as System.Collections.IEnumerable;
 
@@ -446,21 +441,21 @@ public static class DataCommands
 
     private static (object subsystem, MethodInfo getMethod) GetUserManagedGet(Type t)
     {
-        var subsystem = Program.SubsystemManager.Get<UserManagedData>() as object;
+        var subsystem = Program.userManagedData as object;
         var mi = subsystem.GetType().GetMethod("GetItems")!.MakeGenericMethod(t);
         return (subsystem, mi);
     }
 
     private static (object subsystem, MethodInfo addMethod) GetUserManagedAdd(Type t)
     {
-        var subsystem = Program.SubsystemManager.Get<UserManagedData>() as object;
+        var subsystem = Program.userManagedData as object;
         var mi = subsystem.GetType().GetMethod("AddItem")!.MakeGenericMethod(t);
         return (subsystem, mi);
     }
 
     private static (object subsystem, MethodInfo updateMethod) GetUserManagedUpdate(Type t)
     {
-        var subsystem = Program.SubsystemManager.Get<UserManagedData>() as object;
+        var subsystem = Program.userManagedData as object;
         var mi = subsystem.GetType().GetMethod("UpdateItem")!.MakeGenericMethod(t);
         return (subsystem, mi);
     }
@@ -524,7 +519,7 @@ public static class DataCommands
             {
                 try
                 {
-                    var subsystem = Program.SubsystemManager.Get<UserManagedData>();
+                    var subsystem = Program.userManagedData;
                     var method = typeof(UserManagedData).GetMethod("GetItems")?.MakeGenericMethod(type);
                     var items = method?.Invoke(subsystem, null) as System.Collections.IEnumerable;
 
@@ -565,14 +560,28 @@ public static class DataCommands
                         return Task.FromResult(Command.Result.Cancelled);
                     }
 
-                    // Delete the item - this is a bit complex due to generics
-                    if (type == typeof(UserSelectedQuery))
+                    // Delete the item - build a predicate and invoke DeleteItem<T> via reflection
+                    var original = itemList[selectedIndex];
+
+                    // Build predicate: prefer [UserKey] or Id property; otherwise fallback to JSON equality
+                    Delegate predicate;
+                    var keyProp = FindKeyProperty(type);
+                    if (keyProp != null)
                     {
-                        var query = (UserSelectedQuery)itemList[selectedIndex];
-                        subsystem.DeleteItem<UserSelectedQuery>(q => q.Id == query.Id);
-                        Config.Save(Program.config, Program.ConfigFilePath);
-                        Console.WriteLine($"Deleted: {query}");
+                        var keyValue = keyProp.GetValue(original);
+                        predicate = BuildEqualityPredicate(type, keyProp, keyValue);
                     }
+                    else
+                    {
+                        var originalJson = ToJson(original);
+                        predicate = BuildJsonEqualityPredicate(type, originalJson);
+                    }
+
+                    var deleteMi = subsystem.GetType().GetMethod("DeleteItem")!.MakeGenericMethod(type);
+                    deleteMi.Invoke(subsystem, new[] { predicate });
+
+                    Config.Save(Program.config, Program.ConfigFilePath);
+                    Console.WriteLine($"Deleted: {original}");
 
                     return Task.FromResult(Command.Result.Success);
                 }
