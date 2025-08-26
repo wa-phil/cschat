@@ -73,6 +73,7 @@ public class Config
     {
         { "Ado", false },
         { "Mcp", true },
+        { "Kusto", true},
     };
 
     public AdoConfig Ado { get; set; } = new AdoConfig();
