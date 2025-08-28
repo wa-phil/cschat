@@ -21,7 +21,7 @@ public static class KustoCommands
                     Action = async () =>
                     {
                         await Task.Yield();
-                        var added = kusto.RefreshConnections(out var failures);
+                        var (failures, added) = kusto.RefreshConnections();
                         var connected = string.Join(", ", kusto.GetConnectedConfigNames().OrderBy(s => s));
                         Console.WriteLine($"Updated connections: {added}");
                         Console.WriteLine($"Connected: {(string.IsNullOrWhiteSpace(connected) ? "(none)" : connected)}");
@@ -51,47 +51,10 @@ public static class KustoCommands
                         var cfg = PickConfig();
                         if (cfg is null) return Command.Result.Failed;
 
-                        // Introspect schema
-                        var text = cfg.Database.Replace("'", "''");
-                        var kql = $".show database ['{text}'] schema";
-                        var (cols, rows) = await kusto.QueryAsync(cfg.Name, kql);
-
-                        // Normalize and cache into UMD
-                        int iT = Array.FindIndex(cols.ToArray(), c => c.Equals("TableName", StringComparison.OrdinalIgnoreCase));
-                        int iC = Array.FindIndex(cols.ToArray(), c => c.Equals("ColumnName", StringComparison.OrdinalIgnoreCase));
-                        int iY = Array.FindIndex(cols.ToArray(), c => c.Equals("ColumnType", StringComparison.OrdinalIgnoreCase));
-                        var map = new Dictionary<string, List<(string col,string type)>>(StringComparer.OrdinalIgnoreCase);
-                        foreach (var r in rows)
-                        {
-                            if (iT<0 || iC<0) continue;
-                            var t = iT<r.Length ? r[iT] : null;
-                            var c = iC<r.Length ? r[iC] : null;
-                            var y = iY>=0 && iY<r.Length ? r[iY] : "";
-                            if (string.IsNullOrWhiteSpace(t) || string.IsNullOrWhiteSpace(c)) continue;
-                            if (!map.TryGetValue(t!, out var list)) map[t!] = list = new();
-                            list.Add((c!, y ?? ""));
-                        }
-
-                        var schemaDto = new
-                        {
-                            database = cfg.Database,
-                            tables = map.Select(kv => new {
-                                name = kv.Key,
-                                columns = kv.Value.Select(v => new { name = v.col, type = v.type }).ToList()
-                            }).OrderBy(t => t.name).ToList()
-                        };
-                        cfg.SchemaJson = schemaDto.ToJson();
-                        Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-
-                        // Seed a readable sketch into chat context
-                        var lines = new List<string> { $"Kusto schema for {cfg.Name} ({cfg.Database}):" };
-                        foreach (var t in map.OrderBy(k => k.Key))
-                        {
-                            var colsSketch = string.Join(", ", t.Value.OrderBy(v => v.col).Select(v => $"{v.col}:{v.type}"));
-                            lines.Add($"- {t.Key}: {colsSketch}");
-                        }
-                        await ContextManager.AddContent(string.Join("\n", lines), $"kusto/{cfg.Name}/schema");
-                        Console.WriteLine($"Cached schema and added RAG context: kusto/{cfg.Name}/schema");
+                        // Delegate to the configured tool which performs the introspection and caching.
+                        var input = new IntrospectKustoSchemaInput { ConfigName = cfg.Name };
+                        var resp = await ToolRegistry.InvokeToolAsync("tool.kusto.introspect_schema", input);
+                        Console.WriteLine(resp);
                         return Command.Result.Success;
                     }
                 },
@@ -106,7 +69,9 @@ public static class KustoCommands
                         if (cfg is null) return Command.Result.Failed;
                         if (cfg.Queries.Count == 0) { Console.WriteLine("(no saved queries)"); return Command.Result.Success; }
                         foreach (var q in cfg.Queries.OrderBy(q => q.Name))
+                        {
                             Console.WriteLine($"- {q.Name} — {q.Description}");
+                        }
                         return Command.Result.Success;
                     }
                 },
@@ -121,8 +86,8 @@ public static class KustoCommands
                         var q = PickQuery(cfg);
                         if (q is null) return Command.Result.Failed;
 
-                        var (cols, rows) = await kusto.QueryAsync(cfg.Name, q.Kql);
-                        var table = KustoClient.ToTable(cols, rows);
+                        var (cols, rows) = await kusto.QueryAsync(cfg, q.Kql);
+                        var table = KustoClient.ToTable(cols, rows, Console.WindowWidth);
                         Console.WriteLine(table);
 
                         Console.Write("Export? (none/csv/json) ");
@@ -191,8 +156,8 @@ public static class KustoCommands
                         Console.WriteLine("Enter KQL (blank line to run):");
                         var kql = ReadMultiline();
 
-                        var (cols, rows) = await kusto.QueryAsync(cfg.Name, kql);
-                        var table = KustoClient.ToTable(cols, rows);
+                        var (cols, rows) = await kusto.QueryAsync(cfg, kql);
+                        var table = KustoClient.ToTable(cols, rows, Console.WindowWidth);
                         Console.WriteLine(table);
                         await ContextManager.AddContent(table, $"kusto/{cfg.Name}/results/__adhoc__");
 
@@ -240,17 +205,19 @@ public static class KustoCommands
         static KustoConfig? PickConfig()
         {
             var configs = Program.userManagedData.GetItems<KustoConfig>().OrderBy(c => c.Name).ToList();
-            if (configs.Count == 0) { Console.WriteLine("No KustoConfig found. Add one in Data → Kusto Config."); return null; }
+            if (configs.Count == 0) { Console.WriteLine("No KustoConfig found. Add one in Data \u2192 Kusto Config."); return null; }
 
             if (configs.Count == 1) return configs[0];
 
-            Console.WriteLine("Select config:");
-            for (int i = 0; i < configs.Count; i++) Console.WriteLine($"  [{i+1}] {configs[i].Name} @ {configs[i].ClusterUri} | {configs[i].Database}");
-            Console.Write("> ");
-            if (int.TryParse(User.ReadLineWithHistory(), out var idx) && idx >= 1 && idx <= configs.Count) return configs[idx-1];
+            var choices = configs.Select(c => $"{c.Name} @ {c.ClusterUri} | {c.Database}").ToList();
+            var sel = User.RenderMenu("Select config:", choices);
+            if (sel == null) return null;
+            var idx = choices.IndexOf(sel);
+            if (idx >= 0) return configs[idx];
 
-            Console.WriteLine("Invalid selection.");
-            return null;
+            // Fallback: match by name before the '@'
+            var name = sel.Split('@')[0].Trim();
+            return configs.FirstOrDefault(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         }
 
         static KustoQuery? PickQuery(KustoConfig cfg)
@@ -259,13 +226,15 @@ public static class KustoCommands
             var list = cfg.Queries.OrderBy(q => q.Name).ToList();
             if (list.Count == 1) return list[0];
 
-            Console.WriteLine("Select query:");
-            for (int i = 0; i < list.Count; i++) Console.WriteLine($"  [{i+1}] {list[i].Name} — {list[i].Description}");
-            Console.Write("> ");
-            if (int.TryParse(User.ReadLineWithHistory(), out var idx) && idx >= 1 && idx <= list.Count) return list[idx-1];
+            var choices = list.Select(q => $"{q.Name} — {q.Description}").ToList();
+            var sel = User.RenderMenu($"Select query for {cfg.Name}:", choices);
+            if (sel == null) return null;
+            var idx = choices.IndexOf(sel);
+            if (idx >= 0) return list[idx];
 
-            Console.WriteLine("Invalid selection.");
-            return null;
+            // Fallback: match by name before the '—'
+            var name = sel.Split('—')[0].Trim();
+            return list.FirstOrDefault(q => q.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         }
 
         static string ReadMultiline()

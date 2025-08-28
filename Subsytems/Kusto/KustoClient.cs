@@ -47,12 +47,29 @@ public class KustoClient : ISubsystem
     private void Connect() => Log.Method(ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        var added = RefreshConnections(out var failures);
+        var (failures, added) = RefreshConnections();
         ctx.Append(Log.Data.Count, added);
         if (failures.Count > 0)
             ctx.Append(Log.Data.Message, $"Kusto: {failures.Count} config(s) failed to connect; see logs.");
         ctx.Succeeded();
     });
+
+    private static KustoConnectionStringBuilder ApplyAuthMode(KustoConnectionStringBuilder kcsb, KustoConfig cfg)
+    {
+        // Use static extension methods available in the installed Kusto packages.
+        // Prefer interactive/device-prompt for console flows except managed identity.
+        switch (cfg.AuthMode)
+        {
+            case KustoAuthMode.managedIdentity:
+                // Call overload accepting clientId; pass empty string for system-assigned
+                try { return kcsb.WithAadSystemManagedIdentity(); } catch { return kcsb.WithAadUserPromptAuthentication(); }
+
+            default:
+                // devicecode, prompt, azcli, and any unknown modes -> interactive prompt
+                try { return kcsb.WithAadUserPromptAuthentication(); } catch { return kcsb; }
+        }
+    }
+
 
     private void DisconnectAll()
     {
@@ -76,123 +93,118 @@ public class KustoClient : ISubsystem
 
     /// <summary>
     /// Scan UserManagedData for KustoConfig entries and ensure each is connected.
-    /// Returns the number of new/updated connections and outputs a list of failed config names.
+    /// Returns a tuple: (failures, addedOrUpdatedCount).
     /// </summary>
-    public int RefreshConnections(out List<string> failures)
+    public (List<string> Failures, int Added) RefreshConnections() => Log.Method(ctx =>
     {
-        var localFailures = new List<string>();
+        ctx.OnlyEmitOnFailure();
+        var failures = new List<string>();
+        int addOrUpdated = 0;
 
-        var addedOrUpdated = Log.Method(ctx =>
-        {
-            ctx.OnlyEmitOnFailure();
-            var configs = Program.userManagedData.GetItems<KustoConfig>(); // swap to IUserManagedStore if you refactored
-            int addedOrUpdatedInner = 0;
+        // Collect valid configs
+        var configs = Program.userManagedData.GetItems<KustoConfig>()
+            .Where(cfg => !string.IsNullOrWhiteSpace(cfg.Name)
+                       && !string.IsNullOrWhiteSpace(cfg.ClusterUri)
+                       && !string.IsNullOrWhiteSpace(cfg.Database))
+            .ToList();
 
-        foreach (var cfg in configs)
+        var currentNames = new HashSet<string>(configs.Select(c => c.Name), StringComparer.OrdinalIgnoreCase);
+
+        // 1) Drop stale connections that are no longer present in UMD
+        var staleConnections = _connections.Select(kv => kv.Key).Where(name => !currentNames.Contains(name)).ToList();
+        foreach (var name in staleConnections)
         {
-            if (string.IsNullOrWhiteSpace(cfg.Name) ||
-                string.IsNullOrWhiteSpace(cfg.ClusterUri) ||
-                string.IsNullOrWhiteSpace(cfg.Database))
+            if (_connections.TryRemove(name, out var old))
             {
-                ctx.Append(Log.Data.Message, $"Kusto: skipping config with missing fields (Name/ClusterUri/Database). Name='{cfg?.Name ?? "(null)"}'");
-                continue;
+                try { old.Query.Dispose(); } catch { /* ignore */ }
+                Log.Method(inner =>
+                {
+                    inner.Append(Log.Data.Name, name);
+                    inner.Append(Log.Data.Message, "Removed connection for deleted config");
+                    inner.Succeeded();
+                });
+            }
+        }
+
+        // Partition configs into those we already have and new ones
+        var existingConfigs = configs.Where(cfg => _connections.ContainsKey(cfg.Name)).ToList();
+        var newConfigs = configs.Where(cfg => !_connections.ContainsKey(cfg.Name)).ToList();
+
+        // 2) Handle rebuilds for existing connections where endpoint or timeout changed
+        foreach (var cfg in existingConfigs)
+        {
+            if (!_connections.TryGetValue(cfg.Name, out var existing))
+            {
+                continue; // concurrent removal
             }
 
-            // If we already have a connection but timeout/auth changed, rebuild it.
-            if (_connections.TryGetValue(cfg.Name, out var existing))
+            var existingTimeout = existing.Props?.Options?.FirstOrDefault(kv => string.Equals(kv.Key, "servertimeout", StringComparison.OrdinalIgnoreCase)).Value?.ToString();
+            var desiredTimeout = $"{Math.Max(5, cfg.DefaultTimeoutSeconds)}s";
+            var endpointChanged = !UriEquals(existing.Cfg.ClusterUri, cfg.ClusterUri) || !existing.Cfg.Database.Equals(cfg.Database, StringComparison.OrdinalIgnoreCase);
+
+            if (!endpointChanged && string.Equals(existingTimeout, desiredTimeout, StringComparison.Ordinal))
             {
-                var existingTimeout = existing.Props?.Options?.FirstOrDefault(kv => string.Equals(kv.Key, "servertimeout", StringComparison.OrdinalIgnoreCase)).Value?.ToString();
-                var desiredTimeout = $"{Math.Max(5, cfg.DefaultTimeoutSeconds)}s";
-                var endpointChanged = !UriEquals(existing.Cfg.ClusterUri, cfg.ClusterUri) || !existing.Cfg.Database.Equals(cfg.Database, StringComparison.OrdinalIgnoreCase);
+                continue; // nothing changed
+            }
 
-                if (!endpointChanged && string.Equals(existingTimeout, desiredTimeout, StringComparison.Ordinal))
-                    continue; // nothing to do, keep current connection
+            var connResult = TryConnectConfig(cfg);
+            if (connResult.Query is not null && connResult.Props is not null && connResult.Cfg is not null)
+            {
+                try { existing.Query.Dispose(); } catch { /* ignore */ }
+                _connections[cfg.Name] = (connResult.Query, connResult.Props, connResult.Cfg);
+                addOrUpdated++;
 
-                // Rebuild this connection
-                TryConnectConfig(cfg, out var tuple, out var error);
-                if (tuple is not null)
+                Log.Method(inner =>
                 {
-                    // Dispose old and swap
-                    try { existing.Query.Dispose(); } catch { /* ignore */ }
-                    _connections[cfg.Name] = tuple.Value;
-                    addedOrUpdatedInner++;
-
-                    // Structured log for reconnection
-                    Log.Method(inner =>
-                    {
-                        inner.Append(Log.Data.Name, cfg.Name);
-                        inner.Append(Log.Data.Provider, $"{cfg.ClusterUri}/{cfg.Database}");
-                        inner.Append(Log.Data.Message, "Reconnected");
-                        inner.Succeeded();
-                    });
-                }
-                else
-                {
-                    localFailures.Add(cfg.Name);
-                    // Structured warning for reconnect failure
-                    Log.Method(inner =>
-                    {
-                        inner.Warn($"Reconnect failed for '{cfg.Name}': {error}");
-                        inner.Append(Log.Data.Name, cfg.Name);
-                        inner.Append(Log.Data.Provider, $"{cfg.ClusterUri}/{cfg.Database}");
-                    });
-                }
+                    inner.Append(Log.Data.Name, cfg.Name);
+                    inner.Append(Log.Data.Provider, $"{cfg.ClusterUri}/{cfg.Database}");
+                    inner.Append(Log.Data.Message, "Reconnected");
+                    inner.Succeeded();
+                });
             }
             else
             {
-                // New connection
-                TryConnectConfig(cfg, out var tuple, out var error);
-                if (tuple is not null)
+                failures.Add(cfg.Name);
+                Log.Method(inner =>
                 {
-                    _connections[cfg.Name] = tuple.Value;
-                    addedOrUpdatedInner++;
-
-                    Log.Method(inner =>
-                    {
-                        inner.Append(Log.Data.Name, cfg.Name);
-                        inner.Append(Log.Data.Provider, $"{cfg.ClusterUri}/{cfg.Database}");
-                        inner.Append(Log.Data.Message, "Connected");
-                        inner.Succeeded();
-                    });
-                }
-                else
-                {
-                    localFailures.Add(cfg.Name);
-                    Log.Method(inner =>
-                    {
-                        inner.Warn($"Connect failed for '{cfg.Name}': {error}");
-                        inner.Append(Log.Data.Name, cfg.Name);
-                        inner.Append(Log.Data.Provider, $"{cfg.ClusterUri}/{cfg.Database}");
-                    });
-                }
+                    inner.Warn($"Reconnect failed for '{cfg.Name}': {connResult.Error}");
+                    inner.Append(Log.Data.Name, cfg.Name);
+                    inner.Append(Log.Data.Provider, $"{cfg.ClusterUri}/{cfg.Database}");
+                });
             }
         }
 
-        // Optional: drop stale connections no longer present in UMD
-            var currentNames = new HashSet<string>(configs.Select(c => c.Name), StringComparer.OrdinalIgnoreCase);
-        foreach (var name in _connections.Keys.ToList())
+        // 3) Handle new connections
+        foreach (var cfg in newConfigs)
         {
-            if (!currentNames.Contains(name))
+            var connResult = TryConnectConfig(cfg);
+            if (connResult.Query is not null && connResult.Props is not null && connResult.Cfg is not null)
             {
-                if (_connections.TryRemove(name, out var old))
+                _connections[cfg.Name] = (connResult.Query, connResult.Props, connResult.Cfg);
+                addOrUpdated++;
+
+                Log.Method(inner =>
                 {
-                    try { old.Query.Dispose(); } catch { /* ignore */ }
-                            Log.Method(inner =>
-                            {
-                                inner.Append(Log.Data.Name, name);
-                                inner.Append(Log.Data.Message, "Removed connection for deleted config");
-                                inner.Succeeded();
-                            });
-                }
+                    inner.Append(Log.Data.Name, cfg.Name);
+                    inner.Append(Log.Data.Provider, $"{cfg.ClusterUri}/{cfg.Database}");
+                    inner.Append(Log.Data.Message, "Connected");
+                    inner.Succeeded();
+                });
+            }
+            else
+            {
+                failures.Add(cfg.Name);
+                Log.Method(inner =>
+                {
+                    inner.Warn($"Connect failed for '{cfg.Name}': {connResult.Error}");
+                    inner.Append(Log.Data.Name, cfg.Name);
+                    inner.Append(Log.Data.Provider, $"{cfg.ClusterUri}/{cfg.Database}");
+                });
             }
         }
 
-            ctx.Append(Log.Data.Count, addedOrUpdatedInner);
-            return addedOrUpdatedInner;
-        });
-
-        failures = localFailures;
-        return addedOrUpdated;
+        ctx.Append(Log.Data.Count, addOrUpdated);
+        return (failures, addOrUpdated);
 
         static bool UriEquals(string a, string b)
         {
@@ -200,32 +212,38 @@ public class KustoClient : ISubsystem
                 return Uri.Compare(ua, ub, UriComponents.AbsoluteUri, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0;
             return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
         }
+    });
+
+    public record ConnectionResult(ICslQueryProvider? Query, ClientRequestProperties? Props, KustoConfig? Cfg, string? Error)
+    {
+        public static ConnectionResult Success(ICslQueryProvider query, ClientRequestProperties props, KustoConfig cfg) => new ConnectionResult(query, props, cfg, null);
+        public static ConnectionResult Failure(string error) => new ConnectionResult(null, null, null, error);
     }
 
-    private static void TryConnectConfig(KustoConfig cfg,
-        out (ICslQueryProvider Query, ClientRequestProperties Props, KustoConfig Cfg)? tuple,
-        out string? error)
+    private static ConnectionResult TryConnectConfig(KustoConfig cfg) => Log.Method(ctx =>
     {
-        tuple = null;
-        error = null;
+        ctx.OnlyEmitOnFailure();
         try
         {
-            var kcsb = new KustoConnectionStringBuilder(cfg.ClusterUri, cfg.Database).WithAadUserPromptAuthentication(); // device-code style
-            var query = KustoClientFactory.CreateCslQueryProvider(kcsb);
+            // Apply requested auth mode; if specific SDK helpers aren't available at runtime,
+            // fall back to the interactive/device-code prompt.
+            var query = KustoClientFactory.CreateCslQueryProvider(ApplyAuthMode(new KustoConnectionStringBuilder(cfg.ClusterUri, cfg.Database), cfg));
             var props = new ClientRequestProperties
             {
                 ClientRequestId = $"cschat;{Guid.NewGuid()}",
                 Application = "cschat"
             };
             props.SetOption("servertimeout", $"{Math.Max(5, cfg.DefaultTimeoutSeconds)}s");
-
-            tuple = (query, props, cfg);
+            ctx.Succeeded();
+            return ConnectionResult.Success(query, props, cfg);
         }
         catch (Exception ex)
         {
-            error = ex.Message;
+            ctx.Failed($"Failed to connect to {cfg.Name}.", ex);
+            return ConnectionResult.Failure(ex.Message);
         }
-    }
+    });
+
 
     // ===== Public API (no active config) =====
 
@@ -233,17 +251,14 @@ public class KustoClient : ISubsystem
 
     public bool IsConnected(string configName) => _connections.ContainsKey(configName);
 
-    public async Task<(IReadOnlyList<string> Columns, List<string[]> Rows)> QueryAsync(
-        string configName,
-        string kql,
-        CancellationToken ct = default)
+    public async Task<(IReadOnlyList<string> Columns, List<string[]> Rows)> QueryAsync(KustoConfig cfg, string kql)
     {
-        if (!_connections.TryGetValue(configName, out var conn))
+        if (!_connections.TryGetValue(cfg.Name, out var conn))
         {
-            throw new InvalidOperationException($"Kusto config '{configName}' is not connected. Run Kusto.RefreshConnections and check logs.");
+            throw new InvalidOperationException($"Kusto config '{cfg.Name}' is not connected. Run Kusto.RefreshConnections and check logs.");
         }
 
-        using var reader = await conn.Query.ExecuteQueryAsync(conn.Cfg.Database, kql, conn.Props, ct);
+        using var reader = await conn.Query.ExecuteQueryAsync(conn.Cfg.Database, kql, conn.Props);
 
         var columns = new List<string>();
         for (int i = 0; i < reader.FieldCount; i++)
@@ -265,21 +280,98 @@ public class KustoClient : ISubsystem
     // Convenience helpers (renderers kept static as before)
     public static string ToTable(IEnumerable<string> headers, IEnumerable<string[]> rows, int maxWidth = 140)
     {
-        var cols = new List<int>();
         var hs = headers.ToList();
-        for (int i = 0; i < hs.Count; i++)
+        var rowList = rows.ToList();
+
+        int origCount = hs.Count;
+        var indices = Enumerable.Range(0, origCount).ToList();
+
+        // If we have rows, drop columns where every row value is null/empty (noise).
+        if (rowList.Count > 0)
         {
-            var w = hs[i].Length;
-            foreach (var r in rows) w = Math.Max(w, i < r.Length ? r[i].Length : 0);
-            cols.Add(Math.Min(w, Math.Max(6, maxWidth / Math.Max(1, hs.Count))));
+            indices = indices.Where(i => rowList.Any(r => i < r.Length && !string.IsNullOrEmpty(r[i]))).ToList();
+            // If that removed everything, fall back to keeping all columns so we still show headers
+            if (indices.Count == 0) indices = Enumerable.Range(0, origCount).ToList();
+        }
+
+        // Compute max content length per column (header vs cell content)
+        var maxLens = new List<int>();
+        foreach (var i in indices)
+        {
+            int w = hs[i]?.Length ?? 0;
+            foreach (var r in rowList)
+            {
+                if (i < r.Length && r[i] != null)
+                    w = Math.Max(w, r[i].Length);
+            }
+            maxLens.Add(w);
+        }
+
+        int colCount = indices.Count;
+        if (colCount == 0) return string.Empty;
+
+        // Compute available content width (excluding separators " │ " between columns)
+        int sepWidth = 3 * Math.Max(0, colCount - 1);
+        int contentMax = Math.Max(1, maxWidth - sepWidth);
+
+        int minCol = 6;
+        if (contentMax < colCount * minCol)
+        {
+            // Shrink minCol if overall space is limited
+            minCol = Math.Max(1, contentMax / colCount);
+        }
+
+        // Greedy left-to-right allocation: try to give each column its needed width
+        var widths = new int[colCount];
+        int allocated = 0;
+        for (int idx = 0; idx < colCount; idx++)
+        {
+            int remaining = colCount - idx - 1;
+            int minForRemaining = remaining * minCol;
+            int availableForThis = contentMax - allocated - minForRemaining;
+            int desired = Math.Min(maxLens[idx], contentMax);
+            int w = Math.Clamp(desired, minCol, Math.Max(minCol, availableForThis));
+            widths[idx] = w;
+            allocated += w;
+        }
+
+        // If we under-allocated due to clamping, distribute leftover space left-to-right
+        int leftover = contentMax - allocated;
+        for (int i = 0; leftover > 0 && i < colCount; i++)
+        {
+            int add = Math.Min(leftover, Math.Max(0, maxLens[i] - widths[i]));
+            widths[i] += add;
+            leftover -= add;
+        }
+        // If still leftover, give one char per column left-to-right
+        for (int i = 0; leftover > 0 && i < colCount; i++)
+        {
+            widths[i] += 1;
+            leftover -= 1;
         }
 
         string Fit(string s, int w) => (s.Length <= w) ? s.PadRight(w) : s.Substring(0, Math.Max(0, w - 1)) + "…";
+
         var lines = new List<string>();
-        lines.Add(string.Join(" │ ", hs.Select((h, i) => Fit(h, cols[i]))));
-        lines.Add(string.Join("─┼─", cols.Select(c => new string('─', c))));
-        foreach (var row in rows)
-            lines.Add(string.Join(" │ ", hs.Select((_, i) => Fit(i < row.Length ? row[i] : "", cols[i]))));
+
+        // Header
+        lines.Add(string.Join(" │ ", indices.Select((origIdx, j) => Fit(hs[origIdx] ?? "", widths[j]))));
+        // Separator
+        lines.Add(string.Join("─┼─", widths.Select(c => new string('─', Math.Max(1, c)))));
+
+        // Rows
+        foreach (var row in rowList)
+        {
+            var parts = new List<string>();
+            for (int j = 0; j < colCount; j++)
+            {
+                var origIdx = indices[j];
+                var s = (origIdx < row.Length) ? (row[origIdx] ?? "") : "";
+                parts.Add(Fit(s, widths[j]));
+            }
+            lines.Add(string.Join(" │ ", parts));
+        }
+
         return string.Join("\n", lines);
     }
 

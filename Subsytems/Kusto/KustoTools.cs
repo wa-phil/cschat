@@ -16,13 +16,13 @@ public sealed class KustoRefreshConnectionsTool : ITool
     public async Task<ToolResult> InvokeAsync(object input, Context ctx)
     {
         await Task.Yield(); // keep async happy
-        var kusto = Program.SubsystemManager.Get<KustoClient>();
-        var added = kusto.RefreshConnections(out var failures);
+    var kusto = Program.SubsystemManager.Get<KustoClient>();
+    var (failures, added) = kusto.RefreshConnections();
 
-        var connected = string.Join(", ", kusto.GetConnectedConfigNames().OrderBy(s => s));
-        var msg = $"Kusto connections updated: {added} new/updated.\n" +
-                  $"Connected: {(string.IsNullOrWhiteSpace(connected) ? "(none)" : connected)}\n" +
-                  (failures.Count > 0 ? $"Failed: {string.Join(", ", failures)} (check logs)\n" : "");
+    var connected = string.Join(", ", kusto.GetConnectedConfigNames().OrderBy(s => s));
+    var msg = $"Kusto connections updated: {added} new/updated.\n" +
+          $"Connected: {(string.IsNullOrWhiteSpace(connected) ? "(none)" : connected)}\n" +
+          (failures.Count > 0 ? $"Failed: {string.Join(", ", failures)} (check logs)\n" : "");
 
         ctx.AddToolMessage(msg);
         return ToolResult.Success(msg, ctx);
@@ -75,7 +75,7 @@ public sealed class IntrospectKustoSchemaTool : ITool
         // `.show database ['db'] schema` is explicit; some clusters also support `.show schema`
         var text = cfg.Database.Replace("'", "''");
         var kql = $".show database ['{text}'] schema";
-        var (cols, rows) = await kusto.QueryAsync(cfg.Name, kql);
+        var (cols, rows) = await kusto.QueryAsync(cfg, kql);
 
         // Normalize: tables -> columns -> types
         // Common columns for this command typically include: TableName, ColumnName, ColumnType
@@ -103,15 +103,17 @@ public sealed class IntrospectKustoSchemaTool : ITool
                 columns = kv.Value.Select(x => new { name = x.col, type = x.type }).ToList()
             }).OrderBy(t => t.name).ToList()
         };
-        cfg.SchemaJson = schemaDto.ToJson();
-        umd.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
+
+        // persist schemaDto in RAG
+        await ContextManager.AddContent(schemaDto.ToJson(), $"kusto/{cfg.Name}/schema");
 
         // Seed a readable sketch into the conversation context for RAG-assisted KQL authoring
         var sketchLines = new List<string> { $"Kusto schema for {cfg.Name} ({cfg.Database}):" };
         foreach (var t in tables.OrderBy(kv => kv.Key))
         {
-            var colsSketch = string.Join(", ", t.Value.OrderBy(v => v.col).Select(v => $"{v.col}:{v.type}"));
-            sketchLines.Add($"- {t.Key}: {colsSketch}");
+            var colItems = t.Value.OrderBy(v => v.col).Select(v => $"{v.col}:{v.type}");
+            var wrapped = string.Join("\n    ", WrapColumns(colItems, perLine: 8));
+            sketchLines.Add($"- {t.Key}:\n    {wrapped}");
         }
         var sketch = string.Join("\n", sketchLines);
         await ContextManager.AddContent(sketch, $"kusto/{cfg.Name}/schema");
@@ -119,6 +121,21 @@ public sealed class IntrospectKustoSchemaTool : ITool
         var msg = $"Cached schema for '{cfg.Name}'. Added RAG context key: kusto/{cfg.Name}/schema";
         ctx.AddToolMessage(msg);
         return ToolResult.Success(msg, ctx);
+    }
+    
+    static IEnumerable<string> WrapColumns(IEnumerable<string> cols, int perLine = 8)
+    {
+        var block = new List<string>(perLine);
+        foreach (var c in cols)
+        {
+            block.Add(c);
+            if (block.Count == perLine)
+            {
+                yield return string.Join(", ", block);
+                block.Clear();
+            }
+        }
+        if (block.Count > 0) yield return string.Join(", ", block);
     }
 }
 
@@ -161,7 +178,7 @@ public sealed class RunSavedKustoQueryTool : ITool
         }
 
         var kusto = Program.SubsystemManager.Get<KustoClient>();
-        var (cols, rows) = await kusto.QueryAsync(cfg.Name, q.Kql);
+        var (cols, rows) = await kusto.QueryAsync(cfg, q.Kql);
 
         // Render table for console/chat
         var table = KustoClient.ToTable(cols, rows);
