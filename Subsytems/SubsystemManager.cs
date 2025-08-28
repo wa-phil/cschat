@@ -79,7 +79,36 @@ public class SubsystemManager
             return;
         }
 
+        // If enabling, ensure dependencies are enabled first
+        if (enabled)
+        {
+            var deps = GetDependenciesForSubsystem(subsystem!);
+            foreach (var dep in deps)
+            {
+                if (!IsEnabled(dep))
+                {
+                    Console.WriteLine($"Enabling dependency '{dep}' for subsystem '{key}'.");
+                    SetEnabled(dep, true);
+                }
+            }
+        }
+
         subsystem!.IsEnabled = enabled;
+
+        // If disabling, cascade to any subsystems that depend on this one
+        if (!enabled)
+        {
+            var dependents = GetDependentsForSubsystem(key).ToList();
+            foreach (var d in dependents)
+            {
+                if (IsEnabled(d))
+                {
+                    Console.WriteLine($"Disabling dependent subsystem '{d}' because '{key}' was disabled.");
+                    SetEnabled(d, false);
+                }
+            }
+        }
+
         // Persist using the logical configurable name when available
         var cfgName = subsystem.GetType().GetCustomAttribute<IsConfigurable>()?.Name ?? key;
         Program.config.Subsystems[cfgName] = enabled; // Update the config
@@ -87,6 +116,31 @@ public class SubsystemManager
         ctx.Succeeded();
         return;
     });
+
+    private IEnumerable<string> GetDependenciesForSubsystem(ISubsystem subsystem)
+    {
+        var attrs = subsystem.GetType().GetCustomAttributes<DependsOnAttribute>();
+        foreach (var a in attrs)
+            yield return a.Name;
+    }
+
+    private IEnumerable<string> GetDependentsForSubsystem(string subsystemName)
+    {
+        // A dependent is any registered subsystem whose DependsOnAttribute lists subsystemName
+        foreach (var kv in _subsystems)
+        {
+            var t = kv.Value;
+            var deps = t.GetCustomAttributes<DependsOnAttribute>();
+            foreach (var d in deps)
+            {
+                if (string.Equals(d.Name, subsystemName, StringComparison.OrdinalIgnoreCase))
+                {
+                    yield return kv.Key;
+                    break;
+                }
+            }
+        }
+    }
 
     public void Register(Dictionary<string, Type> subsystemTypes) => Log.Method(ctx =>
     {

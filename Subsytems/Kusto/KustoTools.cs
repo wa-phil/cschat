@@ -16,13 +16,13 @@ public sealed class KustoRefreshConnectionsTool : ITool
     public async Task<ToolResult> InvokeAsync(object input, Context ctx)
     {
         await Task.Yield(); // keep async happy
-    var kusto = Program.SubsystemManager.Get<KustoClient>();
-    var (failures, added) = kusto.RefreshConnections();
+        var kusto = Program.SubsystemManager.Get<KustoClient>();
+        var (failures, added) = await kusto.RefreshConnectionsAsync();
 
-    var connected = string.Join(", ", kusto.GetConnectedConfigNames().OrderBy(s => s));
-    var msg = $"Kusto connections updated: {added} new/updated.\n" +
-          $"Connected: {(string.IsNullOrWhiteSpace(connected) ? "(none)" : connected)}\n" +
-          (failures.Count > 0 ? $"Failed: {string.Join(", ", failures)} (check logs)\n" : "");
+        var connected = string.Join(", ", kusto.GetConnectedConfigNames().OrderBy(s => s));
+        var msg = $"Kusto connections updated: {added} new/updated.\n" +
+              $"Connected: {(string.IsNullOrWhiteSpace(connected) ? "(none)" : connected)}\n" +
+              (failures.Count > 0 ? $"Failed: {string.Join(", ", failures)} (check logs)\n" : "");
 
         ctx.AddToolMessage(msg);
         return ToolResult.Success(msg, ctx);

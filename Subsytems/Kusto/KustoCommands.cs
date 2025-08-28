@@ -21,7 +21,7 @@ public static class KustoCommands
                     Action = async () =>
                     {
                         await Task.Yield();
-                        var (failures, added) = kusto.RefreshConnections();
+                        var (failures, added) = await kusto.RefreshConnectionsAsync();
                         var connected = string.Join(", ", kusto.GetConnectedConfigNames().OrderBy(s => s));
                         Console.WriteLine($"Updated connections: {added}");
                         Console.WriteLine($"Connected: {(string.IsNullOrWhiteSpace(connected) ? "(none)" : connected)}");

@@ -271,8 +271,11 @@ public static class JSONParser
 
     static List<string> Split(string json)
     {
-        var result = (splitArrayPool.Count > 0) ? splitArrayPool.Pop() : new List<string>();
-        result.Clear();
+    // If there's no content, return an empty list (important for parsing '[]' -> zero elements)
+    if (string.IsNullOrEmpty(json)) return new List<string>();
+
+    var result = (splitArrayPool != null && splitArrayPool.Count > 0) ? splitArrayPool.Pop() : new List<string>();
+    result.Clear();
         int depth = 0;
         int start = 0;
         bool inQuotes = false;

@@ -14,6 +14,7 @@ using System.Collections.Concurrent;
 public class KustoClient : ISubsystem
 {
     private bool _connected;
+    private IDisposable? _umSubscription;
 
     // configName -> (query provider, request props, user-managed config)
     private readonly ConcurrentDictionary<string, (ICslQueryProvider Query, ClientRequestProperties Props, KustoConfig Cfg)> 
@@ -46,12 +47,8 @@ public class KustoClient : ISubsystem
 
     private void Connect() => Log.Method(ctx =>
     {
-        ctx.OnlyEmitOnFailure();
-        var (failures, added) = RefreshConnections();
-        ctx.Append(Log.Data.Count, added);
-        if (failures.Count > 0)
-            ctx.Append(Log.Data.Message, $"Kusto: {failures.Count} config(s) failed to connect; see logs.");
-        ctx.Succeeded();
+        // Dispatch the async refresh and don't block the caller
+        _ = RefreshConnectionsAsync();
     });
 
     private static KustoConnectionStringBuilder ApplyAuthMode(KustoConnectionStringBuilder kcsb, KustoConfig cfg)
@@ -83,19 +80,92 @@ public class KustoClient : ISubsystem
     public void Register()
     {
         Program.commandManager.SubCommands.Add(KustoCommands.Commands(this));
+        // Subscribe to UserManagedData changes for KustoConfig
+        try
+        {
+            // Log when handler invoked and dispatch to async worker
+            _umSubscription = Program.userManagedData.Subscribe(typeof(KustoConfig), (t, change, item) =>
+            {
+                try
+                {
+                    Log.Method(ctx =>
+                    {
+                        ctx.Append(Log.Data.Name, (item as KustoConfig)?.Name ?? "<unknown>");
+                        ctx.Append(Log.Data.Message, $"UMD change handler invoked for Kusto: {change}");
+                        ctx.Succeeded();
+                    });
+                }
+                catch { }
+                _ = OnUserManagedChangeAsync(t, change, item);
+            });
+        }
+        catch
+        {
+            // ignore subscription failures
+        }
     }
     public void Unregister()
     {
         Program.commandManager.SubCommands.RemoveAll(c => c.Name.Equals("Kusto", StringComparison.OrdinalIgnoreCase));
+        try { _umSubscription?.Dispose(); } catch { }
+    }
+
+    private async Task OnUserManagedChangeAsync(Type t, UserManagedData.ChangeType change, object? item)
+    {
+        if (t != typeof(KustoConfig)) return;
+        try
+        {
+            Log.Method(ctx => { ctx.Append(Log.Data.Message, $"Entering Kusto UMD handler: {change}"); ctx.Succeeded(); });
+            switch (change)
+            {
+                case UserManagedData.ChangeType.Added:
+                    if (item is KustoConfig added && !string.IsNullOrWhiteSpace(added.Name))
+                    {
+                        var res = await TryConnectConfigAsync(added);
+                        if (res.Query is not null && res.Props is not null && res.Cfg is not null)
+                        {
+                            _connections[added.Name] = (res.Query, res.Props, res.Cfg);
+                            Log.Method(ctx => { ctx.Append(Log.Data.Name, added.Name); ctx.Append(Log.Data.Message, "Kusto: connected via UMD add"); ctx.Succeeded(); });
+                        }
+                    }
+                    break;
+                case UserManagedData.ChangeType.Updated:
+                    if (item is KustoConfig updated && !string.IsNullOrWhiteSpace(updated.Name))
+                    {
+                        var res = await TryConnectConfigAsync(updated);
+                        if (res.Query is not null && res.Props is not null && res.Cfg is not null)
+                        {
+                            if (_connections.TryGetValue(updated.Name, out var existing))
+                            {
+                                try { existing.Query.Dispose(); } catch { }
+                            }
+                            _connections[updated.Name] = (res.Query, res.Props, res.Cfg);
+                            Log.Method(ctx => { ctx.Append(Log.Data.Name, updated.Name); ctx.Append(Log.Data.Message, "Kusto: reconnected via UMD update"); ctx.Succeeded(); });
+                        }
+                    }
+                    break;
+                case UserManagedData.ChangeType.Deleted:
+                    if (item is KustoConfig deleted && !string.IsNullOrWhiteSpace(deleted.Name))
+                    {
+                        if (_connections.TryRemove(deleted.Name, out var old))
+                        {
+                            try { old.Query.Dispose(); } catch { }
+                            Log.Method(ctx => { ctx.Append(Log.Data.Name, deleted.Name); ctx.Append(Log.Data.Message, "Kusto: disconnected via UMD delete"); ctx.Succeeded(); });
+                        }
+                    }
+                    break;
+            }
+            Log.Method(ctx => { ctx.Append(Log.Data.Message, $"Exiting Kusto UMD handler: {change}"); ctx.Succeeded(); });
+        }
+        catch
+        {
+            // Swallow handler exceptions to avoid breaking UMD
+        }
     }
 
     // ===== Connection Pooling over UserManaged KustoConfig =====
 
-    /// <summary>
-    /// Scan UserManagedData for KustoConfig entries and ensure each is connected.
-    /// Returns a tuple: (failures, addedOrUpdatedCount).
-    /// </summary>
-    public (List<string> Failures, int Added) RefreshConnections() => Log.Method(ctx =>
+    public async Task<(List<string> Failures, int Added)> RefreshConnectionsAsync() => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         var failures = new List<string>();
@@ -147,7 +217,7 @@ public class KustoClient : ISubsystem
                 continue; // nothing changed
             }
 
-            var connResult = TryConnectConfig(cfg);
+            var connResult = await TryConnectConfigAsync(cfg);
             if (connResult.Query is not null && connResult.Props is not null && connResult.Cfg is not null)
             {
                 try { existing.Query.Dispose(); } catch { /* ignore */ }
@@ -177,7 +247,7 @@ public class KustoClient : ISubsystem
         // 3) Handle new connections
         foreach (var cfg in newConfigs)
         {
-            var connResult = TryConnectConfig(cfg);
+            var connResult = await TryConnectConfigAsync(cfg);
             if (connResult.Query is not null && connResult.Props is not null && connResult.Cfg is not null)
             {
                 _connections[cfg.Name] = (connResult.Query, connResult.Props, connResult.Cfg);
@@ -220,14 +290,13 @@ public class KustoClient : ISubsystem
         public static ConnectionResult Failure(string error) => new ConnectionResult(null, null, null, error);
     }
 
-    private static ConnectionResult TryConnectConfig(KustoConfig cfg) => Log.Method(ctx =>
+    private static async Task<ConnectionResult> TryConnectConfigAsync(KustoConfig cfg) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         try
         {
-            // Apply requested auth mode; if specific SDK helpers aren't available at runtime,
-            // fall back to the interactive/device-code prompt.
-            var query = KustoClientFactory.CreateCslQueryProvider(ApplyAuthMode(new KustoConnectionStringBuilder(cfg.ClusterUri, cfg.Database), cfg));
+            // Create query provider using synchronous factory on background thread (SDK is sync)
+            var query = await Task.Run(() => KustoClientFactory.CreateCslQueryProvider(ApplyAuthMode(new KustoConnectionStringBuilder(cfg.ClusterUri, cfg.Database), cfg)));
             var props = new ClientRequestProperties
             {
                 ClientRequestId = $"cschat;{Guid.NewGuid()}",

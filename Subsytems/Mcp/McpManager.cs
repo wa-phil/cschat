@@ -18,6 +18,7 @@ public class McpManager : ISubsystem
     private readonly ConcurrentDictionary<string, McpClient> _clients = new();
     private readonly ConcurrentDictionary<string, List<McpTool>> _serverTools = new();
     private bool _isEnabled = false;
+    private IDisposable? _umSubscription;
 
     public bool IsAvailable { get; } = true;
     public bool IsEnabled
@@ -30,37 +31,26 @@ public class McpManager : ISubsystem
                 // Enable: load configured servers
                 // Run synchronously to match pattern in other subsystems
                 LoadAllServersAsync().GetAwaiter().GetResult();
+                // Subscribe to UserManagedData to react to server add/update/delete
+                _umSubscription = Program.userManagedData.Subscribe(typeof(McpServerDefinition), (t, change, item) => Log.Method(ctx =>
+                {
+                    ctx.Append(Log.Data.Name, (item as McpServerDefinition)?.Name ?? "<unknown>");
+                    ctx.Append(Log.Data.Message, $"UMD change handler invoked for MCP: {change}");
+                    ctx.Succeeded();
+                    _ = OnUserManagedChangeAsync(t, change, item);
+                }));
                 _isEnabled = true;
                 // Register MCP commands into the global command manager so they appear in the menu
-                try
-                {
-                    if (Program.commandManager != null)
-                    {
-                        Program.commandManager.SubCommands.Add(Subsytems.Mcp.CommandManager.CreateMcpSubsystemCommands());
-                    }
-                }
-                catch
-                {
-                    // ignore failures to register commands
-                }
+                Program.commandManager.SubCommands.Add(Subsytems.Mcp.CommandManager.CreateMcpSubsystemCommands());
             }
             else if (!value && _isEnabled)
             {
                 // Disable: shutdown all MCP clients
                 ShutdownAllAsync().GetAwaiter().GetResult();
                 _isEnabled = false;
+                _umSubscription?.Dispose();
                 // Remove MCP commands from the global command manager
-                try
-                {
-                    if (Program.commandManager != null)
-                    {
-                        Program.commandManager.SubCommands.RemoveAll(cmd => cmd.Name.Equals("mcp", StringComparison.OrdinalIgnoreCase));
-                    }
-                }
-                catch
-                {
-                    // ignore failures to unregister commands
-                }
+                Program.commandManager.SubCommands.RemoveAll(cmd => cmd.Name.Equals("mcp", StringComparison.OrdinalIgnoreCase));
             }
 
             // Persist desired enabled state to global config so SubsystemManager can save/restore
@@ -83,16 +73,7 @@ public class McpManager : ISubsystem
 
             // Connect to the server and register tools
             var success = await ConnectToServerAsync(serverDef);
-            if (success)
-            {
-                ctx.Succeeded();
-            }
-            else
-            {
-                ctx.Failed("Failed to connect to MCP server", Error.ConnectionFailed);
-                // Note: We keep the config file even if connection failed
-                // so user can troubleshoot and use 'mcp reload' later
-            }
+            ctx.Succeeded(success);
             return success;
         }
         catch (Exception ex)
@@ -256,30 +237,37 @@ public class McpManager : ISubsystem
     private Task DisconnectFromServerAsync(string serverName) => Log.MethodAsync(ctx =>
     {
         ctx.Append(Log.Data.Name, serverName);
-        
+
         try
         {
-            // Remove tools from registry
-            if (_serverTools.TryRemove(serverName, out var tools))
+            // Try to find the registered server key using case-insensitive matching so
+            // removal succeeds even if callers use different casing.
+            var matchedServerKey = _serverTools.Keys.FirstOrDefault(k => string.Equals(k, serverName, StringComparison.OrdinalIgnoreCase));
+            if (matchedServerKey != null && _serverTools.TryRemove(matchedServerKey, out var tools))
             {
+                ctx.Append(Log.Data.Count, tools.Count);
                 foreach (var tool in tools)
                 {
-                    ToolRegistry.UnregisterTool($"{serverName}_{tool.ToolName}");
+                    var toolKey = $"{matchedServerKey}_{tool.ToolName}";
+                    ToolRegistry.UnregisterTool(toolKey);
                 }
+                ctx.Append(Log.Data.Message, $"Unregistered {tools.Count} tools for server '{matchedServerKey}'");
+            }
+            else
+            {
+                ctx.Append(Log.Data.Message, "No registered tools found for server");
             }
 
-            // Disconnect client
-            if (_clients.TryRemove(serverName, out var client))
+            // Disconnect client (also case-insensitive)
+            var matchedClientKey = _clients.Keys.FirstOrDefault(k => string.Equals(k, serverName, StringComparison.OrdinalIgnoreCase));
+            if (matchedClientKey != null && _clients.TryRemove(matchedClientKey, out var client))
             {
-                try
-                {
-                    // Just dispose the client, no shutdown call needed
-                    client.Dispose();
-                }
-                catch
-                {
-                    // Ignore shutdown errors
-                }
+                client.Dispose();
+                ctx.Append(Log.Data.Message, $"Disconnected client for server '{matchedClientKey}'");
+            }
+            else
+            {
+                ctx.Append(Log.Data.Message, "No connected client found for server");
             }
 
             ctx.Succeeded();
@@ -300,21 +288,34 @@ public class McpManager : ISubsystem
     {
         var tasks = _clients.Values.Select(client =>
         {
-            try
-            {
-                client.Dispose();
-                return Task.CompletedTask;
-            }
-            catch
-            {
-                // Ignore shutdown errors
-                return Task.CompletedTask;
-            }
+            client.Dispose();
+            return Task.CompletedTask;
         });
 
         await Task.WhenAll(tasks);
         
         _clients.Clear();
         _serverTools.Clear();
+    }
+
+    private async Task OnUserManagedChangeAsync(Type t, UserManagedData.ChangeType change, object? item)
+    {
+        if (t != typeof(McpServerDefinition) || null == item || !(item is McpServerDefinition value)) return;
+
+        Log.Method(ctx => { ctx.Append(Log.Data.Message, $"Entering MCP UMD handler: {change}"); ctx.Succeeded(); });
+        switch (change)
+        {
+            case UserManagedData.ChangeType.Added:
+                await ConnectToServerAsync(value);
+                break;
+            case UserManagedData.ChangeType.Updated:
+                await DisconnectFromServerAsync(value.Name);
+                await ConnectToServerAsync(value);
+                break;
+            case UserManagedData.ChangeType.Deleted:
+                await DisconnectFromServerAsync(value.Name);
+                break;
+        }
+        Log.Method(ctx => { ctx.Append(Log.Data.Message, $"Exiting MCP UMD handler: {change}"); ctx.Succeeded(); });
     }
 }
