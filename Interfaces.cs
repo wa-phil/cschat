@@ -31,6 +31,14 @@ public class UserManagedAttribute : Attribute
     }
 }
 
+// Attribute to express subsystem dependencies. Apply on ISubsystem implementations.
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
+public class DependsOnAttribute : Attribute
+{
+    public string Name { get; }
+    public DependsOnAttribute(string name) => Name = name;
+}
+
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
 public sealed class UserFieldAttribute : Attribute
 {
@@ -117,7 +125,6 @@ public interface ITool
 
 public interface ISubsystem
 {
-    Type ConfigType { get; }
     bool IsAvailable { get; }
     bool IsEnabled { get; set; }
 }

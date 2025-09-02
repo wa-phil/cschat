@@ -386,7 +386,6 @@ namespace unittests
             Assert.Contains("DroppedAggregatedActivity", logFilter.Exclude);
 
             // Verify other config properties
-            Assert.Equal("./mcp_servers", config.McpServerDirectory);
             Assert.False(config.VerboseEventLoggingEnabled);
             Assert.Equal(25, config.MaxSteps);
             Assert.Equal(10, config.MaxMenuItems);
@@ -412,6 +411,23 @@ namespace unittests
 
             var validResult = "\"hello\"".FromJson<string>();
             Assert.Equal("hello", validResult);
+        }
+
+        [Fact]
+        public void JSONParser_ShouldParseEmptyArrayAsEmptyList()
+        {
+            // Ensure an empty JSON array parses to an empty List<object>
+            var json = "[]";
+            var parsed = json.FromJson<List<object>>();
+            Assert.NotNull(parsed);
+            Assert.Equal(0, parsed.Count);
+
+            // Also ensure nested empty arrays parse correctly
+            var nested = "{\"items\": []}".FromJson<Dictionary<string, object>>();
+            Assert.NotNull(nested);
+            Assert.True(nested.TryGetValue("items", out var itemsRaw));
+            var items = Assert.IsType<List<object>>(itemsRaw);
+            Assert.Empty(items);
         }
 
         class TestClassWithGuid

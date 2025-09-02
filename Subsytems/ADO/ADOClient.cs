@@ -42,7 +42,6 @@ public class AdoClient : ISubsystem
     private GitHttpClient _gitClient = null!;
     private bool _connected = false;
 
-    public Type ConfigType => typeof(AdoConfig);
     public bool IsAvailable { get; } = true;
     public bool IsEnabled
     {

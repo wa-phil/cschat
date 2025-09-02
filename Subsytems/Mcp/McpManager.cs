@@ -3,24 +3,62 @@ using System.IO;
 using System.Linq;
 using System.Diagnostics;
 using System.Threading;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Text.Json;
 
-public class McpManager
+[IsConfigurable("Mcp")]
+public class McpManager : ISubsystem
 {
     private static McpManager? _instance;
     public static McpManager Instance => _instance ??= new McpManager();
 
     private readonly ConcurrentDictionary<string, McpClient> _clients = new();
     private readonly ConcurrentDictionary<string, List<McpTool>> _serverTools = new();
-    private readonly string _serverDefinitionsPath;
+    private bool _isEnabled = false;
+    private IDisposable? _umSubscription;
 
-    private McpManager()
+    public bool IsAvailable { get; } = true;
+    public bool IsEnabled
     {
-        _serverDefinitionsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Program.config.McpServerDirectory);
-        Directory.CreateDirectory(_serverDefinitionsPath);
+        get => _isEnabled;
+        set
+        {
+            if (value && !_isEnabled)
+            {
+                // Enable: load configured servers
+                // Run synchronously to match pattern in other subsystems
+                LoadAllServersAsync().GetAwaiter().GetResult();
+                // Subscribe to UserManagedData to react to server add/update/delete
+                _umSubscription = Program.userManagedData.Subscribe(typeof(McpServerDefinition), (t, change, item) => Log.Method(ctx =>
+                {
+                    ctx.Append(Log.Data.Name, (item as McpServerDefinition)?.Name ?? "<unknown>");
+                    ctx.Append(Log.Data.Message, $"UMD change handler invoked for MCP: {change}");
+                    ctx.Succeeded();
+                    _ = OnUserManagedChangeAsync(t, change, item);
+                }));
+                _isEnabled = true;
+                // Register MCP commands into the global command manager so they appear in the menu
+                Program.commandManager.SubCommands.Add(Subsytems.Mcp.CommandManager.CreateMcpSubsystemCommands());
+            }
+            else if (!value && _isEnabled)
+            {
+                // Disable: shutdown all MCP clients
+                ShutdownAllAsync().GetAwaiter().GetResult();
+                _isEnabled = false;
+                _umSubscription?.Dispose();
+                // Remove MCP commands from the global command manager
+                Program.commandManager.SubCommands.RemoveAll(cmd => cmd.Name.Equals("mcp", StringComparison.OrdinalIgnoreCase));
+            }
+
+            // Persist desired enabled state to global config so SubsystemManager can save/restore
+            // Use the logical configurable name (IsConfigurable attribute) when present so the
+            // config uses stable, user-oriented keys (e.g. "Mcp") instead of concrete type names.
+            var cfgName = this.GetType().GetCustomAttribute<IsConfigurable>()?.Name ?? this.GetType().Name;
+            Program.config.Subsystems[cfgName] = _isEnabled;
+        }
     }
 
     public async Task<bool> AddServerAsync(McpServerDefinition serverDef) => await Log.MethodAsync(async ctx =>
@@ -29,24 +67,13 @@ public class McpManager
         
         try
         {
-            // Save the server definition first
-            var filePath = Path.Combine(_serverDefinitionsPath, $"{serverDef.Name}.json");
-            var json = serverDef.ToJson();
-            await File.WriteAllTextAsync(filePath, json);
-            Console.WriteLine($"Saved server definition to: {filePath}");
+            // Persist the server definition using UserManagedData if available
+            Program.userManagedData.AddItem(serverDef);
+            ctx.Append(Log.Data.Message, "Persisted server definition to UserManagedData subsystem");
 
             // Connect to the server and register tools
             var success = await ConnectToServerAsync(serverDef);
-            if (success)
-            {
-                ctx.Succeeded();
-            }
-            else
-            {
-                ctx.Failed("Failed to connect to MCP server", Error.ConnectionFailed);
-                // Note: We keep the config file even if connection failed
-                // so user can troubleshoot and use 'mcp reload' later
-            }
+            ctx.Succeeded(success);
             return success;
         }
         catch (Exception ex)
@@ -65,12 +92,8 @@ public class McpManager
             // Disconnect from server and remove tools
             await DisconnectFromServerAsync(serverName);
 
-            // Remove the server definition file
-            var filePath = Path.Combine(_serverDefinitionsPath, $"{serverName}.json");
-            if (File.Exists(filePath))
-            {
-                File.Delete(filePath);
-            }
+            // Remove entries matching this server name
+            Program.userManagedData.DeleteItem<McpServerDefinition>(s => string.Equals(s.Name, serverName, StringComparison.OrdinalIgnoreCase));
 
             ctx.Succeeded();
             return true;
@@ -85,21 +108,20 @@ public class McpManager
     public async Task LoadAllServersAsync() => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        
-        var serverFiles = Directory.GetFiles(_serverDefinitionsPath, "*.json");
+        var serverDefs = new List<McpServerDefinition>();
+        // Try to load from UserManagedData subsystem first
+        var items = Program.userManagedData.GetItems<McpServerDefinition>();
+        if (items != null && items.Count > 0)
+        {
+            serverDefs.AddRange(items);
+        }
+
         var loadedCount = 0;
-        
-        foreach (var file in serverFiles)
+        foreach (var serverDef in serverDefs)
         {
             try
             {
-                Console.ForegroundColor = ConsoleColor.DarkYellow;
-                Console.WriteLine($"Loading MCP server from {Path.GetFileName(file)}...");
-                Console.ResetColor();
-                var json = await File.ReadAllTextAsync(file);
-                var serverDef = json.FromJson<McpServerDefinition>();
-
-                if (serverDef != null && serverDef.Enabled)
+                if (serverDef != null)
                 {
                     ctx.Append(Log.Data.Name, serverDef.Name);
                     ctx.Append(Log.Data.Command, serverDef.Command);
@@ -122,12 +144,11 @@ public class McpManager
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"Warning: Failed to load MCP server from {Path.GetFileName(file)}: {ex.Message}.  See system logs for additional details.");
+                Console.WriteLine($"Warning: Failed to load MCP server {serverDef?.Name}: {ex.Message}.  See system logs for additional details.");
                 Console.ResetColor();
-                return;
             }
         }
-        
+
         ctx.Append(Log.Data.Count, loadedCount);
         ctx.Succeeded();
     });
@@ -216,30 +237,37 @@ public class McpManager
     private Task DisconnectFromServerAsync(string serverName) => Log.MethodAsync(ctx =>
     {
         ctx.Append(Log.Data.Name, serverName);
-        
+
         try
         {
-            // Remove tools from registry
-            if (_serverTools.TryRemove(serverName, out var tools))
+            // Try to find the registered server key using case-insensitive matching so
+            // removal succeeds even if callers use different casing.
+            var matchedServerKey = _serverTools.Keys.FirstOrDefault(k => string.Equals(k, serverName, StringComparison.OrdinalIgnoreCase));
+            if (matchedServerKey != null && _serverTools.TryRemove(matchedServerKey, out var tools))
             {
+                ctx.Append(Log.Data.Count, tools.Count);
                 foreach (var tool in tools)
                 {
-                    ToolRegistry.UnregisterTool($"{serverName}_{tool.ToolName}");
+                    var toolKey = $"{matchedServerKey}_{tool.ToolName}";
+                    ToolRegistry.UnregisterTool(toolKey);
                 }
+                ctx.Append(Log.Data.Message, $"Unregistered {tools.Count} tools for server '{matchedServerKey}'");
+            }
+            else
+            {
+                ctx.Append(Log.Data.Message, "No registered tools found for server");
             }
 
-            // Disconnect client
-            if (_clients.TryRemove(serverName, out var client))
+            // Disconnect client (also case-insensitive)
+            var matchedClientKey = _clients.Keys.FirstOrDefault(k => string.Equals(k, serverName, StringComparison.OrdinalIgnoreCase));
+            if (matchedClientKey != null && _clients.TryRemove(matchedClientKey, out var client))
             {
-                try
-                {
-                    // Just dispose the client, no shutdown call needed
-                    client.Dispose();
-                }
-                catch
-                {
-                    // Ignore shutdown errors
-                }
+                client.Dispose();
+                ctx.Append(Log.Data.Message, $"Disconnected client for server '{matchedClientKey}'");
+            }
+            else
+            {
+                ctx.Append(Log.Data.Message, "No connected client found for server");
             }
 
             ctx.Succeeded();
@@ -252,37 +280,7 @@ public class McpManager
         }
     });
 
-    public List<McpServerDefinition> GetServerDefinitions()
-    {
-        var servers = new List<McpServerDefinition>();
-        
-        try
-        {
-            var serverFiles = Directory.GetFiles(_serverDefinitionsPath, "*.json");
-            foreach (var file in serverFiles)
-            {
-                try
-                {
-                    var json = File.ReadAllText(file);  
-                    var serverDef = json.FromJson<McpServerDefinition>();
-                    if (serverDef != null)
-                    {
-                        servers.Add(serverDef);
-                    }
-                }
-                catch
-                {
-                    // Ignore invalid server definition files
-                }
-            }
-        }
-        catch
-        {
-            // Ignore directory access errors
-        }
-
-        return servers;
-    }
+    public List<McpServerDefinition> GetServerDefinitions() => Program.userManagedData.GetItems<McpServerDefinition>();
 
     public List<(string ServerName, List<McpTool> Tools)> GetConnectedServers() => _serverTools.Select(kvp => (kvp.Key, kvp.Value)).ToList();
 
@@ -290,21 +288,34 @@ public class McpManager
     {
         var tasks = _clients.Values.Select(client =>
         {
-            try
-            {
-                client.Dispose();
-                return Task.CompletedTask;
-            }
-            catch
-            {
-                // Ignore shutdown errors
-                return Task.CompletedTask;
-            }
+            client.Dispose();
+            return Task.CompletedTask;
         });
 
         await Task.WhenAll(tasks);
         
         _clients.Clear();
         _serverTools.Clear();
+    }
+
+    private async Task OnUserManagedChangeAsync(Type t, UserManagedData.ChangeType change, object? item)
+    {
+        if (t != typeof(McpServerDefinition) || null == item || !(item is McpServerDefinition value)) return;
+
+        Log.Method(ctx => { ctx.Append(Log.Data.Message, $"Entering MCP UMD handler: {change}"); ctx.Succeeded(); });
+        switch (change)
+        {
+            case UserManagedData.ChangeType.Added:
+                await ConnectToServerAsync(value);
+                break;
+            case UserManagedData.ChangeType.Updated:
+                await DisconnectFromServerAsync(value.Name);
+                await ConnectToServerAsync(value);
+                break;
+            case UserManagedData.ChangeType.Deleted:
+                await DisconnectFromServerAsync(value.Name);
+                break;
+        }
+        Log.Method(ctx => { ctx.Append(Log.Data.Message, $"Exiting MCP UMD handler: {change}"); ctx.Succeeded(); });
     }
 }
