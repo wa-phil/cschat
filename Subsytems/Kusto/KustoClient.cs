@@ -316,6 +316,33 @@ public class KustoClient : ISubsystem
 
     // ===== Public API (no active config) =====
 
+    public async Task<bool> EnsureConnectedAsync(KustoConfig cfg) => await Log.MethodAsync(async ctx =>
+    {
+        if (_connections.ContainsKey(cfg.Name))
+        {
+            ctx.OnlyEmitOnFailure();
+            ctx.Succeeded();
+            return true;
+        }
+
+        var res = await TryConnectConfigAsync(cfg);
+        if (res.Query is not null && res.Props is not null && res.Cfg is not null)
+        {
+            _connections[cfg.Name] = (res.Query, res.Props, res.Cfg);
+            ctx.Append(Log.Data.Name, cfg.Name);
+            ctx.Append(Log.Data.Provider, $"{cfg.ClusterUri}/{cfg.Database}");
+            ctx.Append(Log.Data.Message, "Connected (ephemeral)");
+            ctx.Succeeded();
+            return true;
+        }
+
+        ctx.Warn($"Ephemeral connect failed for '{cfg.Name}': {res.Error}");
+        ctx.Append(Log.Data.Name, cfg.Name);
+        ctx.Append(Log.Data.Provider, $"{cfg.ClusterUri}/{cfg.Database}");
+        return false;
+    });
+
+
     public IReadOnlyCollection<string> GetConnectedConfigNames() => _connections.Keys.ToList();
 
     public bool IsConnected(string configName) => _connections.ContainsKey(configName);

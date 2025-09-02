@@ -277,7 +277,12 @@ public static class DataCommands
             if (!string.IsNullOrWhiteSpace(hint)) Console.WriteLine(hint);
             Console.Write($"{display}{requiredText}:{currentText} ");
 
-            var input = User.ReadLineWithHistory();
+            var input = ReadLineAllowEsc();
+            if (input == null)
+            {
+                // ESC pressed -> cancel the whole interactive fill
+                return false;
+            }
             if (string.IsNullOrWhiteSpace(input))
             {
                 if (isUpdate && value != null) return true;         // keep existing
@@ -296,64 +301,174 @@ public static class DataCommands
         }
     }
 
+    private static string? ReadLineAllowEsc()
+    {
+        // Read first key to detect ESC without consuming input from Console.ReadLine
+        var key = Console.ReadKey(intercept: true);
+        if (key.Key == ConsoleKey.Escape)
+        {
+            Console.WriteLine();
+            return null;
+        }
+        if (key.Key == ConsoleKey.Enter)
+        {
+            Console.WriteLine();
+            return string.Empty;
+        }
+
+        // Echo the first key and read the remainder of the line
+        Console.Write(key.KeyChar);
+        var rest = Console.ReadLine();
+        return key.KeyChar + (rest ?? "");
+    }
+
     private static async Task<bool> EditListInteractively(IList list, Type elemType, string display, bool isUpdate)
     {
         while (true)
         {
-            Console.WriteLine($"\n-- Editing list: {display} --");
-            for (int i = 0; i < list.Count; i++)
-                Console.WriteLine($"{i}: {FormatValue(list[i])}");
+            var choices = new List<string>
+            {
+                "list    (show items)",
+                "add     (insert new item)",
+                "edit    (modify an item)",
+                "remove  (delete an item)",
+                "done    (finish editing)"
+            };
 
-            var choice = User.RenderMenu("Choose action", new List<string> { "add", "edit", "remove", "done" });
-            if (choice == null || choice.Equals("done", StringComparison.OrdinalIgnoreCase))
+            var choice = User.RenderMenu($"Choose action: {display}", choices);
+            if (choice == null || choice.StartsWith("done", StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            if (choice.Equals("add", StringComparison.OrdinalIgnoreCase))
+            if (choice.StartsWith("list", StringComparison.OrdinalIgnoreCase))
+            {
+                if (list.Count == 0)
+                {
+                    Console.WriteLine("List is empty.");
+                    continue;
+                }
+
+                var itemChoices = new List<string>();
+                for (int i = 0; i < list.Count; i++)
+                    itemChoices.Add(FormatValue(list[i]));
+
+                // Use RenderMenu so the items are visible while selecting; ESC (null) goes back
+                var seen = User.RenderMenu($"Items in {display} (press ESC to go back)", itemChoices);
+                // ignore selection results; null returns to main menu
+                continue;
+            }
+
+            if (choice.StartsWith("add", StringComparison.OrdinalIgnoreCase))
             {
                 if (IsSimple(elemType))
                 {
-                    object? val = GetDefault(elemType);
-                    if (!PromptForSimple(ref val, elemType, "Value", required: true, isUpdate: false, hint: null))
-                        return false;
-                    list.Add(val!);
+                    // Prompt manually so ESC or blank entry cancels the add (but does not abort the whole edit session)
+                    var hint = GetTypeInputHint(elemType);
+                    Console.Write($"Enter value ({hint}) or press ESC to cancel: ");
+                    var input = ReadLineAllowEsc();
+                    if (input == null || string.IsNullOrWhiteSpace(input))
+                    {
+                        Console.WriteLine("Add cancelled.");
+                        continue; // do not add, keep editing
+                    }
+
+                    if (TryParse(elemType, input!, out var parsed))
+                    {
+                        list.Add(parsed!);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Could not parse '{input}' as {PrettyType(elemType)}. Add cancelled.");
+                        continue;
+                    }
                 }
                 else
                 {
                     var child = Activator.CreateInstance(elemType)!;
                     if (!await FillObjectInteractively(child, elemType, isUpdate: false))
-                        return false;
+                    {
+                        Console.WriteLine("Add cancelled.");
+                        continue; // user cancelled adding the complex item
+                    }
                     list.Add(child);
                 }
             }
-            else if (choice.Equals("edit", StringComparison.OrdinalIgnoreCase))
+            else if (choice.StartsWith("edit", StringComparison.OrdinalIgnoreCase))
             {
                 if (list.Count == 0) { Console.WriteLine("List is empty."); continue; }
-                Console.Write("Index to edit: ");
-                if (!int.TryParse(Console.ReadLine(), out var idx) || idx < 0 || idx >= list.Count)
-                { Console.WriteLine("Invalid index."); continue; }
+
+                var itemChoices = new List<string>();
+                for (int i = 0; i < list.Count; i++)
+                    itemChoices.Add(FormatValue(list[i]));
+
+                var selected = User.RenderMenu($"Select {display} item to edit (press ESC to cancel):", itemChoices);
+                if (selected == null)
+                {
+                    Console.WriteLine("Edit cancelled.");
+                    continue;
+                }
+
+                var selectedIndex = itemChoices.IndexOf(selected);
+                if (selectedIndex < 0) { Console.WriteLine("Invalid selection."); continue; }
 
                 if (IsSimple(elemType))
                 {
-                    object? cur = list[idx];
-                    if (!PromptForSimple(ref cur, elemType, "Value", required: true, isUpdate: true, hint: null))
-                        return false;
-                    list[idx] = cur!;
+                    object? cur = list[selectedIndex];
+                    var hint = GetTypeInputHint(elemType);
+                    Console.Write($"Enter new value for index {selectedIndex} ({hint}) or press ESC to cancel: ");
+                    var input = ReadLineAllowEsc();
+                    if (input == null || string.IsNullOrWhiteSpace(input))
+                    {
+                        Console.WriteLine("Edit cancelled.");
+                        continue;
+                    }
+                    if (TryParse(elemType, input!, out var parsed))
+                    {
+                        list[selectedIndex] = parsed!;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Could not parse '{input}' as {PrettyType(elemType)}. Edit cancelled.");
+                        continue;
+                    }
                 }
                 else
                 {
-                    var child = list[idx] ?? Activator.CreateInstance(elemType)!;
+                    var child = list[selectedIndex] ?? Activator.CreateInstance(elemType)!;
                     if (!await FillObjectInteractively(child!, elemType, isUpdate: true))
-                        return false;
-                    list[idx] = child!;
+                    {
+                        Console.WriteLine("Edit cancelled.");
+                        continue;
+                    }
+                    list[selectedIndex] = child!;
                 }
             }
-            else if (choice.Equals("remove", StringComparison.OrdinalIgnoreCase))
+            else if (choice.StartsWith("remove", StringComparison.OrdinalIgnoreCase))
             {
                 if (list.Count == 0) { Console.WriteLine("List is empty."); continue; }
-                Console.Write("Index to remove: ");
-                if (!int.TryParse(Console.ReadLine(), out var idx) || idx < 0 || idx >= list.Count)
-                { Console.WriteLine("Invalid index."); continue; }
-                list.RemoveAt(idx);
+
+                var itemChoices = new List<string>();
+                for (int i = 0; i < list.Count; i++)
+                    itemChoices.Add(FormatValue(list[i]));
+
+                var selected = User.RenderMenu($"Select {display} item to remove (press ESC to cancel):", itemChoices);
+                if (selected == null)
+                {
+                    Console.WriteLine("Remove cancelled.");
+                    continue;
+                }
+
+                var removeIndex = itemChoices.IndexOf(selected);
+                if (removeIndex < 0) { Console.WriteLine("Invalid selection."); continue; }
+
+                Console.Write($"Are you sure you want to remove '{list[removeIndex]}'? (y/N): ");
+                var confirm = ReadLineAllowEsc();
+                if (confirm == null || !string.Equals(confirm, "y", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine("Remove cancelled.");
+                    continue;
+                }
+
+                list.RemoveAt(removeIndex);
             }
         }
     }
@@ -435,6 +550,19 @@ public static class DataCommands
 
         value = null;
         return false;
+    }
+
+    private static string GetTypeInputHint(Type type)
+    {
+        var t = Nullable.GetUnderlyingType(type) ?? type;
+        if (t == typeof(string)) return "text";
+        if (t == typeof(int) || t == typeof(long) || t == typeof(short) || t == typeof(byte)) return "integer";
+        if (t == typeof(decimal) || t == typeof(double) || t == typeof(float)) return "number";
+        if (t == typeof(bool)) return "true/false";
+        if (t == typeof(Guid)) return "guid (e.g. 01234567-89ab-cdef-0123-456789abcdef)";
+        if (t == typeof(DateTime)) return "datetime (ISO, e.g. 2023-05-01T12:00:00Z)";
+        if (t.IsEnum) return "one of: " + string.Join("|", Enum.GetNames(t));
+        return PrettyType(t);
     }
 
     /* ---------- subsystem access via reflection (supports both classes present) ---------- */
