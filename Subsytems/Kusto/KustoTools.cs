@@ -181,7 +181,7 @@ public sealed class RunSavedKustoQueryTool : ITool
         var (cols, rows) = await kusto.QueryAsync(cfg, q.Kql);
 
         // Render table for console/chat
-        var table = KustoClient.ToTable(cols, rows);
+        var table = Utilities.ToTable(cols, rows);
         ctx.AddToolMessage(table);
 
         // Optional export
@@ -190,8 +190,8 @@ public sealed class RunSavedKustoQueryTool : ITool
             var ext = System.IO.Path.GetExtension(p.Export).ToLowerInvariant();
             var content = ext switch
             {
-                ".csv"  => KustoClient.ToCsv(cols, rows),
-                ".json" => KustoClient.ToJson(cols, rows),
+                ".csv"  => Utilities.ToCsv(cols, rows),
+                ".json" => Utilities.ToJson(cols, rows),
                 _       => table
             };
             System.IO.File.WriteAllText(p.Export!, content);

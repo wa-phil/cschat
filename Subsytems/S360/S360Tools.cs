@@ -26,7 +26,7 @@ public sealed class S360FetchTool : ITool
         var s360 = Program.SubsystemManager.Get<S360Client>();
         var (cols, rows) = await s360.FetchAsync(profile);  // <-- built-in Kusto
 
-        var table = KustoClient.ToTable(cols, rows, Console.WindowWidth);
+        var table = Utilities.ToTable(cols, rows, Console.WindowWidth);
         ctx.AddToolMessage(table);
         await ContextManager.AddContent(table, $"s360/{profile.Name}/results");
 
@@ -34,8 +34,8 @@ public sealed class S360FetchTool : ITool
         {
             var ext = Path.GetExtension(p.Export).ToLowerInvariant();
             var content = ext switch {
-                ".csv"  => KustoClient.ToCsv(cols, rows),
-                ".json" => KustoClient.ToJson(cols, rows),
+                ".csv"  => Utilities.ToCsv(cols, rows),
+                ".json" => Utilities.ToJson(cols, rows),
                 _       => table
             };
             File.WriteAllText(p.Export!, content);
@@ -194,15 +194,15 @@ public sealed class S360SliceTool : ITool
             x.Row.URL
         }).ToList();
 
-        var table = KustoClient.ToTable(headers, outRows, Console.WindowWidth);
+    var table = Utilities.ToTable(headers, outRows, Console.WindowWidth);
         ctx.AddToolMessage(table);
 
         if (!string.IsNullOrWhiteSpace(p.Export))
         {
             var ext = Path.GetExtension(p.Export).ToLowerInvariant();
             var content = ext switch {
-                ".csv"  => KustoClient.ToCsv(headers, outRows),
-                ".json" => KustoClient.ToJson(headers, outRows),
+                ".csv"  => Utilities.ToCsv(headers, outRows),
+                ".json" => Utilities.ToJson(headers, outRows),
                 _       => table
             };
             File.WriteAllText(p.Export!, content);

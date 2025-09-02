@@ -87,7 +87,7 @@ public static class KustoCommands
                         if (q is null) return Command.Result.Failed;
 
                         var (cols, rows) = await kusto.QueryAsync(cfg, q.Kql);
-                        var table = KustoClient.ToTable(cols, rows, Console.WindowWidth);
+                        var table = Utilities.ToTable(cols, rows, Console.WindowWidth);
                         Console.WriteLine(table);
 
                         Console.Write("Export? (none/csv/json) ");
@@ -98,7 +98,7 @@ public static class KustoCommands
                             var path = User.ReadLineWithHistory();
                             if (!string.IsNullOrWhiteSpace(path))
                             {
-                                var content = how == "csv" ? KustoClient.ToCsv(cols, rows) : KustoClient.ToJson(cols, rows);
+                                var content = how == "csv" ? Utilities.ToCsv(cols, rows) : Utilities.ToJson(cols, rows);
                                 File.WriteAllText(path!, content);
                                 Console.WriteLine($"Saved: {path}");
                             }
@@ -157,7 +157,7 @@ public static class KustoCommands
                         var kql = ReadMultiline();
 
                         var (cols, rows) = await kusto.QueryAsync(cfg, kql);
-                        var table = KustoClient.ToTable(cols, rows, Console.WindowWidth);
+                        var table = Utilities.ToTable(cols, rows, Console.WindowWidth);
                         Console.WriteLine(table);
                         await ContextManager.AddContent(table, $"kusto/{cfg.Name}/results/__adhoc__");
 
