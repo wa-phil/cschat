@@ -28,7 +28,7 @@ A simple, interactive C# console chat client for [Ollama](https://ollama.com/) a
 - **Retrieval-Augmented Generation (RAG):** Ingest, search, and use external documents or knowledge in chat context. RAG data can be added, listed, and cleared via commands.
 - **Interactive Menu System:** Press `Escape` to open a keyboard-navigable menu for commands, model/provider selection, and more. Supports filtering and quick selection.
 - **Advanced Tool System:** Register and invoke custom tools via the `tools` command or through model-suggested tool use. Tools can be used to extend the assistant with new capabilities (e.g., calculations, file operations, lookups, etc.).
-- **MCP support:** Easily add MCP server definitions to expand and extend tool functionality.
+- **MCP subsystem support:** Easily add MCP server definitions to expand and extend tool functionality. Note: MCP is implemented as a subsystem and is managed via the Subsystem Manager.
 - **Autonomous Planning:** Multi-step task execution with intelligent planning system that can break down complex goals into actionable steps.
 - **Comprehensive Logging:** Built-in logging system with retry logic, error handling, and detailed execution tracking for debugging and monitoring.
 
@@ -60,8 +60,8 @@ The planning system enables autonomous multi-step task execution by breaking dow
 - **Retry Logic:** Built-in retry mechanisms for handling transient failures
 - **Visual Progress:** Real-time console output shows step execution with colored status indicators
 
-## MCP System
-MCP (Model Context Protocol) is a protocol designed to facilitate communication between clients and servers for managing and interacting with AI models. It provides a standardized way to define, query, and execute operations on models hosted on MCP-compatible servers.
+## MCP Subsystem
+MCP (Model Context Protocol) is a protocol designed to facilitate communication between clients and servers for managing and interacting with AI models. cschat exposes MCP as a subsystem that can be enabled/disabled via the Subsystem Manager, and configured via the UserManageData component (Data>McpServer menu).  It provides a standardized way to define, query, and execute operations on models hosted on MCP-compatible servers.
 
 ### How MCP Works with cschat
 - **Server Integration:** cschat can connect to MCP servers defined in the `mcp_servers` directory. Each server is described using a JSON configuration file (e.g., `gitmcp.json`).
@@ -200,26 +200,26 @@ ADOCommands (what they do and how they work)
 
 - `ADO workitem` subcommands:
   - `lookup by ID` — prompts for a numeric work item ID, calls `AdoClient.GetWorkItemSummaryById(id)` and prints the result.
-  - `summarize item` — lets you pick one of your saved queries (from `UserSelectedQuery` stored in the UserManagedData subsystem), lists the query results in an aligned interactive menu, then runs a concise LLM summarization of the chosen work item via `Engine.Provider.PostChatAsync(...)` (falls back to raw detail text on failure).
+  - `summarize item` — lets you pick one of your saved queries (from `UserSelectedQuery` stored in the UserManagedData component), lists the query results in an aligned interactive menu, then runs a concise LLM summarization of the chosen work item via `Engine.Provider.PostChatAsync(...)` (falls back to raw detail text on failure).
   - `top` — pick a saved query, fetch its work items, run `AdoInsights.Analyze(...)` with the current `Program.config.Ado.Insights`, and print the top-N items ranked by score (score-only table). Useful quick triage list.
   - `summarize query` — compute aggregates for a saved query (counts by state/tag/area), print a numeric snapshot then ask the model for a 30-second briefing (via `MakeManagerBriefingPrompt`).
   - `triage` — end-to-end triage flow: pick a saved query, compute `Analyze`, print a manager briefing, list the top items (with scores), and request an LLM-generated action plan for the top subset.
 
 - `ADO queries browse`:
   - Opens an interactive folder-style picker for your ADO project's queries (My/Shared Queries). You can navigate folders with the menu and when you pick a query the code will add that query to the user's saved queries collection using:
-    - `Program.SubsystemManager.Get<UserManagedData>().AddItem(new UserSelectedQuery(...))`
+    - `Program.userManagedData.AddItem(new UserSelectedQuery(...))`
   - After adding the saved query the command calls `Config.Save(Program.config, Program.ConfigFilePath)` so your selection persists to `config.json`.
 
 Interaction with UserSelectedQuery and the menu system
-- `UserSelectedQuery` is a small user-managed type (see `Subsytems/UserManagedData/UserSelectedQuery.cs`) that stores a query's GUID, name, project and path. It's discoverable and editable via the `Data` subsystem menu (the UserManagedData subsystem exposes per-type `list/add/update/delete` commands automatically).
+- `UserSelectedQuery` is a small user-managed type (see `Subsytems/UserManagedData/UserSelectedQuery.cs`) that stores a query's GUID, name, project and path. It's discoverable and editable via the `Data` component menu (the UserManagedData component exposes per-type `list/add/update/delete` commands automatically).
 - Many ADO commands obtain the user's saved queries via:
-  - `var saved = Program.SubsystemManager.Get<UserManagedData>().GetItems<UserSelectedQuery>()`
+  - `var saved = Program.userManagedData.GetItems<UserSelectedQuery>()`
   - They then build a human-friendly list of choices like `$"{q.Name} ({q.Project}) - {q.Path}"` and call `User.RenderMenu(header, choices)` to let the user pick one.
 - The same `User.RenderMenu(...)` infra is used throughout ADO commands to:
   - Present saved queries to pick which query to act on
   - Present work-item rows (formatted via `ToMenuRows()`/aligned columns) so you can pick a row to summarize
   - Navigate query folders when browsing
-- The `Data` menu (UserManagedData subsystem) is how you manage stored `UserSelectedQuery` entries directly (edit, delete, list). `ADO queries browse` is a convenience that discovers queries in ADO and automatically adds them to that collection.
+-- The `Data` menu (UserManagedData component) is how you manage stored `UserSelectedQuery` entries directly (edit, delete, list). `ADO queries browse` is a convenience that discovers queries in ADO and automatically adds them to that collection.
 
 Practical notes / examples
 - To add a query to your saved queries: `ADO queries browse` → navigate to the desired query → it will be added to your `User Selected Query` collection and saved to `config.json`.
@@ -233,22 +233,22 @@ Implementation pointers
 
 This expanded documentation should help you understand where the scoring lives, how the signals are combined, how to tune the behavior at runtime, and how the ADO commands interact with the saved-query menu integration via `UserSelectedQuery`.
 
-### UserManagedData Subsystem
+### UserManagedData component
 
-The `UserManagedData` subsystem lets developers register small, typed user data collections (for example: saved queries, bookmarks, snippets, or other user-maintained records) that the app stores in `config.json` and exposes via an interactive `Data` command group.
+The `UserManagedData` component lets developers register small, typed user data collections (for example: saved queries, bookmarks, snippets, or other user-maintained records) that the app stores in `config.json` and exposes via an interactive `Data` command group.
 
-Note that by-default this subystem should be enabled, and that it has no other configurable settings.
+Note that by-default this component should be enabled and that it has no other configurable settings.
 
 Key points:
 
-- Mark a class with `[UserManagedAttribute("Display Name", "Description")]` to make it discoverable by the subsystem.
+- Mark a class with `[UserManagedAttribute("Display Name", "Description")]` to make it discoverable by the component.
 - Decorate properties with `[UserField(required: true/false)]` and mark a logical key with `[UserKey]` to enable update/delete operations.
-- The subsystem, through reflection, at runtime, discovers annotated types and creates per-type commands grouped under the top-level `Data` command with `list`, `add`, `update`, and `delete` actions as default actions.
+- The component, through reflection, at runtime, discovers annotated types and creates per-type commands grouped under the top-level `Data` command with `list`, `add`, `update`, and `delete` actions as default actions.
 - Stored data lives in `Program.config.UserManagedData.TypedData` as simple dictionaries (serialized JSON). This makes the feature lightweight and durable across runs.
 - Example: `UserSelectedQuery` (used by the ADO subsystem) demonstrates a user-managed type that stores a query name, project, path, and GUID. Once defined, it appears in the `Data` menu and can be managed interactively.
-- Extending: to add a new user-managed collection, create a class with the appropriate attributes and a parameterless constructor. The subsystem will discover it after the next start (or when the subsystem is enabled) and expose the interactive commands.
+- Extending: to add a new user-managed collection, create a class with the appropriate attributes and a parameterless constructor. The component will discover it after the next start (or when the component is enabled) and expose the interactive commands.
 
-This subsystem is intended for small, developer-maintained collections and not for large data stores or sensitive secrets.
+This component is intended for small, developer-maintained collections and not for large data stores or sensitive secrets.
 
 ## How it works
 - On startup, loads or creates a configuration file (`config.json`) for provider, host, model, and system prompt.

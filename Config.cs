@@ -60,7 +60,7 @@ public class Config
     public string SystemPrompt { get; set; } = "You are a helpful system agent.  When answering questions, if you do not know the answer, tell the user as much. Always strive to be honest and truthful.  You have access to an array of tools that you can use to get the information you need to help the user. These tools can list the contents of a directory, read metadata about files, read file contents, etc...";
 
     public RagSettings RagSettings { get; set; } = new RagSettings();
-    public string McpServerDirectory { get; set; } = "./mcp_servers";
+
     public bool VerboseEventLoggingEnabled { get; set; } = false;
     public int MaxSteps { get; set; } = 25; // Maximum number of steps for planning
     public int MaxMenuItems { get; set; } = 10; // Maximum number of menu items to display at once
@@ -80,7 +80,8 @@ public class Config
     public Dictionary<string, bool> Subsystems { get; set; } = new Dictionary<string, bool>
     {
         { "Ado", false },
-        { "UserManagedData", true },
+        { "Mcp", true },
+        { "Kusto", true},
     };
 
     public AdoConfig Ado { get; set; } = new AdoConfig();

@@ -58,24 +58,89 @@ public class SubsystemManager
     {
         ctx.OnlyEmitOnFailure();
         if (string.IsNullOrEmpty(name)) throw new ArgumentException("Subsystem name cannot be null or empty.", nameof(name));
-        if (!_subsystems.ContainsKey(name))
+        // Allow callers to pass either the configured logical name (from IsConfigurable) or the concrete
+        // type name (older config files may use type names). Map type names to the registered logical name.
+        var key = name;
+        if (!_subsystems.ContainsKey(key))
         {
-            ctx.Failed($"Subsystem '{name}' not found.", Error.InvalidInput);
+            // Try to find a registered subsystem whose Type.Name matches the provided name
+            var pair = _subsystems.FirstOrDefault(kvp => string.Equals(kvp.Value.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrEmpty(pair.Key))
+            {
+                ctx.Failed($"Subsystem '{name}' not found.", Error.InvalidInput);
+                return;
+            }
+            key = pair.Key;
+        }
+
+        if (!TryGetSubsystem(key, out var subsystem))
+        {
+            ctx.Failed($"Failed to set enabled state for subsystem '{key}'.", Error.InvalidInput);
             return;
         }
 
-        if (!TryGetSubsystem(name, out var subsystem))
+        // If enabling, ensure dependencies are enabled first
+        if (enabled)
         {
-            ctx.Failed($"Failed to set enabled state for subsystem '{name}'.", Error.InvalidInput);
-            return;
+            var deps = GetDependenciesForSubsystem(subsystem!);
+            foreach (var dep in deps)
+            {
+                if (!IsEnabled(dep))
+                {
+                    Console.WriteLine($"Enabling dependency '{dep}' for subsystem '{key}'.");
+                    SetEnabled(dep, true);
+                }
+            }
         }
 
         subsystem!.IsEnabled = enabled;
-        Program.config.Subsystems[name] = enabled; // Update the config
-        ctx.Append(Log.Data.Message, $"Subsystem '{name}' is now {(enabled ? "enabled" : "disabled")}.");
+
+        // If disabling, cascade to any subsystems that depend on this one
+        if (!enabled)
+        {
+            var dependents = GetDependentsForSubsystem(key).ToList();
+            foreach (var d in dependents)
+            {
+                if (IsEnabled(d))
+                {
+                    Console.WriteLine($"Disabling dependent subsystem '{d}' because '{key}' was disabled.");
+                    SetEnabled(d, false);
+                }
+            }
+        }
+
+        // Persist using the logical configurable name when available
+        var cfgName = subsystem.GetType().GetCustomAttribute<IsConfigurable>()?.Name ?? key;
+        Program.config.Subsystems[cfgName] = enabled; // Update the config
+        ctx.Append(Log.Data.Message, $"Subsystem '{cfgName}' is now {(enabled ? "enabled" : "disabled")}.");
         ctx.Succeeded();
         return;
     });
+
+    private IEnumerable<string> GetDependenciesForSubsystem(ISubsystem subsystem)
+    {
+        var attrs = subsystem.GetType().GetCustomAttributes<DependsOnAttribute>();
+        foreach (var a in attrs)
+            yield return a.Name;
+    }
+
+    private IEnumerable<string> GetDependentsForSubsystem(string subsystemName)
+    {
+        // A dependent is any registered subsystem whose DependsOnAttribute lists subsystemName
+        foreach (var kv in _subsystems)
+        {
+            var t = kv.Value;
+            var deps = t.GetCustomAttributes<DependsOnAttribute>();
+            foreach (var d in deps)
+            {
+                if (string.Equals(d.Name, subsystemName, StringComparison.OrdinalIgnoreCase))
+                {
+                    yield return kv.Key;
+                    break;
+                }
+            }
+        }
+    }
 
     public void Register(Dictionary<string, Type> subsystemTypes) => Log.Method(ctx =>
     {
@@ -92,7 +157,10 @@ public class SubsystemManager
     public void Connect() => Log.Method(ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        foreach (var kv in Program.config.Subsystems)
+        // Iterate a snapshot of the configured subsystems to avoid
+        // modifying the collection (SetEnabled updates Program.config.Subsystems)
+        var subsystems = Program.config.Subsystems.ToList();
+        foreach (var kv in subsystems)
         {
             ctx.Append(Log.Data.Message, $"Setting subsystem '{kv.Key}' enabled to {kv.Value}.");
             if (kv.Value)
@@ -112,7 +180,12 @@ public class SubsystemManager
     });
 
     public Func<ISubsystem, bool> Enabled => s => null != s ? s.IsEnabled : false;
-    public Func<ISubsystem, bool> ShouldBeEnabled => s => null != s && Program.config.Subsystems.TryGetValue(s.GetType().Name, out var enabled) && enabled;
+    public Func<ISubsystem, bool> ShouldBeEnabled => s =>
+    {
+        if (null == s) return false;
+        var cfgName = s.GetType().GetCustomAttribute<IsConfigurable>()?.Name ?? s.GetType().Name;
+        return Program.config.Subsystems.TryGetValue(cfgName, out var enabled) && enabled;
+    };
 
     public IEnumerable<(string, ISubsystem)> All(Func<ISubsystem, bool>? filter = null)
     {
