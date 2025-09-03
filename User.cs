@@ -837,14 +837,20 @@ public static class ProgressUi
             }
 
             var totalRemaining = knownRemainingSteps + unknownRemainingSteps;
-            var seconds = totalRemaining / _emaStepsPerSec;
+            var seconds = _emaStepsPerSec > 0 ? totalRemaining / _emaStepsPerSec : double.MaxValue;
+
+            // Clamp seconds to a reasonable range to avoid overflow
+            if (double.IsInfinity(seconds) || double.IsNaN(seconds) || seconds > TimeSpan.MaxValue.TotalSeconds)
+            {
+                seconds = TimeSpan.MaxValue.TotalSeconds;
+            }
 
             // Smooth the ETA itself to prevent bouncing
             _emaSecondsRemaining = double.IsNaN(_emaSecondsRemaining)
                 ? seconds
                 : _alpha * seconds + (1 - _alpha) * _emaSecondsRemaining;
 
-            var ts = TimeSpan.FromSeconds(Math.Max(0, _emaSecondsRemaining));
+            var ts = TimeSpan.FromSeconds(Math.Max(0, Math.Min(_emaSecondsRemaining, TimeSpan.MaxValue.TotalSeconds)));
             if (ts.TotalHours > 1)
             {
                 return "??:??"; // too long to reasonably estimate.
