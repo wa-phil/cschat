@@ -20,6 +20,7 @@ static class Program
     public static CommandManager commandManager = null!;
     public static ServiceProvider serviceProvider = null!;
     public static SubsystemManager SubsystemManager = null!;
+    public static UserManagedData userManagedData = null!;
 
     static Dictionary<string, Type> DictionaryOfTypesToNamesForInterface<T>(ServiceCollection serviceCollection, IEnumerable<Type> types)
         where T : class
@@ -38,7 +39,19 @@ static class Program
         {
             if (typeof(ISubsystem).IsAssignableFrom(item))
             {
-                serviceCollection.AddSingleton(item);
+                // Some subsystems (e.g. McpManager) use private constructors and expose a public static Instance property.
+                // Try to register the existing Instance if present; otherwise register a factory that can create non-public ctors.
+                var instanceProp = item.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                if (instanceProp != null && item.IsAssignableFrom(instanceProp.PropertyType))
+                {
+                    // Register the singleton using the static Instance property
+                    serviceCollection.AddSingleton(item, sp => instanceProp.GetValue(null)!);
+                }
+                else
+                {
+                    // Fallback: register a singleton factory that can create non-public constructors
+                    serviceCollection.AddSingleton(item, sp => Activator.CreateInstance(item, nonPublic: true)!);
+                }
             }
             else
             {
@@ -65,7 +78,7 @@ static class Program
         Chunkers = DictionaryOfTypesToNamesForInterface<ITextChunker>(serviceCollection, types);
         Tools = DictionaryOfTypesToNamesForInterface<ITool>(serviceCollection, types);
         SubsystemManager.Register(DictionaryOfTypesToNamesForInterface<ISubsystem>(serviceCollection, types));
-
+        userManagedData = new UserManagedData();
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
     }
 
@@ -74,16 +87,17 @@ static class Program
         Context = new Context(config.SystemPrompt);
         ToolRegistry.Initialize();
 
-        // Initialize MCP manager and load servers
-        await McpManager.Instance.LoadAllServersAsync();
-
-        // Create command manager after all tools are registered
-        commandManager = CommandManager.CreateDefaultCommands();
-
         Engine.SupportedFileTypes = config.RagSettings.SupportedFileTypes;
         Engine.SetProvider(config.Provider);
         Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
         Engine.VectorStore.Clear();
+
+        // Create command manager before connecting subsystems so subsystems can register/unregister commands (ADO needs this)
+        commandManager = CommandManager.CreateDefaultCommands();
+
+        // Connect user-managed data first so annotated types are discovered
+        // before subsystems query or load items from it.
+        userManagedData.Connect();
         SubsystemManager.Connect();
 
         // Add all the tools to the context

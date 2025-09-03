@@ -4,6 +4,5 @@
   "command": "npx",
   "args": ["@modelcontextprotocol/server-filesystem", "./"],
   "environment": {},
-  "workingDirectory": "",
-  "enabled": true
+  "workingDirectory": ""
 }

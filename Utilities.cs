@@ -109,6 +109,125 @@ public static class Utilities
 
     internal static string StripRTF(string inputRtf) => RichTextStripper.StripRichTextFormat(inputRtf);
 
+    // Renderer helpers moved from KustoClient
+    public static string ToTable(IEnumerable<string> headers, IEnumerable<string[]> rows, int maxWidth = 140)
+    {
+        var hs = headers.ToList();
+        var rowList = rows.ToList();
+
+        int origCount = hs.Count;
+        var indices = Enumerable.Range(0, origCount).ToList();
+
+        // If we have rows, drop columns where every row value is null/empty (noise).
+        if (rowList.Count > 0)
+        {
+            indices = indices.Where(i => rowList.Any(r => i < r.Length && !string.IsNullOrEmpty(r[i]))).ToList();
+            // If that removed everything, fall back to keeping all columns so we still show headers
+            if (indices.Count == 0) indices = Enumerable.Range(0, origCount).ToList();
+        }
+
+        // Compute max content length per column (header vs cell content)
+        var maxLens = new List<int>();
+        foreach (var i in indices)
+        {
+            int w = hs[i]?.Length ?? 0;
+            foreach (var r in rowList)
+            {
+                if (i < r.Length && r[i] != null)
+                    w = Math.Max(w, r[i].Length);
+            }
+            maxLens.Add(w);
+        }
+
+        int colCount = indices.Count;
+        if (colCount == 0) return string.Empty;
+
+        // Compute available content width (excluding separators " │ " between columns)
+        int sepWidth = 3 * Math.Max(0, colCount - 1);
+        int contentMax = Math.Max(1, maxWidth - sepWidth);
+
+        int minCol = 6;
+        if (contentMax < colCount * minCol)
+        {
+            // Shrink minCol if overall space is limited
+            minCol = Math.Max(1, contentMax / colCount);
+        }
+
+        // Greedy left-to-right allocation: try to give each column its needed width
+        var widths = new int[colCount];
+        int allocated = 0;
+        for (int idx = 0; idx < colCount; idx++)
+        {
+            int remaining = colCount - idx - 1;
+            int minForRemaining = remaining * minCol;
+            int availableForThis = contentMax - allocated - minForRemaining;
+            int desired = Math.Min(maxLens[idx], contentMax);
+            int w = Math.Clamp(desired, minCol, Math.Max(minCol, availableForThis));
+            widths[idx] = w;
+            allocated += w;
+        }
+
+        // If we under-allocated due to clamping, distribute leftover space left-to-right
+        int leftover = contentMax - allocated;
+        for (int i = 0; leftover > 0 && i < colCount; i++)
+        {
+            int add = Math.Min(leftover, Math.Max(0, maxLens[i] - widths[i]));
+            widths[i] += add;
+            leftover -= add;
+        }
+        // If still leftover, give one char per column left-to-right
+        for (int i = 0; leftover > 0 && i < colCount; i++)
+        {
+            widths[i] += 1;
+            leftover -= 1;
+        }
+
+        string Fit(string s, int w) => (s.Length <= w) ? s.PadRight(w) : s.Substring(0, Math.Max(0, w - 1)) + "…";
+
+        var lines = new List<string>();
+
+        // Header
+        lines.Add(string.Join(" │ ", indices.Select((origIdx, j) => Fit(hs[origIdx] ?? "", widths[j]))));
+        // Separator
+        lines.Add(string.Join("─┼─", widths.Select(c => new string('─', Math.Max(1, c)))));
+
+        // Rows
+        foreach (var row in rowList)
+        {
+            var parts = new List<string>();
+            for (int j = 0; j < colCount; j++)
+            {
+                var origIdx = indices[j];
+                var s = (origIdx < row.Length) ? (row[origIdx] ?? "") : "";
+                parts.Add(Fit(s, widths[j]));
+            }
+            lines.Add(string.Join(" │ ", parts));
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    public static string ToCsv(IReadOnlyList<string> headers, List<string[]> rows)
+    {
+        static string E(string s) => s.Contains('"') || s.Contains(',') || s.Contains('\n')
+            ? "\"" + s.Replace("\"", "\"\"") + "\"" : s;
+        var lines = new List<string> { string.Join(",", headers) };
+        lines.AddRange(rows.Select(r => string.Join(",", r.Select(E))));
+        return string.Join("\n", lines);
+    }
+
+    public static string ToJson(IReadOnlyList<string> headers, List<string[]> rows)
+    {
+        var list = rows.Select(r =>
+        {
+            var o = new Dictionary<string, object?>();
+            for (int i = 0; i < headers.Count; i++)
+                o[headers[i]] = i < r.Length ? r[i] : null;
+            return o;
+        }).ToList();
+        return list.ToJson();
+    }
+
     #region "RTF Stripping"
 
     /// <summary>

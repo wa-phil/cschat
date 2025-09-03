@@ -39,8 +39,7 @@ public static class ADOCommands
                             Action = async () =>
                             {
                                 // Get saved queries from UserManagedData
-                                var userManagedData = Program.SubsystemManager.Get<UserManagedData>();
-                                var savedQueries = userManagedData.GetItems<UserSelectedQuery>();
+                                var savedQueries = Program.userManagedData.GetItems<UserSelectedQuery>();
 
                                 if (savedQueries == null || savedQueries.Count == 0)
                                 {
@@ -165,8 +164,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                             Description = () => "Show top-N attention-worthy work items (ranked by signals)",
                             Action = async () =>
                             {
-                                var userManagedData = Program.SubsystemManager.Get<UserManagedData>();
-                                var savedQueries = userManagedData.GetItems<UserSelectedQuery>();
+                                var savedQueries = Program.userManagedData.GetItems<UserSelectedQuery>();
                                 if (savedQueries == null || savedQueries.Count == 0)
                                 {
                                     Console.WriteLine("No saved queries found. Use 'ADO queries browse' first.");
@@ -221,8 +219,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                             Description = () => "Summarize a saved query: themes, risks, and a crisp manager briefing",
                             Action = async () =>
                             {
-                                var userManagedData = Program.SubsystemManager.Get<UserManagedData>();
-                                var savedQueries = userManagedData.GetItems<UserSelectedQuery>();
+                                var savedQueries = Program.userManagedData.GetItems<UserSelectedQuery>();
                                 if (savedQueries == null || savedQueries.Count == 0)
                                 {
                                     Console.WriteLine("No saved queries found. Use 'ADO queries browse' first.");
@@ -295,8 +292,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                             Description = () => "Pick a saved query → briefing, top items, and action plan",
                             Action = async () =>
                             {
-                                var userData = Program.SubsystemManager.Get<UserManagedData>();
-                                var saved = userData.GetItems<UserSelectedQuery>();
+                                var saved = Program.userManagedData.GetItems<UserSelectedQuery>();
                                 if (saved.Count == 0)
                                 {
                                     Console.WriteLine("No saved queries. Run: ADO queries browse");
@@ -434,8 +430,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                 // It's a query → print the GUID
                                 if (picked.Id.HasValue)
                                 {
-                                    var userManagedData = Program.SubsystemManager.Get<UserManagedData>();
-                                    userManagedData.AddItem(new UserSelectedQuery(picked.Id.Value, picked.Name, project, picked.Path));
+                                    Program.userManagedData.AddItem(new UserSelectedQuery(picked.Id.Value, picked.Name, project, picked.Path));
                                     Console.WriteLine($"Added query '{picked.Name}' (ID: {picked.Id.Value}) to User Selected Queries.");
                                     Config.Save(Program.config, Program.ConfigFilePath);
                                     return Command.Result.Success;
