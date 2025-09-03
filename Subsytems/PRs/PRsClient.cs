@@ -147,7 +147,7 @@ union stale, new_open, closed
         return kql;
     }
 
-    public async Task<(IReadOnlyList<string> Cols, List<string[]> Rows)> FetchAsync(PRsProfile profile) => await Log.MethodAsync(async ctx =>
+    public async Task<Table> FetchAsync(PRsProfile profile) => await Log.MethodAsync(async ctx =>
     {
         var kusto = Program.SubsystemManager.Get<KustoClient>();
         var kql = BuildKql(profile);

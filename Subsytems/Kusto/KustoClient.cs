@@ -347,7 +347,7 @@ public class KustoClient : ISubsystem
 
     public bool IsConnected(string configName) => _connections.ContainsKey(configName);
 
-    public async Task<(IReadOnlyList<string> Columns, List<string[]> Rows)> QueryAsync(KustoConfig cfg, string kql)
+    public async Task<Table> QueryAsync(KustoConfig cfg, string kql)
     {
         if (!_connections.TryGetValue(cfg.Name, out var conn))
         {
@@ -370,6 +370,6 @@ public class KustoClient : ISubsystem
                 vals[i] = reader.IsDBNull(i) ? "" : Convert.ToString(reader.GetValue(i)) ?? "";
             rows.Add(vals);
         }
-        return (columns, rows);
+        return new Table(columns, rows);
     }
 }

@@ -25,12 +25,12 @@ public static class PRsCommands
                     }
                 },
                 new Command {
-                    Name = "report", Description = () => "Manager report (counts, oldest stale, trends)",
+                    Name = "report", Description = () => "Manager report (recent window: counts + linkable bullets)",
                     Action = async () => {
                         var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
-                        Console.Write("Top N stale per IC (default 3): "); var n = int.TryParse(User.ReadLineWithHistory(), out var v) ? v : 3;
+                        Console.Write("Window (days, default 14): "); var w = int.TryParse(User.ReadLineWithHistory(), out var vv) ? vv : 14;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.prs.report",
-                            new ReportPRsInput { ProfileName = prof.Name, TopN = n });
+                            new ReportPRsInput { ProfileName = prof.Name, WindowDays = w });
                         Console.WriteLine(resp);
                         return Command.Result.Success;
                     }
@@ -53,7 +53,7 @@ public static class PRsCommands
                     Name = "coach", Description = () => "Analyze PR comment threads and suggest coaching points",
                     Action = async () => {
                         var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
-                        Console.Write("Max PRs per IC to analyze (default 2; oldest stale first): "); var m = int.TryParse(User.ReadLineWithHistory(), out var mv) ? mv : 2;
+                        Console.Write("Max PRs per IC to analyze (default 2; newest first): "); var m = int.TryParse(User.ReadLineWithHistory(), out var mv) ? mv : 2;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.prs.coach",
                             new CoachPRsInput { ProfileName = prof.Name, MaxPerIC = m });
                         Console.WriteLine(resp);

@@ -4,12 +4,6 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
-// =============================
-//  PRs subsystem — Draft v1
-//  Depends on: Kusto, Ado
-//  Provides: commands (PRs fetch/report/coach) and tools (tool.prs.fetch, tool.prs.report, tool.prs.slice, tool.prs.coach)
-// =============================
-
 [UserManaged("PRs Profile", "Settings for PR triage and reporting over Azure DevOps pull requests (via 1ES Kusto)")]
 public sealed class PRsProfile
 {
@@ -42,13 +36,13 @@ public sealed class PRsProfile
 
     // Kusto endpoints (override if needed)
     [UserField(display: "Cluster URI")]
-    public string ClusterUri { get; set; } = string.Empty; //"https://1es.kusto.windows.net";
+    public string ClusterUri { get; set; } = string.Empty;
 
     [UserField(display: "AzureDevOps DB name")]
-    public string AdoDatabase { get; set; } = string.Empty; //"AzureDevOps";
+    public string AdoDatabase { get; set; } = string.Empty;
 
     [UserField(display: "AAD DB name")]
-    public string AadDatabase { get; set; } = string.Empty; //"AzureActiveDirectory";
+    public string AadDatabase { get; set; } = string.Empty;
 
     [UserField(display: "Timeout (seconds)")]
     public int TimeoutSeconds { get; set; } = 30;

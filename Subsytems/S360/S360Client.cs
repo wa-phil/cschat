@@ -78,7 +78,7 @@ S360Id = ID, URL, ServiceId, AssignedTo, DelegatedAssignedTo, KpiDescriptionHtml
 | order by ServiceName asc, KpiTitle asc, ActionItemTitle asc, CurrentETA, CurrentDueDate";
     }
 
-    public async Task<(IReadOnlyList<string> Cols, List<string[]> Rows)> FetchAsync(S360Profile profile)
+    public async Task<Table> FetchAsync(S360Profile profile)
     {
         var kusto = Program.SubsystemManager.Get<KustoClient>();
         var kql = BuildActionItemsKql(profile.ServiceIds);
@@ -236,9 +236,11 @@ S360Id = ID, URL, ServiceId, AssignedTo, DelegatedAssignedTo, KpiDescriptionHtml
 
     
     public List<(S360Row Row, float Score, Dictionary<string, float> Factors)> Score(
-        IReadOnlyList<string> cols, List<string[]> rows, S360Profile p)
+        Table table, S360Profile p)
     {
-        int C(string name) => Array.FindIndex(cols.ToArray(), c => c.Equals(name, StringComparison.OrdinalIgnoreCase));
+        int C(string name) => table.Col(name);
+        var cols = table.Headers;
+        var rows = table.Rows;
         var idx = new Dictionary<string, int>
         {
             ["ServiceName"] = C("ServiceName"),
