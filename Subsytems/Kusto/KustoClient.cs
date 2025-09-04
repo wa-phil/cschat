@@ -48,7 +48,9 @@ public class KustoClient : ISubsystem
     private void Connect() => Log.Method(ctx =>
     {
         // Dispatch the async refresh and don't block the caller
+        ctx.OnlyEmitOnFailure();
         _ = RefreshConnectionsAsync();
+        ctx.Succeeded();
     });
 
     private static KustoConnectionStringBuilder ApplyAuthMode(KustoConnectionStringBuilder kcsb, KustoConfig cfg)
@@ -274,6 +276,7 @@ public class KustoClient : ISubsystem
         }
 
         ctx.Append(Log.Data.Count, addOrUpdated);
+        ctx.Succeeded(0 == failures.Count);
         return (failures, addOrUpdated);
 
         static bool UriEquals(string a, string b)
@@ -347,7 +350,7 @@ public class KustoClient : ISubsystem
 
     public bool IsConnected(string configName) => _connections.ContainsKey(configName);
 
-    public async Task<(IReadOnlyList<string> Columns, List<string[]> Rows)> QueryAsync(KustoConfig cfg, string kql)
+    public async Task<Table> QueryAsync(KustoConfig cfg, string kql)
     {
         if (!_connections.TryGetValue(cfg.Name, out var conn))
         {
@@ -370,6 +373,6 @@ public class KustoClient : ISubsystem
                 vals[i] = reader.IsDBNull(i) ? "" : Convert.ToString(reader.GetValue(i)) ?? "";
             rows.Add(vals);
         }
-        return (columns, rows);
+        return new Table(columns, rows);
     }
 }

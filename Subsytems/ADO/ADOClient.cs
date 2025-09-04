@@ -155,16 +155,11 @@ public class AdoClient : ISubsystem
         return summaries;
     });
 
-    private async Task<string> GetProjectIdByNameAsync(string projectName, CancellationToken ct = default)
-    {
-        var url = $"{GetOrganizationUrl()}/_apis/projects/{Uri.EscapeDataString(projectName)}?api-version=7.1";
-        using var res = await _http.GetAsync(url, ct);
-        res.EnsureSuccessStatusCode();
-        var json = await res.Content.ReadAsStringAsync(ct);
-        var root = json.FromJson<Dictionary<string, object>>() ?? new();
-        if (root.TryGetValue("id", out var v) && v is string id && Guid.TryParse(id, out _)) return id;
-        throw new InvalidOperationException($"Could not resolve project id for '{projectName}'.");
-    }
+    public static string BuildPullRequestUrl(string org, string project, string repo, int prId)
+        => $"https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{prId}";
+
+    public static string BuildDiscussionUrl(string org, string project, string repo, int prId, int threadId)
+        => $"{BuildPullRequestUrl(org, project, repo, prId)}?_a=overview&discussionId={threadId}";
 
     /// <summary>
     /// Get the full query hierarchy (My Queries and Shared Queries) for a project,
@@ -282,6 +277,18 @@ public class AdoClient : ISubsystem
             list.Add(new AdoQueryRow(c.Id, c.Name ?? "", p, c.IsFolder == true, depth + 1));
         }
         return list.OrderBy(x => x.IsFolder ? 0 : 1).ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    public async Task<List<GitPullRequestCommentThread>> GetPullRequestThreadsAsync(
+        string project, string repositoryName, int pullRequestId, CancellationToken ct = default)
+    {
+        // Resolve repo by name to get its Guid
+        var repo = await _gitClient.GetRepositoryAsync(project, repositoryName, cancellationToken: ct);
+        if (repo == null) return new List<GitPullRequestCommentThread>();
+
+        // NOTE: Signature is (repositoryId, pullRequestId, project, ...)
+        var threads = await _gitClient.GetThreadsAsync(project, repo.Id, pullRequestId, cancellationToken: ct);
+        return threads?.ToList() ?? new List<GitPullRequestCommentThread>();
     }
 
     public sealed record QueryFavorite(Guid Id, string Name, string? Project, string? Url);

@@ -75,16 +75,16 @@ public sealed class IntrospectKustoSchemaTool : ITool
         // `.show database ['db'] schema` is explicit; some clusters also support `.show schema`
         var text = cfg.Database.Replace("'", "''");
         var kql = $".show database ['{text}'] schema";
-        var (cols, rows) = await kusto.QueryAsync(cfg, kql);
+        var table = await kusto.QueryAsync(cfg, kql);
 
         // Normalize: tables -> columns -> types
         // Common columns for this command typically include: TableName, ColumnName, ColumnType
-        int idxTable = Array.FindIndex(cols.ToArray(), c => c.Equals("TableName", StringComparison.OrdinalIgnoreCase));
-        int idxCol   = Array.FindIndex(cols.ToArray(), c => c.Equals("ColumnName", StringComparison.OrdinalIgnoreCase));
-        int idxType  = Array.FindIndex(cols.ToArray(), c => c.Equals("ColumnType", StringComparison.OrdinalIgnoreCase));
+        int idxTable = table.Col("TableName");
+        int idxCol   = table.Col("ColumnName");
+        int idxType  = table.Col("ColumnType");
 
         var tables = new Dictionary<string, List<(string col, string type)>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var r in rows)
+        foreach (var r in table.Rows)
         {
             var t = (idxTable >= 0 && idxTable < r.Length) ? r[idxTable] : "";
             var c = (idxCol   >= 0 && idxCol   < r.Length) ? r[idxCol]   : "";
@@ -178,11 +178,10 @@ public sealed class RunSavedKustoQueryTool : ITool
         }
 
         var kusto = Program.SubsystemManager.Get<KustoClient>();
-        var (cols, rows) = await kusto.QueryAsync(cfg, q.Kql);
+        var table = await kusto.QueryAsync(cfg, q.Kql);
 
-        // Render table for console/chat
-        var table = Utilities.ToTable(cols, rows);
-        ctx.AddToolMessage(table);
+    // Render table for console/chat
+    ctx.AddToolMessage(table.ToText());
 
         // Optional export
         if (!string.IsNullOrWhiteSpace(p.Export))
@@ -190,17 +189,17 @@ public sealed class RunSavedKustoQueryTool : ITool
             var ext = System.IO.Path.GetExtension(p.Export).ToLowerInvariant();
             var content = ext switch
             {
-                ".csv"  => Utilities.ToCsv(cols, rows),
-                ".json" => Utilities.ToJson(cols, rows),
-                _       => table
+                ".csv"  => table.ToCsv(),
+                ".json" => table.ToJson(),
+                _       => table.ToText()
             };
             System.IO.File.WriteAllText(p.Export!, content);
             ctx.AddToolMessage($"Saved: {p.Export}");
         }
 
-        // Seed a snippet of the results into context for follow-on prompts (“summarize”, “triage”, etc.)
-        await ContextManager.AddContent(table, $"kusto/{cfg.Name}/results/{q.Name}");
+        // Seed a snippet of the results into context for follow-on prompts ("summarize", "triage", etc.)
+    await ContextManager.AddContent(table.ToText(), $"kusto/{cfg.Name}/results/{q.Name}");
 
-        return ToolResult.Success(table, ctx);
+    return ToolResult.Success(table.ToText(), ctx);
     }
 }

@@ -86,9 +86,8 @@ public static class KustoCommands
                         var q = PickQuery(cfg);
                         if (q is null) return Command.Result.Failed;
 
-                        var (cols, rows) = await kusto.QueryAsync(cfg, q.Kql);
-                        var table = Utilities.ToTable(cols, rows, Console.WindowWidth);
-                        Console.WriteLine(table);
+                        var table = await kusto.QueryAsync(cfg, q.Kql);
+                        Console.WriteLine(table.ToText(Console.WindowWidth));
 
                         Console.Write("Export? (none/csv/json) ");
                         var how = (User.ReadLineWithHistory() ?? "").Trim().ToLowerInvariant();
@@ -98,14 +97,14 @@ public static class KustoCommands
                             var path = User.ReadLineWithHistory();
                             if (!string.IsNullOrWhiteSpace(path))
                             {
-                                var content = how == "csv" ? Utilities.ToCsv(cols, rows) : Utilities.ToJson(cols, rows);
+                                var content = how == "csv" ? table.ToCsv() : table.ToJson();
                                 File.WriteAllText(path!, content);
                                 Console.WriteLine($"Saved: {path}");
                             }
                         }
 
                         Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-                        await ContextManager.AddContent(table, $"kusto/{cfg.Name}/results/{q.Name}");
+                        await ContextManager.AddContent(table.ToText(Console.WindowWidth), $"kusto/{cfg.Name}/results/{q.Name}");
                         return Command.Result.Success;
                     }
                 },
@@ -156,10 +155,9 @@ public static class KustoCommands
                         Console.WriteLine("Enter KQL (blank line to run):");
                         var kql = ReadMultiline();
 
-                        var (cols, rows) = await kusto.QueryAsync(cfg, kql);
-                        var table = Utilities.ToTable(cols, rows, Console.WindowWidth);
-                        Console.WriteLine(table);
-                        await ContextManager.AddContent(table, $"kusto/{cfg.Name}/results/__adhoc__");
+                        var table = await kusto.QueryAsync(cfg, kql);
+                        Console.WriteLine(table.ToText(Console.WindowWidth));
+                        await ContextManager.AddContent(table.ToText(Console.WindowWidth), $"kusto/{cfg.Name}/results/__adhoc__");
 
                         Console.Write("Save this as a named query? (y/N) ");
                         var save = (User.ReadLineWithHistory() ?? "").Trim().ToLowerInvariant();
