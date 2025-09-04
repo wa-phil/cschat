@@ -149,6 +149,7 @@ union stale, new_open, closed
 
     public async Task<Table> FetchAsync(PRsProfile profile) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         var kusto = Program.SubsystemManager.Get<KustoClient>();
         var kql = BuildKql(profile);
         ctx.Append(Log.Data.Kql, kql);
@@ -159,11 +160,18 @@ union stale, new_open, closed
                 .Equals(profile.ClusterUri.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)
                 && c.Database.Equals(profile.AdoDatabase, StringComparison.OrdinalIgnoreCase));
 
+        Table result = null!;
         if (umd is not null && kusto.IsConnected(umd.Name))
-            return await kusto.QueryAsync(umd, kql);
+        {
+            result = await kusto.QueryAsync(umd, kql);
+            ctx.Succeeded();
+            return result;
+        }
 
         var built = BuiltInKustoConfig(profile);
         await kusto.EnsureConnectedAsync(built);
-        return await kusto.QueryAsync(built, kql);
+        result = await kusto.QueryAsync(built, kql);
+        ctx.Succeeded();
+        return result;
     });
 }

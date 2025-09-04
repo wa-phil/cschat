@@ -48,7 +48,9 @@ public class KustoClient : ISubsystem
     private void Connect() => Log.Method(ctx =>
     {
         // Dispatch the async refresh and don't block the caller
+        ctx.OnlyEmitOnFailure();
         _ = RefreshConnectionsAsync();
+        ctx.Succeeded();
     });
 
     private static KustoConnectionStringBuilder ApplyAuthMode(KustoConnectionStringBuilder kcsb, KustoConfig cfg)
@@ -274,6 +276,7 @@ public class KustoClient : ISubsystem
         }
 
         ctx.Append(Log.Data.Count, addOrUpdated);
+        ctx.Succeeded(0 == failures.Count);
         return (failures, addOrUpdated);
 
         static bool UriEquals(string a, string b)

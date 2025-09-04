@@ -272,17 +272,6 @@ public sealed class PRsCoachTool : ITool
         var prs = Program.SubsystemManager.Get<PRsClient>();
         var table = await prs.FetchAsync(profile);
 
-        // Column ordinals we’ll need (from the unified KQL)
-        int iCat  = table.Col("Category"),
-            iName = table.Col("CreatedByDisplayName"),
-            iAuth = table.Col("CreatedByUniqueName"),
-            iOrg  = table.Col("OrganizationName"),
-            iProj = table.Col("RepositoryProjectName"),
-            iRepo = table.Col("RepositoryName"),
-            iId   = table.Col("PullRequestId"),
-            iLink = table.Col("Link"),
-            iCreated = table.Col("CreationDate");
-
         // Choose newest-first per IC: prefer "new", else "stale", else "closed"
         var newestTable = SelectNewest(table, "new");
         if (newestTable.Rows.Count == 0) newestTable = SelectNewest(table, "stale");
@@ -341,18 +330,18 @@ public sealed class PRsCoachTool : ITool
                                         : (!string.IsNullOrWhiteSpace(whoUnique) ? whoUnique : "Reviewer");
 
                         // Heuristic: downrank/skip AI boilerplate comments
-                        bool looksAI = LooksAI(c.Content);
+                        if (LooksAI(c.Content)) continue;
 
                         if (!string.IsNullOrWhiteSpace(pr.AuthorUnique) &&
                             whoUnique.Equals(pr.AuthorUnique, StringComparison.OrdinalIgnoreCase))
                         {
                             // Author of PR
-                            if (!looksAI) given.Add((t.Id, whoDisplay, c.Content));
+                            given.Add((t.Id, whoDisplay, c.Content));
                         }
                         else
                         {
                             // Reviewers (received feedback)
-                            if (!looksAI) received.Add((t.Id, whoDisplay, c.Content));
+                            received.Add((t.Id, whoDisplay, c.Content));
                         }
                     }
                 }
@@ -525,10 +514,15 @@ public sealed class PRsCoachTool : ITool
         }
 
         // Summarize themes deterministically; if model available, use it; else simple heuristics
-        string SummarizeThemes(IEnumerable<string> comments, bool focusOnReviewerStyle = false)
+        string SummarizeThemes(IEnumerable<string> comments, bool focusOnReviewerStyle = false) => Log.Method(ctx =>
         {
+            ctx.OnlyEmitOnFailure();
             var text = string.Join("\n", comments.Where(s => !string.IsNullOrWhiteSpace(s)));
-            if (string.IsNullOrWhiteSpace(text)) return "";
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                ctx.Warn("No text to summarize");
+                return "";
+            }
 
             try
             {
@@ -536,10 +530,12 @@ public sealed class PRsCoachTool : ITool
                     ? "You are an EM reviewing how an engineer gives feedback in PRs. In 3-5 bullets, summarize strengths and improvement areas in their review comments. Prefer concrete, actionable guidance. Output only bullets."
                     : "You are an EM coaching an engineer based on review feedback they received on their PRs. In 3-5 bullets, summarize recurring themes with actionable guidance. Output only bullets.";
                 var summary = Engine.Provider!.PostChatAsync(new Context(prompt + "\n\n" + Utilities.TruncatePlain(text, 4000)), 0.2f).GetAwaiter().GetResult();
+                ctx.Succeeded();
                 return summary.Trim();
             }
-            catch
+            catch (Exception ex)
             {
+                ctx.Failed("Failed to summarize themes", ex);
                 // Non-LLM fallback: keyword tallies → bullets
                 var l = text.ToLowerInvariant();
                 var bullets = new List<string>();
@@ -550,6 +546,6 @@ public sealed class PRsCoachTool : ITool
                 if (l.Contains("ci") || l.Contains("build")) bullets.Add("Keep CI/build green; address failures promptly.");
                 return string.Join("\n", bullets);
             }
-        }
+        });
     }
 }
