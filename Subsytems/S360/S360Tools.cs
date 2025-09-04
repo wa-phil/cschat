@@ -24,24 +24,24 @@ public sealed class S360FetchTool : ITool
         if (profile is null) return ToolResult.Failure($"No S360 Profile named '{p.ProfileName}'.", ctx);
 
         var s360 = Program.SubsystemManager.Get<S360Client>();
-        var (cols, rows) = await s360.FetchAsync(profile);  // <-- built-in Kusto
+        var table = await s360.FetchAsync(profile);  // <-- built-in Kusto
 
-        var table = Utilities.ToTable(cols, rows, Console.WindowWidth);
-        ctx.AddToolMessage(table);
-        await ContextManager.AddContent(table, $"s360/{profile.Name}/results");
+        var rendered = table.ToText(Console.WindowWidth);
+        ctx.AddToolMessage(rendered);
+        await ContextManager.AddContent(rendered, $"s360/{profile.Name}/results");
 
         if (!string.IsNullOrWhiteSpace(p.Export))
         {
             var ext = Path.GetExtension(p.Export).ToLowerInvariant();
             var content = ext switch {
-                ".csv"  => Utilities.ToCsv(cols, rows),
-                ".json" => Utilities.ToJson(cols, rows),
-                _       => table
+                ".csv"  => table.ToCsv(),
+                ".json" => table.ToJson(),
+                _       => rendered
             };
             File.WriteAllText(p.Export!, content);
             ctx.AddToolMessage($"Saved: {p.Export}");
         }
-        return ToolResult.Success(table, ctx);
+        return ToolResult.Success(rendered, ctx);
     }
 }
 
@@ -67,8 +67,8 @@ public sealed class S360TriageTool : ITool
         if (profile is null) return ToolResult.Failure($"No S360 Profile named '{p.ProfileName}'.", ctx);
 
         var s360 = Program.SubsystemManager.Get<S360Client>();
-        var (cols, rows) = await s360.FetchAsync(profile); // <-- built-in Kusto
-        var scored = s360.Score(cols, rows, profile);
+        var table = await s360.FetchAsync(profile); // <-- built-in Kusto
+        var scored = s360.Score(table, profile);
 
         // Manager Briefing (numeric snapshot; LLM-free so you always get something useful)
         var grouped = scored
@@ -156,8 +156,8 @@ public sealed class S360SliceTool : ITool
         if (profile is null) return ToolResult.Failure($"No S360 Profile named '{p.ProfileName}'.", ctx);
 
         var s360 = Program.SubsystemManager.Get<S360Client>();
-        var (cols, rows) = await s360.FetchAsync(profile); // <-- built-in Kusto
-        var scored = s360.Score(cols, rows, profile);
+        var table = await s360.FetchAsync(profile); // <-- built-in Kusto
+        var scored = s360.Score(table, profile);
 
         bool IsStale((S360Client.S360Row Row, float Score, Dictionary<string,float> Factors) x)
         {
@@ -194,20 +194,20 @@ public sealed class S360SliceTool : ITool
             x.Row.URL
         }).ToList();
 
-    var table = Utilities.ToTable(headers, outRows, Console.WindowWidth);
-        ctx.AddToolMessage(table);
+    var outTable = new Table(headers, outRows);
+    ctx.AddToolMessage(outTable.ToText(Console.WindowWidth));
 
         if (!string.IsNullOrWhiteSpace(p.Export))
         {
             var ext = Path.GetExtension(p.Export).ToLowerInvariant();
             var content = ext switch {
-                ".csv"  => Utilities.ToCsv(headers, outRows),
-                ".json" => Utilities.ToJson(headers, outRows),
-                _       => table
+                ".csv"  => outTable.ToCsv(),
+                ".json" => outTable.ToJson(),
+                _       => outTable.ToText(Console.WindowWidth)
             };
             File.WriteAllText(p.Export!, content);
             ctx.AddToolMessage($"Saved: {p.Export}");
         }
-        return ToolResult.Success(table, ctx);
+    return ToolResult.Success(outTable.ToText(Console.WindowWidth), ctx);
     }
 }
