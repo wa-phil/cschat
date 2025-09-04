@@ -2,13 +2,16 @@ using System;
 using System.Text;
 using System.Linq;
 using System.Reflection;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 
 public static class Engine
 {
+    private static readonly object _consoleLock = new();
     public static IVectorStore VectorStore = new SimpleVectorStore();
     public static IChatProvider? Provider = null;
     public static ITextChunker? TextChunker = null;
@@ -115,34 +118,74 @@ public static class Engine
 
     public static async Task AddContentItemsToVectorStore(IEnumerable<(string Name, string Content)> items) => await Log.MethodAsync(async ctx =>
     {
-        try
-        {
-            ctx.OnlyEmitOnFailure();
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var countItems = 0;
-            var knownFiles = new StringBuilder();
+        ctx.OnlyEmitOnFailure();
 
-            foreach (var (name, content) in items)
+        var stopwatch = Stopwatch.StartNew();
+        using var cts = new CancellationTokenSource();
+
+        var results = new ConcurrentBag<(string Name, bool ok, string? err)>();
+        var knownFiles = new ConcurrentBag<string>();
+        bool failed = false;
+
+        using (var reporter = new ProgressUi.AsyncProgressReporterWithCancel("Adding content to RAG", cts))
+        {
+            var gate = new SemaphoreSlim(Math.Max(1, Program.config.RagSettings.MaxIngestConcurrency));
+            var tasks = items.Select(async tuple =>
             {
-                knownFiles.AppendLine(name);
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write($"Adding file '{name}' to RAG store... ");
-                await ContextManager.AddContent(content, name);
-                Console.ResetColor();
-                Console.WriteLine("Done.");
-                countItems++;
-            }
+                var (name, content) = tuple;
+                var item = reporter.StartItem(name);
+                await gate.WaitAsync(reporter.Token);
+                knownFiles.Add(name);
 
-            await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
+                try
+                {
+                    await ContextManager.AddContent(
+                        content, name, reporter.Token,
+                        total => item.SetTotalSteps(total),
+                        (delta, note) => item.Advance(delta, note));
 
-            stopwatch.Stop();
-            Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
-            ctx.Succeeded();
-        }
-        finally
+                    item.Complete("done");
+                    results.Add((name, true, null));
+                }
+                catch (OperationCanceledException)
+                {
+                    item.Cancel("canceled");
+                    results.Add((name, false, "canceled"));
+                }
+                catch (Exception ex)
+                {
+                    item.Fail(ex.Message);
+                    results.Add((name, false, ex.Message));
+                }
+                finally { gate.Release(); }
+            }).ToList();
+
+            try { await Task.WhenAll(tasks); }
+            catch (Exception ex) { failed = true; Console.WriteLine($"Error during content ingestion: {ex.Message}"); }
+        } // reporter disposed here -> painter stops and prints its summary cleanly
+
+        // Now safe to print additional lines
+        var okCount = results.Count(r => r.ok);
+        var fail = results.Where(r => !r.ok && r.err != "canceled").ToList();
+        var canceledCount = results.Count(r => !r.ok && r.err == "canceled");
+
+        if (!cts.IsCancellationRequested && knownFiles.Count > 0)
         {
+            await ContextManager.AddContent("Known files:\n" + string.Join("\n", knownFiles.OrderBy(x => x)), "known_files");
+        }
+
+        stopwatch.Stop();
+        Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms total. Processed: {okCount}, failed: {fail.Count}, canceled: {canceledCount}.");
+        if (fail.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.WriteLine("Failures:");
+            foreach (var f in fail.Take(20)) Console.WriteLine($"  - {f.Name}: {f.err}");
+            if (fail.Count > 20) Console.WriteLine($"  ...and {fail.Count - 20} more");
             Console.ResetColor();
         }
+
+        ctx.Succeeded(!failed);
     });
 
     public static async Task AddDirectoryToVectorStore(string path) => await AddContentItemsToVectorStore(ReadFilesFromDirectory(path));

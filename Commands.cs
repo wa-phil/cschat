@@ -179,6 +179,7 @@ public partial class CommandManager : Command
                     Program.Context.Clear();
                     Program.Context.AddSystemMessage(Program.config.SystemPrompt);
                     Engine.VectorStore.Clear();
+                    ContextManager.ClearCaches();
                     GraphStoreManager.Graph.Clear();
                     Log.ClearOutput();
                     await Program.InitProgramAsync();

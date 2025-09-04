@@ -394,6 +394,42 @@ public partial class CommandManager
                 },
                 new Command
                 {
+                    Name = "embedding concurrency", Description = () => $"Set the maximum concurrency for embedding generation [currently: {Program.config.RagSettings.MaxEmbeddingConcurrency}]",
+                    Action = () =>
+                    {
+                        var maxValue = 100;
+                        Console.Write($"Current MaxEmbeddingConcurrency: {Program.config.RagSettings.MaxEmbeddingConcurrency}. Enter new value (1 to {maxValue}): ");
+                        var concurrencyInput = User.ReadLineWithHistory();
+                        if (int.TryParse(concurrencyInput, out var concurrency) && concurrency >= 1 && concurrency <= maxValue)
+                        {
+                            Program.config.RagSettings.MaxEmbeddingConcurrency = concurrency;
+                            Config.Save(Program.config, Program.ConfigFilePath);
+                            Console.WriteLine($"MaxEmbeddingConcurrency set to {concurrency}");
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                        return Task.FromResult(Command.Result.Cancelled);
+                    }
+                },
+                new Command
+                {
+                    Name = "ingest concurrency", Description = () => $"Set the maximum concurrency for RAG ingestion [currently: {Program.config.RagSettings.MaxIngestConcurrency}]",
+                    Action = () =>
+                    {
+                        var maxValue = 100;
+                        Console.Write($"Current MaxIngestConcurrency: {Program.config.RagSettings.MaxIngestConcurrency}. Enter new value (1 to {maxValue}): ");
+                        var concurrencyInput = User.ReadLineWithHistory();
+                        if (int.TryParse(concurrencyInput, out var concurrency) && concurrency >= 1 && concurrency <= maxValue)
+                        {
+                            Program.config.RagSettings.MaxIngestConcurrency = concurrency;
+                            Config.Save(Program.config, Program.ConfigFilePath);
+                            Console.WriteLine($"MaxIngestConcurrency set to {concurrency}");
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                        return Task.FromResult(Command.Result.Cancelled);
+                    }
+                },
+                new Command
+                {
                     Name = "chunking method", Description = () => $"Select the text chunker for RAG [currently: {Program.config.RagSettings.ChunkingStrategy}]",
                     Action = () =>
                     {
@@ -499,6 +535,51 @@ public partial class CommandManager
                             Console.WriteLine("Invalid TopK value. Must be between 1 and {maxK}.");
                         }
                         return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "Use MMR", Description = () => $"Toggle the use of MMR for RAG [currently: {Program.config.RagSettings.UseMmr}]",
+                    Action = () =>
+                    {
+                        Program.config.RagSettings.UseMmr = !Program.config.RagSettings.UseMmr;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        Console.WriteLine($"UseMmr set to {Program.config.RagSettings.UseMmr}");
+                        return Task.FromResult(Command.Result.Success);
+                    }
+                },
+                new Command
+                {
+                    Name = "MMR Lambda", Description = () => $"Set the MMR lambda value for RAG [currently: {Program.config.RagSettings.MmrLambda}]",
+                    Action = () =>
+                    {
+                        Console.Write($"Current MMR Lambda: {Program.config.RagSettings.MmrLambda}. Enter new value (0.0 to 1.0): ");
+                        var lambdaInput = User.ReadLineWithHistory();
+                        if (float.TryParse(lambdaInput, out var lambda) && lambda >= 0.0f && lambda <= 1.0f)
+                        {
+                            Program.config.RagSettings.MmrLambda = lambda;
+                            Config.Save(Program.config, Program.ConfigFilePath);
+                            Console.WriteLine($"MMR Lambda set to {lambda}");
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                        return Task.FromResult(Command.Result.Cancelled);
+                    }
+                },
+                new Command
+                {
+                    Name = "MMR Pool Multiplier" , Description = () => $"Set the MMR pool multiplier for RAG [currently: {Program.config.RagSettings.MmrPoolMultiplier}]",
+                    Action = () =>
+                    {
+                        Console.Write($"Current MMR Pool Multiplier: {Program.config.RagSettings.MmrPoolMultiplier}. Enter new value (0.0 to 10.0): ");
+                        var multiplierInput = User.ReadLineWithHistory();
+                        if (float.TryParse(multiplierInput, out var multiplier) && multiplier >= 0.0f && multiplier <= 10.0f)
+                        {
+                            Program.config.RagSettings.MmrPoolMultiplier = multiplier;
+                            Config.Save(Program.config, Program.ConfigFilePath);
+                            Console.WriteLine($"MMR Pool Multiplier set to {multiplier}");
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                        return Task.FromResult(Command.Result.Cancelled);
                     }
                 }
             }

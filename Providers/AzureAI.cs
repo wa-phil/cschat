@@ -13,6 +13,7 @@ using Azure.Core.Diagnostics;
 using System.Diagnostics.Tracing;
 using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
+using System.ClientModel.Primitives;
 
 [IsConfigurable("AzureAI")]
 public class AzureAI : IChatProvider, IEmbeddingProvider 
@@ -48,7 +49,10 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
             };
 
             ctx.Append(Log.Data.Message, "Creating Azure OpenAI client with DefaultAzureCredential");
-            azureClient = new AzureOpenAIClient(new Uri(config.Host), new DefaultAzureCredential(credentialOptions));
+            azureClient = new AzureOpenAIClient(
+                new Uri(config.Host),
+                new DefaultAzureCredential(credentialOptions)
+                );
             chatClient = azureClient.GetChatClient(config.Model);
             embeddingClient = azureClient.GetEmbeddingClient(config.RagSettings.EmbeddingModel);
             ctx.Append(Log.Data.Message, "Azure OpenAI client initialized successfully");
@@ -111,7 +115,8 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
 
     public async Task<float[]> GetEmbeddingAsync(string text) => await Log.MethodAsync(
         retryCount: 2,
-        shouldRetry: e => {
+        shouldRetry: e =>
+        {
             if (e is ClientResultException cre && cre.Status == 429) { Thread.Sleep(2000); return true; } // Retry on rate limit (2s wait)
             if (e is TimeoutException te)
             {
@@ -149,5 +154,63 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
             Console.WriteLine($"Failed to get embedding from AzureAI: {ex.Message}");
             return Array.Empty<float>();
         }
+    });
+
+    public async Task<IReadOnlyList<float[]>> GetEmbeddingsAsync(
+        IEnumerable<string> texts,
+        CancellationToken ct = default
+    ) => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        var list = texts?.ToList() ?? new();
+        if (list.Count == 0)
+        {
+            ctx.Succeeded();
+            return (IReadOnlyList<float[]>)Array.Empty<float[]>();
+        }
+
+        embeddingClient.ThrowIfNull("Embedding client could not be retrieved.");
+        ctx.Append(Log.Data.Model, Program.config.RagSettings.EmbeddingModel);
+        ctx.Append(Log.Data.Count, list.Count);
+
+        // Cap each Azure request
+        int perRequestMax = Program.config.RagSettings.MaxEmbeddingConcurrency;
+        var results = new List<float[]>(capacity: list.Count);
+
+        for (int i = 0; i < list.Count; i += perRequestMax)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var slice = list.Skip(i).Take(perRequestMax).ToList();
+
+            // Per-request timeout that still respects the outer token
+            using var sliceCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            sliceCts.CancelAfter(TimeSpan.FromSeconds(90));
+
+            int attempt = 0;
+
+            while (true)
+            {
+                try
+                {
+                    var resp = await embeddingClient.GenerateEmbeddingsAsync(slice, options: null, cancellationToken: sliceCts.Token);
+                    // Preserve original order across the whole batch
+                    results.AddRange(resp.Value.Select(v => v.ToFloats().ToArray()));
+
+                    break;
+                }
+                catch (ClientResultException cre) when ((cre.Status == 429 || cre.Status >= 500) && attempt < 4)
+                {
+                    // exponential backoff: 250ms, 500ms, 1s, 2s
+                    var delay = TimeSpan.FromMilliseconds(250 * (1 << attempt));
+                    await Task.Delay(delay, ct);
+                    attempt++;
+                    continue;
+                }
+            }
+
+        }
+        ctx.Succeeded();
+        return (IReadOnlyList<float[]>)results;
     });
 }

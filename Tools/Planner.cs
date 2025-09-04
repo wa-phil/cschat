@@ -38,6 +38,9 @@ Determine: Is the goal now complete? Respond ONLY with JSON matching the PlanPro
 
 {(references.Count > 0 ? $"\nAdditional context:\n{string.Join("\n", references)}" : "")}
 """);
+        working.IncludeCitationRule = false;
+        working.MaxContextEntries = Program.config.RagSettings.TopKForParsing;
+
         // marshal Context context into working Context
         context.GetContext().ForEach(c => working.AddContext(c.Reference, c.Chunk));
         working.AddUserMessage("Have we achieved the goal?");
@@ -80,6 +83,8 @@ Generate the appropriate input for this tool in JSON format.
 The JSON should match the structure of the {tool.InputType.Name} class.
 Respond with ONLY the JSON object that matches {tool.InputType.Name}.
 """);
+        Context.IncludeCitationRule = false;
+        Context.MaxContextEntries = Program.config.RagSettings.TopKForParsing;
 
         Context.AddUserMessage("Create the inputs JSON for this tool based on the goal and context.");
 
@@ -99,8 +104,8 @@ Respond with ONLY the JSON object that matches {tool.InputType.Name}.
 You are a tool selection agent.
 Your task is to determine which tool to use based on the following:
 1. The user's goal: {goal}
-{(results.Count >0 ? 
-    $"2. Recent steps taken: {string.Join("\n", results.TakeLast(5))}" : 
+{(results.Count > 0 ?
+    $"2. Recent steps taken: {string.Join("\n", results.TakeLast(5))}" :
     "2. No steps taken yet."
 )}
 3. The available tools:
@@ -112,6 +117,9 @@ Your task is to determine which tool to use based on the following:
 - Your output will be parsed as JSON. Do NOT include markdown, commentary, or explanations.
 - Do NOT include any additional text or explanations.
 """);
+        Context.IncludeCitationRule = false;
+        Context.MaxContextEntries = Program.config.RagSettings.TopKForParsing;
+
         // marshal Context context into working Context
         history.GetContext().ForEach(c => Context.AddContext(c.Reference, c.Chunk));
         Context.AddToolMessage($"Progress so far:\n{string.Join("\n", results)}");
@@ -140,7 +148,8 @@ Your task is to decide if a tool should be used to answer the user's question in
 If the user's query depends on realtime or runtime data (see tool_names for list of available tools) assume action is required, and that you will be able to complete it.
 You do not need to summarize the user's question, or comment on it, or explain your answer, just decide if a tool is needed to answer the question.
 """);
-
+        working.IncludeCitationRule = false;
+        working.MaxContextEntries = Program.config.RagSettings.TopKForParsing;
         context.GetContext().ForEach(c => working.AddContext(c.Reference, c.Chunk));
         working.AddUserMessage("---ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE---");
         working.AddUserMessage(input);

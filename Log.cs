@@ -181,7 +181,8 @@ public static class Log
     {
         int attempts = 0;
         using var ctx = new Context(level);
-        ctx.Append(Data.Source, $"{Path.GetFileName(callerFile)}:{callerLine}");
+        var path = Path.GetFileName(callerFile);
+        ctx.Append(Data.Source, $"{path}:{callerLine}");
         ctx.Append(Data.Method, $"{GetCallingTypeName()}.{callerName}");
 
         while (true)
@@ -335,6 +336,11 @@ public class EventLogListener : EventListener
     protected override void OnEventSourceCreated(EventSource eventSource) => Log.Method(ctx =>
     {
         ctx.OnlyEmitOnFailure();
+        if (eventSource == null || string.IsNullOrEmpty(eventSource.Name))
+        {
+            ctx.Failed("EventSource is null or has no name.", Error.Unknown);
+            return;
+        }
         ctx.Append(Log.Data.Name, eventSource.Name);
         Program.config.EventSources.TryGetValue(eventSource.Name, out var enabled);
         if (Program.config.VerboseEventLoggingEnabled && enabled == true)
