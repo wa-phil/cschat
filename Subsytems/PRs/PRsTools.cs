@@ -219,7 +219,7 @@ public sealed class PRsSliceTool : ITool
         lines.Add($"Slice: {p.Slice} (limit {p.Limit})");
         foreach (var r in filtered)
         {
-            lines.Add($"- {r.Created:MM/dd/yyyy} — {r.Link} → {Utilities.TruncatePlain(r.Author, 20)} [{r.State}] {Utilities.TruncatePlain(r.Title, 110)}");
+            lines.Add($"- {r.Created:MM/dd/yyyy} — {r.Link} - {Utilities.TruncatePlain(r.Author, 20)} [{r.State}] {Utilities.TruncatePlain(r.Title, 110)}");
         }
         var output = string.Join("\n", lines);
 
