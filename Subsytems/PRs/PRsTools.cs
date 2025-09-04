@@ -29,7 +29,20 @@ public sealed class PRsFetchTool : ITool
         var prs = Program.SubsystemManager.Get<PRsClient>();
         var table = await prs.FetchAsync(profile);
 
-    var rendered = table.ToText(Console.WindowWidth);
+        // filter and format the table output to something more easily digested by a user.
+        var projected = table.SelectRows(a => new
+        {
+            Author = a("CreatedByDisplayName"),
+            Category = a("Category"),
+            Created = DateTime.Parse(a("CreationDate")).ToString("MM/dd/yyyy"),
+            Closed = DateTime.TryParse(a("ClosedDate"), out var dt) ? dt.ToString("MM/dd/yyyy") : "",
+            Status = a("Status"),
+            Title = Utilities.TruncatePlain(a("Title"), 80),
+            Link = a("Link")
+        });
+        table = Table.FromEnumerable(projected);
+
+        var rendered = table.ToText(Console.WindowWidth);
         ctx.AddToolMessage(rendered);
         await ContextManager.AddContent(rendered, $"prs/{profile.Name}/results");
 
@@ -73,25 +86,16 @@ public sealed class PRsReportTool : ITool
         var prs = Program.SubsystemManager.Get<PRsClient>();
         var table = await prs.FetchAsync(profile);
 
-        // Column ordinals
-        int iCat = table.Col("Category"),
-            iName = table.Col("CreatedByDisplayName"),
-            iTitle = table.Col("Title"),
-            iLink = table.Col("Link"),
-            iCreated = table.Col("CreationDate"),
-            iClosed = table.Col("ClosedDate"),
-            iAge = table.Col("AgeDays"),
-            iDesc = table.Col("Description"); // present in KQL
-
-        var items = table.Rows.Select(r => new {
-            Category = r[iCat],
-            Name     = r[iName],
-            Title    = r[iTitle],
-            Link     = r[iLink],
-            Created  = r[iCreated],
-            Closed   = r[iClosed],
-            Age      = r[iAge],
-            Desc     = iDesc >= 0 ? r[iDesc] : string.Empty
+        // Column ordinals + projection
+        var items = table.SelectRows(accessor => new {
+            Category = accessor("Category"),
+            Name     = accessor("CreatedByDisplayName"),
+            Title    = accessor("Title"),
+            Link     = accessor("Link"),
+            Created  = accessor("CreationDate"),
+            Closed   = accessor("ClosedDate"),
+            Age      = accessor("AgeDays"),
+            State    = accessor("Status")
         }).ToList();
 
         // Build all ICs (stable roster), then compute recent-window counts per IC
@@ -126,9 +130,14 @@ public sealed class PRsReportTool : ITool
 
             var ordered = recent
                 .Where(x => x.Name == icName)
-                .Select(x => new {
-                    x.Category, x.Title, x.Link, x.Desc,
-                    Created = Parse(x.Created), Closed = Parse(x.Closed)
+                .Select(x => new
+                {
+                    x.Category,
+                    x.Title,
+                    x.Link,
+                    Created = Parse(x.Created),
+                    Closed = Parse(x.Closed),
+                    State = x.State
                 })
                 .OrderByDescending(x => (x.Closed > x.Created ? x.Closed : x.Created))
                 .ToList();
@@ -144,12 +153,10 @@ public sealed class PRsReportTool : ITool
                 var date = (s.Closed > s.Created ? s.Closed : s.Created);
                 var when = date == DateTime.MinValue ? "" : date.ToString("yyyy-MM-dd");
                 var title = Utilities.TruncatePlain(s.Title ?? string.Empty, 110);
-                var desc = Utilities.TruncatePlain(string.IsNullOrWhiteSpace(s.Desc) ? s.Title : s.Desc, 140);
-                sb.AppendLine($"--------------------------------------------");
-                sb.AppendLine($"### {when} [{s.Category}] — {title} ");
-                sb.AppendLine(s.Link);
-                sb.AppendLine($"----[DESCRIPTION]---------------------------");
-                sb.AppendLine(desc);
+
+                sb.AppendLine($"Title: {title}");
+                sb.AppendLine($"URL: {s.Link}");
+                sb.AppendLine($"[{s.Category}] - {s.State} on {when}");
                 sb.AppendLine();
             }
         }
@@ -182,23 +189,38 @@ public sealed class PRsSliceTool : ITool
         var p = (SlicePRsInput)input;
         var profile = Program.userManagedData.GetItems<PRsProfile>()
             .FirstOrDefault(x => x.Name.Equals(p.ProfileName, StringComparison.OrdinalIgnoreCase));
-        if (profile is null) return ToolResult.Failure($"No PRs Profile named '{p.ProfileName}'.", ctx);
+        if (profile is null) { return ToolResult.Failure($"No PRs Profile named '{p.ProfileName}'.", ctx); }
 
-    var prs = Program.SubsystemManager.Get<PRsClient>();
-    var table = await prs.FetchAsync(profile);
+        var prs = Program.SubsystemManager.Get<PRsClient>();
+        var table = await prs.FetchAsync(profile);
 
-    int iCat = table.Col("Category"), iTitle = table.Col("Title"), iLink = table.Col("Link"), iCreated = table.Col("CreationDate");
-    // Use Table.Slice to exclude rows whose Category does not match the requested slice.
-    var filteredTable = table.Slice((col, val) => string.Equals(col, "Category", StringComparison.OrdinalIgnoreCase)
-                                                        && !string.Equals(val, p.Slice, StringComparison.OrdinalIgnoreCase));
-    var filtered = filteredTable.Rows
-                           .OrderBy(r => DateTime.TryParse(r[iCreated], out var d) ? d : DateTime.MaxValue)
-                           .Take(Math.Max(1, p.Limit))
-                           .ToList();
+        // Use Table.Slice to exclude rows whose Category does not match the requested slice, then project via accessor
+        var filteredTable = table.Slice("Category", val => !string.Equals(val, p.Slice, StringComparison.OrdinalIgnoreCase));
+        var projected = filteredTable.SelectRows(a => new
+        {
+            Created = DateTime.TryParse(a("CreationDate"), out var created) ? created : DateTime.MaxValue,
+            Title = a("Title"),
+            Link = a("Link"),
+            Author = a("CreatedByDisplayName"),
+            State = a("Status")
+        });
+        var filtered = projected
+                       .OrderBy(x => x.Created)
+                       .Take(Math.Max(1, p.Limit))
+                       .ToList();
+        // For exports, use the underlying rows from filteredTable in the same ordering
+        // Use Table helpers: order by CreationDate and then take the requested number of rows
+        var orderedRows = filteredTable.OrderBy("CreationDate", cd => DateTime.TryParse(cd, out var dt) ? dt : DateTime.MaxValue)
+                            .Take(Math.Max(1, p.Limit))
+                            .Rows
+                            .ToList();
 
         var lines = new List<string>();
         lines.Add($"Slice: {p.Slice} (limit {p.Limit})");
-        foreach (var r in filtered) lines.Add($"- {r[iCreated][..10]} — {Utilities.TruncatePlain(r[iTitle], 120)} → {r[iLink]}");
+        foreach (var r in filtered)
+        {
+            lines.Add($"- {r.Created:MM/dd/yyyy} — {r.Link} → {Utilities.TruncatePlain(r.Author, 20)} [{r.State}] {Utilities.TruncatePlain(r.Title, 110)}");
+        }
         var output = string.Join("\n", lines);
 
         ctx.AddToolMessage(output);
@@ -208,7 +230,7 @@ public sealed class PRsSliceTool : ITool
         {
             var ext = Path.GetExtension(p.Export).ToLowerInvariant();
             // Build a small Table for export using same headers
-            var exportTable = new Table(table.Headers, filtered.ToList());
+            var exportTable = new Table(table.Headers, orderedRows);
             var content = ext switch
             {
                 ".csv"  => exportTable.ToCsv(),
@@ -232,6 +254,9 @@ public sealed class CoachPRsInput
 [IsConfigurable("tool.prs.coach")]
 public sealed class PRsCoachTool : ITool
 {
+    // Internal typed projection for PR rows used by the coach tool
+    private record PrRow(string Org, string Proj, string Repo, int Id, string Link, string AuthorUnique, DateTime Created);
+
     public string Description => "Pull ADO PR threads (newest first per IC) and produce attributed, linkable coaching suggestions.";
     public string Usage       => "PRsCoach({ \"ProfileName\":\"Deployment\", \"MaxPerIC\":2 })";
     public Type   InputType   => typeof(CoachPRsInput);
@@ -259,9 +284,21 @@ public sealed class PRsCoachTool : ITool
             iCreated = table.Col("CreationDate");
 
         // Choose newest-first per IC: prefer "new", else "stale", else "closed"
-        Dictionary<string, List<(string Org,string Proj,string Repo,int Id,string Link,string AuthorUnique,DateTime Created)>> perIc = SelectNewest(table, "new");
-    if (perIc.Count == 0) perIc = SelectNewest(table, "stale");
-    if (perIc.Count == 0) perIc = SelectNewest(table, "closed");
+        var newestTable = SelectNewest(table, "new");
+        if (newestTable.Rows.Count == 0) newestTable = SelectNewest(table, "stale");
+        if (newestTable.Rows.Count == 0) newestTable = SelectNewest(table, "closed");
+
+        // Build per-IC typed dictionary using Table.GroupRowsBy<T>
+        var perIc = newestTable.GroupRowsBy("CreatedByDisplayName", acc => {
+            var org = acc("OrganizationName");
+            var proj = acc("RepositoryProjectName");
+            var repo = acc("RepositoryName");
+            var id = int.TryParse(acc("PullRequestId"), out var idn) ? idn : 0;
+            var link = acc("Link");
+            var au = acc("CreatedByUniqueName");
+            var created = DateTime.TryParse(acc("CreationDate"), out var dt) ? dt : DateTime.MinValue;
+            return new PrRow(org, proj, repo, id, link, au, created);
+        });
 
         var ado = Program.SubsystemManager.Get<AdoClient>();
         var sb = new StringBuilder();
@@ -423,26 +460,11 @@ public sealed class PRsCoachTool : ITool
 
         // ===== local helpers =====
 
-        Dictionary<string, List<(string Org,string Proj,string Repo,int Id,string Link,string AuthorUnique,DateTime Created)>> SelectNewest(Table srcTable, string category)
+        Table SelectNewest(Table srcTable, string category)
         {
-            // Exclude rows whose Category does not match the requested category using Table.Slice.
-            var sliced = srcTable.Slice((col, val) => string.Equals(col, "Category", StringComparison.OrdinalIgnoreCase)
-                                                           && !string.Equals(val, category, StringComparison.OrdinalIgnoreCase));
-            return sliced.Rows
-                       .GroupBy(r => r[iName])
-                       .ToDictionary(
-                           g => g.Key,
-                           g => g.OrderByDescending(r => DateTime.TryParse(r[iCreated], out var d) ? d : DateTime.MinValue)
-                                 .Take(Math.Max(1, p.MaxPerIC))
-                                 .Select(r => (
-                                     Org:  r[iOrg],
-                                     Proj: r[iProj],
-                                     Repo: r[iRepo],
-                                     Id:   int.TryParse(r[iId], out var idv) ? idv : 0,
-                                     Link: iLink >= 0 ? r[iLink] : string.Empty,
-                                     AuthorUnique: iAuth >= 0 ? r[iAuth] : string.Empty,
-                                     Created: DateTime.TryParse(r[iCreated], out var d) ? d : DateTime.MinValue))
-                                 .ToList());
+            // Use Table.LatestPerGroup to build a small table with newest per IC
+            var selCols = new[] { "OrganizationName", "RepositoryProjectName", "RepositoryName", "PullRequestId", "Link", "CreatedByUniqueName", "CreationDate" };
+            return srcTable.LatestPerGroup("CreatedByDisplayName", "Category", category, "CreationDate", Math.Max(1, p.MaxPerIC), selCols);
         }
 
         static bool LooksAI(string content)
@@ -511,8 +533,8 @@ public sealed class PRsCoachTool : ITool
             try
             {
                 var prompt = focusOnReviewerStyle
-                    ? "You are an EM reviewing how an engineer gives feedback in PRs. In 3–5 bullets, summarize strengths and improvement areas in their review comments. Prefer concrete, actionable guidance. Output only bullets."
-                    : "You are an EM coaching an engineer based on review feedback they received on their PRs. In 3–5 bullets, summarize recurring themes with actionable guidance. Output only bullets.";
+                    ? "You are an EM reviewing how an engineer gives feedback in PRs. In 3-5 bullets, summarize strengths and improvement areas in their review comments. Prefer concrete, actionable guidance. Output only bullets."
+                    : "You are an EM coaching an engineer based on review feedback they received on their PRs. In 3-5 bullets, summarize recurring themes with actionable guidance. Output only bullets.";
                 var summary = Engine.Provider!.PostChatAsync(new Context(prompt + "\n\n" + Utilities.TruncatePlain(text, 4000)), 0.2f).GetAwaiter().GetResult();
                 return summary.Trim();
             }
@@ -530,10 +552,4 @@ public sealed class PRsCoachTool : ITool
             }
         }
     }
-}
-
-public static class PrsExtensions
-{
-    public static int Col(this IReadOnlyList<string> cols, string name) =>
-        cols.Select((c, i) => new { c, i }).FirstOrDefault(x => string.Equals(x.c, name, StringComparison.OrdinalIgnoreCase))?.i ?? -1;
 }
