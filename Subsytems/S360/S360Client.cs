@@ -17,7 +17,7 @@ public class S360Client : ISubsystem
         Name = "S360 (built-in)",
         ClusterUri = S360_CLUSTER,
         Database = S360_DATABASE,
-        AuthMode = KustoAuthMode.devicecode,
+        AuthMode = AuthMode.devicecode,
         DefaultTimeoutSeconds = S360_TIMEOUT_SECONDS
     };
 

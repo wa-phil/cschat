@@ -41,7 +41,7 @@ public class PRsClient : ISubsystem
         Name = $"PRs ({p.ClusterUri}/{p.AdoDatabase})",
         ClusterUri = p.ClusterUri,
         Database = p.AdoDatabase,
-        AuthMode = KustoAuthMode.devicecode,
+        AuthMode = AuthMode.devicecode,
         DefaultTimeoutSeconds = Math.Max(5, p.TimeoutSeconds)
     };
 

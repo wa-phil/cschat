@@ -2,6 +2,28 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 
+public enum AuthMode
+{
+    devicecode,
+    prompt,
+    azcli,
+    managedIdentity,
+}
+
+public sealed class GraphSettings
+{
+    // Auth mode: "DeviceCode", "Interactive", "AppOnly"
+    public AuthMode AuthMode { get; set; } = AuthMode.devicecode;
+
+    // Default delegated scopes to acquire (you can override per-call)
+    public List<string> DefaultScopes { get; set; } = new() { "User.Read" };
+
+    // Optional HTTP/backoff knobs
+    public int MaxRetries { get; set; } = 5;
+    public int BaseDelayMs { get; set; } = 500;
+    public int MaxJitterMs { get; set; } = 250;
+}
+
 public class FileFilterRules
 {
     public List<string> Exclude { get; set; } = new();
@@ -58,7 +80,7 @@ public class Config
     public int MaxTokens { get; set; } = 32000;
     public float Temperature { get; set; } = 0.7f;
     public string SystemPrompt { get; set; } = "You are a helpful system agent.  When answering questions, if you do not know the answer, tell the user as much. Always strive to be honest and truthful.  You have access to an array of tools that you can use to get the information you need to help the user. These tools can list the contents of a directory, read metadata about files, read file contents, etc...";
-
+    public GraphSettings GraphSettings { get; set; } = new GraphSettings();
     public RagSettings RagSettings { get; set; } = new RagSettings();
 
     public bool VerboseEventLoggingEnabled { get; set; } = false;

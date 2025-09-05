@@ -59,7 +59,7 @@ public class KustoClient : ISubsystem
         // Prefer interactive/device-prompt for console flows except managed identity.
         switch (cfg.AuthMode)
         {
-            case KustoAuthMode.managedIdentity:
+            case AuthMode.managedIdentity:
                 // Call overload accepting clientId; pass empty string for system-assigned
                 try { return kcsb.WithAadSystemManagedIdentity(); } catch { return kcsb.WithAadUserPromptAuthentication(); }
 

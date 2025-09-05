@@ -2,14 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 
-public enum KustoAuthMode
-{
-    devicecode,
-    prompt,
-    azcli,
-    managedIdentity,
-}
-
 [UserManaged("Kusto Config", "Connection details and saved queries for a Kusto database")]
 public sealed class KustoConfig
 {
@@ -23,7 +15,7 @@ public sealed class KustoConfig
     public string Database { get; set; } = "";
 
     [UserField(required: true, display: "Authentication method", hint: "devicecode|prompt|azcli|managedIdentity")]
-    public KustoAuthMode AuthMode { get; set; } = KustoAuthMode.devicecode;
+    public AuthMode AuthMode { get; set; } = AuthMode.devicecode;
 
     public int DefaultTimeoutSeconds { get; set; } = 60;
 
@@ -36,4 +28,9 @@ public sealed class KustoQuery
     public string Description { get; set; } = "";
     public string Kql { get; set; } = "";
     public List<string> Tags { get; set; } = new();
+
+    public override string ToString()
+    {
+        return $"{Name}: {Description}";
+    }
 }

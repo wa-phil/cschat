@@ -128,8 +128,9 @@ public partial class CommandManager
             }
         };
 
-        // Add provider/rag/tool/subsystem commands
+        // Add provider/graph/rag/ado/subsystem commands
         subCommands.Add(CreateProviderCommands());
+        subCommands.Add(CreateGraphCoreCommands());
         subCommands.Add(CreateRagConfigCommands());
         subCommands.Add(CreateRagFileTypeCommands());
         subCommands.Add(CreateADOConfigCommands());

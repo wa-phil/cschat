@@ -146,25 +146,34 @@ public partial class CommandManager
                     Description = () => "Toggle event sources for verbose logging",
                     Action = () =>
                     {
-                        Console.WriteLine("Select an event source to toggle:");
-                        var sources = Program.config.EventSources.Select(kvp => $"{kvp.Key} : {(kvp.Value ? "Enabled" : "Disabled")}").ToList();
-                        var selected = User.RenderMenu("Event sources:", sources, -1);
-                        if (selected != null)
+                        while (true)
                         {
-                            selected = selected.Split(':')[0].Trim(); // Get the source name
-                            if (Program.config.EventSources.TryGetValue(selected, out var enabled))
+                            Console.WriteLine("Select an event source to toggle:");
+                            var sources = Program.config.EventSources.Select(kvp => $"{kvp.Key} : {(kvp.Value ? "Enabled" : "Disabled")}").ToList();
+                            var selected = User.RenderMenu("Event sources:", sources, -1);
+                            if (selected != null)
                             {
-                                Program.config.EventSources[selected] = !enabled;
-                                Console.WriteLine($"Event source '{selected}' toggled to {(Program.config.EventSources[selected] ? "Enabled" : "Disabled")}");
-                                Config.Save(Program.config, Program.ConfigFilePath);
+                                selected = selected.Split(':')[0].Trim(); // Get the source name
+                                if (Program.config.EventSources.TryGetValue(selected, out var enabled))
+                                {
+                                    Program.config.EventSources[selected] = !enabled;
+                                    Console.WriteLine($"Event source '{selected}' toggled to {(Program.config.EventSources[selected] ? "Enabled" : "Disabled")}");
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"Event source '{selected}' not found.");
+                                    return Task.FromResult(Command.Result.Failed);
+                                }
                             }
-                            else
+
+                            Console.Write("Configure another source? (y/N): ");
+                            var cont = User.ReadLineWithHistory();
+                            if (string.IsNullOrWhiteSpace(cont) || !cont.Trim().StartsWith("y", StringComparison.OrdinalIgnoreCase))
                             {
-                                Console.WriteLine($"Event source '{selected}' not found.");
-                                return Task.FromResult(Command.Result.Failed);
+                                return Task.FromResult(Command.Result.Success);
                             }
                         }
-                        return Task.FromResult(Command.Result.Success);
                     }
                 }
             }
