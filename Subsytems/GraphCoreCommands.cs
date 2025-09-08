@@ -156,6 +156,100 @@ public partial class CommandManager
                             Console.WriteLine("- Enterprise applications → CSChat → Permissions");
                         }
 
+                        // Build scopes to request (fall back to User.Read if none)
+                        var reqScopes = (Program.config.GraphSettings.DefaultScopes?.Count > 0
+                                        ? Program.config.GraphSettings.DefaultScopes
+                                        : new List<string> { "User.Read" })
+                                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                                    .ToArray();
+
+                        Console.WriteLine();
+                        Console.WriteLine("=== Current token (for your selected auth mode) ===");
+
+                        // Choose scopes for token acquisition (mirror GraphCore behavior)
+                        string[] tokenScopes =
+                            Program.config.GraphSettings.authMode == AuthMode.azcli
+                                ? new[] { "https://graph.microsoft.com/.default" }
+                                : (reqScopes.Length > 0 ? reqScopes : new[] { "User.Read" });
+
+                        // Acquire token using the same credential selection as GraphCore
+                        var cred = GraphCore.CreateCredential();
+                        Azure.Core.AccessToken at;
+                        try
+                        {
+                            at = cred.GetToken(new Azure.Core.TokenRequestContext(tokenScopes), CancellationToken.None);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine("Could not acquire a token with the current settings.");
+                            Console.WriteLine(ex.Message);
+                            return Command.Result.Failed;
+                        }
+
+                        // Decode JWT (base64url → JSON) and parse with TinyJson
+                        static byte[] B64Url(string s)
+                        {
+                            s = s.Replace('-', '+').Replace('_', '/');
+                            switch (s.Length % 4) { case 2: s += "=="; break; case 3: s += "="; break; }
+                            return System.Convert.FromBase64String(s);
+                        }
+
+                        var parts = at.Token.Split('.');
+                        if (parts.Length < 2)
+                        {
+                            Console.WriteLine("Token did not look like a JWT.");
+                            Console.WriteLine(at.Token.Substring(0, Math.Min(40, at.Token.Length)) + "...");
+                            return Command.Result.Success;
+                        }
+
+                        var payloadJson = System.Text.Encoding.UTF8.GetString(B64Url(parts[1]));
+                        var payload = payloadJson.FromJson<Dictionary<string, object>>() ?? new();
+
+                        string GetStr(string key)
+                            => payload.TryGetValue(key, out var v) ? v?.ToString() ?? "" : "";
+
+                        static DateTimeOffset FromUnix(object? o)
+                        {
+                            if (o == null) return default;
+                            if (long.TryParse(o.ToString(), out var i))
+                                return DateTimeOffset.FromUnixTimeSeconds(i);
+                            return default;
+                        }
+
+                        var aud   = GetStr("aud");
+                        var tid   = GetStr("tid");
+                        var appId = GetStr("azp");               // sometimes 'azp' (authorized party) holds client id
+                        if (string.IsNullOrEmpty(appId)) appId = GetStr("appid"); // or 'appid' in some tokens
+                        var upn   = GetStr("upn");
+                        var pref  = GetStr("preferred_username");
+                        var name  = GetStr("name");
+                        var scp   = GetStr("scp");               // space-separated delegated scopes
+                        var roles = payload.TryGetValue("roles", out var rObj) && rObj is List<object> rl
+                                    ? string.Join(' ', rl.Select(x => x.ToString()))
+                                    : "";
+                        var exp   = FromUnix(payload.TryGetValue("exp", out var expObj) ? expObj : null);
+
+                        Console.WriteLine($"Auth mode           : {Program.config.GraphSettings.authMode}");
+                        Console.WriteLine($"Requested scopes    : {string.Join(' ', reqScopes)}");
+                        Console.WriteLine($"Token audience (aud): {aud}");
+                        Console.WriteLine($"Tenant (tid)        : {tid}");
+                        Console.WriteLine($"Client (appid/azp)  : {appId}");
+                        Console.WriteLine($"User                : {(!string.IsNullOrEmpty(pref) ? pref : upn)} ({name})");
+                        Console.WriteLine($"Delegated scopes    : {(string.IsNullOrWhiteSpace(scp) ? "(none)" : scp)}");
+                        if (!string.IsNullOrWhiteSpace(roles))
+                            Console.WriteLine($"App roles           : {roles}");
+                        Console.WriteLine($"Expires             : {exp.LocalDateTime} (local)");
+
+                        if (Program.config.GraphSettings.authMode == AuthMode.azcli)
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine("Note: This token is for the **Azure CLI** app, not CSChat. Scopes reflect what your tenant has granted to the CLI app.");
+                        }
+
+                        Console.WriteLine();
+                        Console.WriteLine("If 'Delegated scopes' does not include Mail.* when using prompt/devicecode with your CSChat ClientId,");
+                        Console.WriteLine("have a tenant admin grant those scopes to CSChat (Enterprise apps → CSChat → Permissions → Grant admin consent).");
+
                         return Command.Result.Success;
                     }
                 }

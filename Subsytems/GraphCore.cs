@@ -60,22 +60,23 @@ public sealed class GraphCore
         }
     });
 
-    private TokenCredential CreateCredential() => Log.Method<TokenCredential>(ctx =>
+    internal static TokenCredential CreateCredential() => Log.Method<TokenCredential>(ctx =>
     {
         var options = new TokenCredentialOptions
         {
             AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
         };
 
-        var TenantId = TryRunAz(@"az account show --query tenantId -o tsv");
-        var ClientId = Program.config.GraphSettings.ClientId.ToString();
+        var tenantId = TryRunAz(@"az account show --query tenantId -o tsv");
+        var clientGuid = Program.config.GraphSettings.ClientId;
+        bool hasClientId = clientGuid != Guid.Empty;
 
         // Choose credential based on the enum value
         switch (Program.config.GraphSettings.authMode)
         {
             case AuthMode.azcli:
             {
-                var cred = new AzureCliCredential(new AzureCliCredentialOptions { TenantId = TenantId});
+                var cred = new AzureCliCredential(new AzureCliCredentialOptions { TenantId = tenantId});
                 ctx.Succeeded();
                 return cred;
             }
@@ -89,45 +90,32 @@ public sealed class GraphCore
 
             case AuthMode.prompt:
             {
-                if (string.IsNullOrWhiteSpace(ClientId))
-                {
-                    // no client id, use CLI token instead
-                    var result = new AzureCliCredential(new AzureCliCredentialOptions { TenantId = TenantId });
-                    ctx.Succeeded();
-                    return result;
+                if (!hasClientId) {
+                    // fall back to CLI if no app is configured
+                    return new AzureCliCredential(new AzureCliCredentialOptions { TenantId = tenantId });
                 }
-
-                var interactive = new InteractiveBrowserCredential(new InteractiveBrowserCredentialOptions
+                return new InteractiveBrowserCredential(new InteractiveBrowserCredentialOptions
                 {
-                    TenantId = TenantId,
-                    ClientId = ClientId,
-                    AuthorityHost = options.AuthorityHost
+                    TenantId = tenantId,
+                    ClientId = clientGuid.ToString(),
+                    AuthorityHost = options.AuthorityHost,
+                    RedirectUri = new Uri("http://localhost")
                 });
-                ctx.Succeeded();
-                return interactive;
             }
 
             case AuthMode.devicecode:
             default:
             {
-                if (string.IsNullOrWhiteSpace(ClientId))
-                {
-                    // no client id, use CLI token instead
-                    var result = new AzureCliCredential(new AzureCliCredentialOptions { TenantId = TenantId });
-                    ctx.Succeeded();
-                    return result;
+                if (!hasClientId) {
+                    return new AzureCliCredential(new AzureCliCredentialOptions { TenantId = tenantId });
                 }
-
-                var deviceOptions = new DeviceCodeCredentialOptions
+                return new DeviceCodeCredential(new DeviceCodeCredentialOptions
                 {
-                    TenantId = TenantId,
-                    ClientId = ClientId,
+                    TenantId = tenantId,
+                    ClientId = clientGuid.ToString(),
                     AuthorityHost = options.AuthorityHost,
                     DeviceCodeCallback = (info, ct) => { Console.WriteLine(info.Message); return Task.CompletedTask; }
-                };
-                var device = new DeviceCodeCredential(deviceOptions);
-                ctx.Succeeded();
-                return device;
+                });
             }
         }
     });
