@@ -12,11 +12,12 @@ public enum AuthMode
 
 public sealed class GraphSettings
 {
-    // Auth mode: "DeviceCode", "Interactive", "AppOnly"
-    public AuthMode AuthMode { get; set; } = AuthMode.devicecode;
+    public AuthMode authMode { get; set; } = AuthMode.azcli;
+
+    public Guid ClientId { get; set; } = Guid.Empty; // optional client id for user auth (otherwise uses az cli token)
 
     // Default delegated scopes to acquire (you can override per-call)
-    public List<string> DefaultScopes { get; set; } = new() { "User.Read" };
+    public List<string> DefaultScopes { get; set; } = new List<string>() { "User.Read", "Mail.Read", "Mail.Send", "Mail.ReadWrite" };
 
     // Optional HTTP/backoff knobs
     public int MaxRetries { get; set; } = 5;
