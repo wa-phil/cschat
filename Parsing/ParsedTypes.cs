@@ -207,3 +207,18 @@ public class GraphDto
     public List<EntityDto> Entities { get; set; } = new List<EntityDto>();
     public List<RelationshipDto> Relationships { get; set; } = new List<RelationshipDto>();
 }
+
+[ExampleText("""
+Return STRICT JSON in this shape:
+
+{ "Topic": "<topic_name>" }
+
+WHERE:
+<topic_name> is the name of the most relevant topic from the provided list, or "Other" if none are relevant.
+
+ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.
+""")]
+public class MailAssignment
+{
+  public string? Topic { get; set; }
+}

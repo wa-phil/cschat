@@ -48,27 +48,32 @@ public class User
             ctx.OnlyEmitOnFailure();
             ctx.Append(Log.Data.ConsoleHeight, Console.BufferHeight);
             ctx.Append(Log.Data.ConsoleWidth, Console.WindowWidth);
-            
+
+            // NEW: clamp everything we draw to the usable width
+            int usable = Math.Max(1, Console.WindowWidth - 1);
+            string Fit(string s)
+            {
+                // Hard-truncate including the ellipsis so we never exceed 'usable'
+                var clipped = Utilities.TruncatePlainHard(s ?? string.Empty, usable);
+                // Pad to paint over any leftovers from previous longer lines
+                return clipped.PadRight(usable);
+            }
+
             // Calculate which items to show and update scroll indicators
             visibleItems = Math.Min(filteredChoices.Count, actualMaxVisibleItems);
-            
+
             // Adjust scroll offset to keep selected item visible
-            if (filteredSelected < scrollOffset)
-            {
-                scrollOffset = filteredSelected;
-            }
+            if (filteredSelected < scrollOffset)            scrollOffset = filteredSelected;
             else if (filteredSelected >= scrollOffset + visibleItems)
-            {
-                scrollOffset = filteredSelected - visibleItems + 1;
-            }
-            
+                                                            scrollOffset = filteredSelected - visibleItems + 1;
+
             // Ensure scroll offset is within bounds
-            scrollOffset = Math.Max(0, Math.Min(scrollOffset, Math.Max(0, filteredChoices.Count - visibleItems)));            
-            hasMoreAbove = scrollOffset > 0;
-            hasMoreBelow = scrollOffset + visibleItems < filteredChoices.Count;
-            
+            scrollOffset   = Math.Max(0, Math.Min(scrollOffset, Math.Max(0, filteredChoices.Count - visibleItems)));
+            hasMoreAbove   = scrollOffset > 0;
+            hasMoreBelow   = scrollOffset + visibleItems < filteredChoices.Count;
+
             // Ensure we don't exceed console buffer bounds
-            int maxRow = Console.BufferHeight - 1;
+            int maxRow     = Console.BufferHeight - 1;
             int currentRow = menuStartRow;
 
             // Draw "more above" indicator if needed
@@ -77,7 +82,7 @@ public class User
                 Console.SetCursorPosition(0, currentRow);
                 Console.ForegroundColor = ConsoleColor.DarkGray;
                 var countAbove = Math.Min(scrollOffset, filteredChoices.Count);
-                Console.Write($"^^^ {countAbove} items above ^^^".PadRight(Console.WindowWidth - 1));
+                Console.Write(Fit($"^^^ {countAbove} items above ^^^"));
                 Console.ResetColor();
                 currentRow++;
             }
@@ -97,21 +102,20 @@ public class User
                 {
                     Console.ForegroundColor = ConsoleColor.Black;
                     Console.BackgroundColor = ConsoleColor.White;
-                    if (filteredChoices.Count <= 9)
-                        line = $"> [{choiceIndex + 1}] {filteredChoices[choiceIndex]} ";
-                    else
-                        line = $"> {filteredChoices[choiceIndex]} ";
+                    line = (filteredChoices.Count <= 9)
+                        ? $"> [{choiceIndex + 1}] {filteredChoices[choiceIndex]} "
+                        : $"> {filteredChoices[choiceIndex]} ";
                 }
                 else
                 {
                     Console.ForegroundColor = ConsoleColor.Gray;
                     Console.BackgroundColor = ConsoleColor.Black;
-                    if (filteredChoices.Count <= 9)
-                        line = $"  [{choiceIndex + 1}] {filteredChoices[choiceIndex]} ";
-                    else
-                        line = $"  {filteredChoices[choiceIndex]} ";
+                    line = (filteredChoices.Count <= 9)
+                        ? $"  [{choiceIndex + 1}] {filteredChoices[choiceIndex]} "
+                        : $"  {filteredChoices[choiceIndex]} ";
                 }
-                Console.Write(line.PadRight(Console.WindowWidth - 1));
+
+                Console.Write(Fit(line));
                 Console.ResetColor();
                 currentRow++;
             }
@@ -122,7 +126,7 @@ public class User
                 Console.SetCursorPosition(0, currentRow);
                 Console.ForegroundColor = ConsoleColor.DarkGray;
                 var countBelow = Math.Max(0, filteredChoices.Count - (scrollOffset + visibleItems));
-                Console.Write($"vvv {countBelow} items below vvv".PadRight(Console.WindowWidth - 1));
+                Console.Write(Fit($"vvv {countBelow} items below vvv"));
                 Console.ResetColor();
                 currentRow++;
             }
@@ -131,7 +135,7 @@ public class User
             while (currentRow < inputTop && currentRow < maxRow)
             {
                 Console.SetCursorPosition(0, currentRow);
-                Console.Write(new string(' ', Console.WindowWidth - 1));
+                Console.Write(new string(' ', usable));
                 currentRow++;
             }
 
@@ -141,11 +145,10 @@ public class User
                 ctx.Append(Log.Data.InputTop, inputTop);
                 Console.SetCursorPosition(0, inputTop);
                 var inputHeader = "[filter]> ";
-                Console.Write($"{inputHeader}{filter}".PadRight(Console.WindowWidth - 1));
-                if (inputHeader.Length + filter.Length < Console.WindowWidth && inputTop < maxRow)
-                {
-                    Console.SetCursorPosition(inputHeader.Length + filter.Length, inputTop);
-                }
+                Console.Write(Fit($"{inputHeader}{filter}"));
+                // place cursor at end of filter if it fits
+                int caret = Math.Min(inputHeader.Length + filter.Length, usable);
+                Console.SetCursorPosition(caret, inputTop);
             }
             ctx.Succeeded();
         });

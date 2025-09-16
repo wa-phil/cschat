@@ -50,6 +50,13 @@ public class UserManagedDataConfig
     public Dictionary<string, List<Dictionary<string, object>>> TypedData { get; set; } = new();
 }
 
+public class MailSettings
+{
+    public int MaxEmailsToProcess { get; set; } = 25; // Maximum number of emails to process in one go
+    public int LookbackWindow { get; set; } = 30; // Default lookback window for fetching emails (in days)
+    public int LookbackCount { get; set; } = 100; // Default maximum number of emails to fetch in one go
+}
+
 public class Config
 {
     public string Provider { get; set; } = "Ollama";
@@ -64,6 +71,8 @@ public class Config
     public bool VerboseEventLoggingEnabled { get; set; } = false;
     public int MaxSteps { get; set; } = 25; // Maximum number of steps for planning
     public int MaxMenuItems { get; set; } = 10; // Maximum number of menu items to display at once
+
+    public MailSettings MailSettings { get; set; } = new MailSettings();
 
     public Dictionary<string, bool> EventSources { get; set; } = new Dictionary<string, bool>
     {
