@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 
 public static class MailCommands
 {
@@ -16,7 +17,280 @@ public static class MailCommands
             SubCommands = new List<Command>
             {
                 // -------------------------
-                // 1) Favorites (picker)
+                // 1) Simple text client
+                // -------------------------
+                new Command {
+                    Name = "client",
+                    Description = () => $"Open a text mail client on a selected favorite folder, looking back {Program.config.MailSettings.LookbackWindow} days, up to {Program.config.MailSettings.LookbackCount} emails",
+                    Action = async () =>
+                    {
+                        var provider = Program.SubsystemManager.Get<MapiMailClient>() as IMailProvider;
+                        if (provider is null) { Console.WriteLine("Mail provider unavailable."); return Command.Result.Failed; }
+
+                        var favs = Program.userManagedData.GetItems<FavoriteMailFolder>();
+                        if (favs.Count == 0)
+                        {
+                            Console.WriteLine("No favorites yet. Use 'Mail favorites' first.");
+                            return Command.Result.Cancelled;
+                        }
+
+                        // Pick a favorite and N
+                        var favChoices = favs.Select(f => f.DisplayName).ToList();
+                        var favPick = User.RenderMenu("Select a favorite folder\n" + new string('─', Math.Max(60, Console.WindowWidth-1)), favChoices);
+                        if (string.IsNullOrWhiteSpace(favPick)) return Command.Result.Cancelled;
+
+                        int topN = Program.config.MailSettings.LookbackCount;
+                        TimeSpan lookback = TimeSpan.FromDays(Program.config.MailSettings.LookbackWindow);
+                        var folder = await provider.GetFolderByIdOrNameAsync(favPick);
+                        if (folder is null) { Console.WriteLine("Folder not found."); return Command.Result.Failed; }
+
+                        while (true)
+                        {
+                            var msgs = await provider.ListMessagesSinceAsync(folder, lookback, topN); // fetch by N (cap by huge window)
+                            msgs = msgs.OrderByDescending(m => m.ReceivedDateTime).Take(topN).ToList();
+                            var lengths = msgs.Select(m=> new {
+                                fromWidth = m.From?.EmailAddress?.Length ?? 0,
+                                dateWidth = m.ReceivedDateTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm").Length,
+                                subjWidth = Utilities.TruncatePlain(m.Subject ?? "", 40).Length,
+                                firstWidth = Utilities.TruncatePlain((m.BodyPreview ?? "").Replace("\r"," ").Replace("\n"," "), Math.Max(10, Console.WindowWidth - 70)).Length,
+                            }).ToList();
+
+                            // Calculate max widths for From, Date columns, splitting the remaining width between Subject and First Line
+                            int consoleW = Console.WindowWidth;
+                            int maxFromWidth = lengths.Max(l => l.fromWidth);
+                            int maxDateWidth = lengths.Max(l => l.dateWidth);
+                            int remainingForSubjAndFirst = Console.WindowWidth - maxFromWidth - maxDateWidth - 6; // 6 for " | " and padding
+                            int maxSubjWidth = Math.Min(remainingForSubjAndFirst/2,lengths.Max(l => l.subjWidth));
+                            int maxFirstWidth = Math.Min(remainingForSubjAndFirst/2,lengths.Max(l => l.firstWidth));
+
+                            // Menu rows: "From | Date | Subject | First Line"
+                            List<string> ToRows(List<IMailMessage> items)
+                            {
+                                string Row(IMailMessage m)
+                                {
+                                    string from = m.From?.EmailAddress ?? "(unknown)";
+                                    string date = m.ReceivedDateTime.LocalDateTime.ToString("yyyy-MM-dd HH:mm");
+                                    string subj = Utilities.TruncatePlain(m.Subject ?? "", 40);
+                                    string first = Utilities.TruncatePlain((m.BodyPreview ?? "").Replace("\r", " ").Replace("\n", " "), Math.Max(10, consoleW - 70));
+
+                                    return string.Format(
+                                        "{0,-" + maxFromWidth + "} | {1,-" + maxDateWidth + "} | {2,-" + maxSubjWidth + "} | {3,-" + maxFirstWidth + "}",
+                                        from, date, subj, first);
+                                }
+                                return items.Select(Row).ToList();
+                            }
+
+                            var header = $"Folder: {favPick}\n" +
+                                        "Use ↑/↓, ENTER to read; ESC to exit\n" +
+                                        string.Format(
+                                            "  {0,-" + maxFromWidth + "} | {1,-" + maxDateWidth + "} | {2,-" + maxSubjWidth + "} | {3,-" + maxFirstWidth + "}\n",
+                                            "From", "Date", "Subject", "First Line")+
+                                        new string('─', Math.Max(60, Console.WindowWidth-1));
+                            var rows = ToRows(msgs);
+                            var selectedRow = User.RenderMenu(header, rows);
+                            if (string.IsNullOrWhiteSpace(selectedRow)) return Command.Result.Cancelled;
+                            var idx = rows.IndexOf(selectedRow);
+                            if (idx < 0) continue;
+
+                            var picked = msgs[idx];
+                            var opened = await provider.GetMessageAsync(picked.Id);
+                            if (opened is null)
+                            {
+                                Console.WriteLine("(message no longer available)");
+                                continue;
+                            }
+
+                            // Read mode with scroll + ESC menu
+                            await ReadEmailLoop(provider, opened);
+                        }
+                    }
+                },
+
+                // -------------------------
+                // 2) Summarize (topics) — batched, navigable
+                // -------------------------
+                new Command {
+                    Name = "summarize",
+                    Description = () => $"Summarize last {Program.config.MailSettings.MaxEmailsToProcess} items in a favorite folder by configured topics (with drill-in)",
+                    Action = async () =>
+                    {
+                        var provider = Program.SubsystemManager.Get<MapiMailClient>() as IMailProvider;
+                        if (provider is null) { Console.WriteLine("Mail provider unavailable."); return Command.Result.Failed; }
+
+                        var favs = Program.userManagedData.GetItems<FavoriteMailFolder>();
+                        if (favs.Count == 0) { Console.WriteLine("No favorites yet. Use 'Mail favorites' first."); return Command.Result.Cancelled; }
+
+                        var topics = Program.userManagedData.GetItems<MailTopic>();
+                        if (topics.Count == 0)
+                        {
+                            Console.WriteLine("No topics configured. Add some with Data→add (type: MailTopic).");
+                        }
+
+                        var favChoices = favs.Select(f => f.DisplayName).ToList();
+                        var favPick = User.RenderMenu("Select a favorite folder\n" + new string('─', Math.Max(60, Console.WindowWidth - 1)), favChoices);
+                        if (string.IsNullOrWhiteSpace(favPick)) return Command.Result.Cancelled;
+
+                        int topN = Program.config.MailSettings.MaxEmailsToProcess;
+                        var folder = await provider.GetFolderByIdOrNameAsync(favPick);
+                        if (folder is null) { Console.WriteLine("Folder not found."); return Command.Result.Failed; }
+
+                        var msgs = await provider.ListMessagesSinceAsync(folder, TimeSpan.FromDays(Program.config.MailSettings.LookbackWindow), topN);
+                        msgs = msgs.OrderByDescending(m => m.ReceivedDateTime).Take(topN).ToList();
+
+                        // 1) Build topic prompt once
+                        var topicBlock = string.Join("\n", topics.Select(t => $"- {t.Name}: {t.Description}\n  keywords: {t.Keywords}"));
+                        var classifyPrompt =
+@"You are a mail classifier. Given topics (name/description/keywords) and an email (from/subject/preview), assign the email to AT MOST one topic (by name).
+Valid topics, their name/description/keywords are as follows:" +
+topicBlock +
+@"
+If none of the above fits, assign 'Other'.";
+
+                        // 2) Classify in batches to keep prompts small
+                        var idToMsg = msgs.ToDictionary(m => m.Id);
+                        var assignments = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                        using var cts = new CancellationTokenSource();
+                        using (var reporter = new ProgressUi.AsyncProgressReporterWithCancel("Classifying emails", cts))
+                        {
+                            var gate = new SemaphoreSlim(Math.Max(1, Program.config.RagSettings.MaxIngestConcurrency));
+                            var tasks = msgs.Select((m, idx) => Task.Run(async () =>
+                            {
+                                await gate.WaitAsync(reporter.Token);
+                                var item = reporter.StartItem($"msg {idx + 1}/{msgs.Count}");
+                                try
+                                {
+                                    item.SetTotalSteps(1);
+                                    var ctx = new Context(classifyPrompt);
+                                    ctx.AddUserMessage($"EMAIL\nfrom: {m.From?.EmailAddress}\nsubject: {m.Subject}\npreview: {m.BodyPreview}");
+
+                                    try
+                                    {
+                                        var assignment = await TypeParser.GetAsync(ctx, typeof(MailAssignment)) as MailAssignment;
+                                        assignments[m.Id] = String.IsNullOrWhiteSpace(assignment?.Topic) ? "Other" : assignment.Topic;
+                                    }
+                                    catch (OperationCanceledException)
+                                    {
+                                        item.Cancel("canceled");
+                                        assignments[m.Id] = "Other";
+                                        return;
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        item.Fail(ex.Message);
+                                        assignments[m.Id] = "Other";
+                                        return;
+                                    }
+
+                                    item.Advance(1, "done");
+                                    item.Complete("done");
+                                }
+                                finally
+                                {
+                                    gate.Release();
+                                }
+                            })).ToList();
+
+                            try { await Task.WhenAll(tasks); }
+                            catch (Exception ex) { Console.WriteLine($"Error during classification: {ex.Message}"); }
+                        }
+
+                        // 3) Group by topic
+                        var grouped = assignments
+                            .GroupBy(kv => kv.Value)
+                            .ToDictionary(g => g.Key, g => g.Select(kv => idToMsg[kv.Key]).OrderByDescending(m => m.ReceivedDateTime).ToList(),
+                                        StringComparer.OrdinalIgnoreCase);
+
+                        if (!grouped.ContainsKey("Other"))
+                            grouped["Other"] = msgs.Where(m => !assignments.ContainsKey(m.Id)).ToList();
+
+                        // 4) Summarize each topic separately (short) — run with bounded concurrency and progress reporting
+                        var topicSummaries = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        using var ctsSummary = new CancellationTokenSource();
+                        using (var reporterSummary = new ProgressUi.AsyncProgressReporterWithCancel("Summarizing topics", ctsSummary))
+                        {
+                            var summaryGate = new SemaphoreSlim(Math.Max(1, Program.config.RagSettings.MaxIngestConcurrency));
+                            var summaryTasks = grouped.Select(kv => Task.Run(async () =>
+                            {
+                                await summaryGate.WaitAsync(reporterSummary.Token);
+                                var item = reporterSummary.StartItem($"topic: {kv.Key} ({kv.Value.Count})");
+                                try
+                                {
+                                    item.SetTotalSteps(1);
+                                    var key = kv.Key;
+                                    var list = kv.Value;
+                                    var docs = string.Join("\n---\n", list.Select(m =>
+                                        $"from: {m.From?.EmailAddress}\nsubject: {m.Subject}\npreview: {m.BodyPreview}"));
+
+                                    var sctx = new Context(
+@"You are a mail analyst. Summarize this set of emails into 1-2 short paragraphs, then provide 1-6 concise bullets of actions or follow-ups. Be crisp.");
+                                    sctx.AddUserMessage(docs);
+                                    try
+                                    {
+                                        var summary = await Engine.Provider!.PostChatAsync(sctx, 0.2f);
+                                        topicSummaries[key] = summary;
+                                        item.Advance(1, "done");
+                                        item.Complete("done");
+                                    }
+                                    catch (OperationCanceledException)
+                                    {
+                                        item.Cancel("canceled");
+                                        topicSummaries[key] = "ERROR: canceled";
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        item.Fail(ex.Message);
+                                        topicSummaries[key] = $"ERROR: {ex.Message}";
+                                    }
+                                }
+                                finally { summaryGate.Release(); }
+                            })).ToList();
+
+                            try { await Task.WhenAll(summaryTasks); }
+                            catch (Exception ex) { Console.WriteLine($"Error during topic summarization: {ex.Message}"); }
+                        }
+
+                        // 5) Interactive menus: categories -> subjects -> read
+                        while (true)
+                        {
+                            var categoryChoices = grouped
+                                .OrderByDescending(kv => kv.Value.Count)
+                                .Select(kv => $"{kv.Key} ({kv.Value.Count})")
+                                .ToList();
+
+                            var catPick = User.RenderMenu(
+                                "Select a category\n" + new string('─', Math.Max(60, Console.WindowWidth - 1)),
+                                categoryChoices);
+
+                            if (string.IsNullOrWhiteSpace(catPick)) return Command.Result.Cancelled;
+
+                            var pickedCat = grouped.Keys.First(k => catPick.StartsWith(k));
+                            Console.Clear();
+                            var header = $"== {pickedCat} ==\n{topicSummaries[pickedCat]}\n"+
+                                new string('─', Math.Max(60, Console.WindowWidth - 1))+
+                                "Select an email (ESC to go back)\n"+
+                                new string('─', Math.Max(60, Console.WindowWidth - 1));
+
+                            var list = grouped[pickedCat];
+                            var subjectChoices = list.Select(m =>
+                                $"{m.ReceivedDateTime.LocalDateTime:yyyy-MM-dd HH:mm} | {m.From?.EmailAddress} | {Utilities.TruncatePlain(m.Subject ?? string.Empty, 80)}")
+                                .ToList();
+
+                            var subjPick = User.RenderMenu(header, subjectChoices);
+                            if (string.IsNullOrWhiteSpace(subjPick)) continue;
+
+                            var idx = subjectChoices.IndexOf(subjPick);
+                            if (idx >= 0)
+                            {
+                                var full = await provider.GetMessageAsync(list[idx].Id);
+                                if (full != null) await ReadEmailLoop(provider, full); // reuse the same reader
+                            }
+                        }
+                    }
+                },
+
+                // -------------------------
+                // 3) Favorites (picker)
                 // -------------------------
                 new Command {
                     Name = "favorites",
@@ -71,305 +345,161 @@ public static class MailCommands
                         }
                     }
                 },
-
                 // -------------------------
-                // 2) Simple text client
+                // 4) Max Emails To Process
                 // -------------------------
-                new Command {
-                    Name = "client",
-                    Description = () => "Open a text mail client on a favorite folder",
-                    Action = async () =>
+                new Command{
+                    Name = "max emails to summarize",
+                    Description = () => $"Set the maximum number of emails to summarize in one go [currently: {Program.config.MailSettings.MaxEmailsToProcess}]",
+                    Action = () =>
                     {
-                        var provider = Program.SubsystemManager.Get<MapiMailClient>() as IMailProvider;
-                        if (provider is null) { Console.WriteLine("Mail provider unavailable."); return Command.Result.Failed; }
-
-                        var favs = Program.userManagedData.GetItems<FavoriteMailFolder>();
-                        if (favs.Count == 0)
+                        Console.Write($"Current max emails to summarize: {Program.config.MailSettings.MaxEmailsToProcess}\n");
+                        int max = 100;
+                        Console.Write($"Enter new maximum (1-{max}): ");
+                        var input = Console.ReadLine();
+                        if (int.TryParse(input, out int newMax) && newMax >= 1 && newMax <= max)
                         {
-                            Console.WriteLine("No favorites yet. Use 'Mail favorites' first.");
-                            return Command.Result.Cancelled;
+                            Program.config.MailSettings.MaxEmailsToProcess = newMax;
+                            Config.Save(Program.config, Program.ConfigFilePath);
+                            Console.WriteLine($"Max emails to process updated to {newMax}.");
+                            return Task.FromResult(Command.Result.Success);
                         }
-
-                        // Pick a favorite and N
-                        var favChoices = favs.Select(f => f.DisplayName).ToList();
-                        var favPick = User.RenderMenu("Select a favorite folder\n" + new string('─', Math.Max(60, Console.WindowWidth-1)), favChoices);
-                        if (string.IsNullOrWhiteSpace(favPick)) return Command.Result.Cancelled;
-
-                        Console.Write("Last N items (default 50): ");
-                        var nText = Console.ReadLine();
-                        int topN = 50;
-                        if (!string.IsNullOrWhiteSpace(nText) && int.TryParse(nText, out var n) && n > 0) topN = n;
-
-                        var folder = await provider.GetFolderByIdOrNameAsync(favPick);
-                        if (folder is null) { Console.WriteLine("Folder not found."); return Command.Result.Failed; }
-
-                        var msgs = await provider.ListMessagesSinceAsync(folder, TimeSpan.FromDays(3650), topN); // fetch by N (cap by huge window)
-                        msgs = msgs.OrderByDescending(m => m.ReceivedDateTime).Take(topN).ToList();
-
-                        // Menu rows: "From | Date | Subject | First Line"
-                        List<string> ToRows(List<IMailMessage> items)
-                        {
-                            int consoleW = Console.WindowWidth;
-                            string Row(IMailMessage m)
-                            {
-                                string from = m.From?.EmailAddress ?? "(unknown)";
-                                string date = m.ReceivedDateTime.LocalDateTime.ToString("yyyy-MM-dd HH:mm");
-                                string subj = Utilities.TruncatePlain(m.Subject ?? "", 40);
-                                string first = Utilities.TruncatePlain((m.BodyPreview ?? "").Replace("\r"," ").Replace("\n"," "), Math.Max(10, consoleW - 70));
-                                return $"{from} | {date} | {subj} | {first}";
-                            }
-                            return items.Select(Row).ToList();
-                        }
-
-                        var header = $"Folder: {favPick}\n" +
-                                     "Use ↑/↓, ENTER to read; ESC to exit\n" +
-                                     "From | Date | Subject | First Line\n" +
-                                     new string('─', Math.Max(60, Console.WindowWidth-1));
-
-                        while (true)
-                        {
-                            var selectedRow = User.RenderMenu(header, ToRows(msgs));
-                            if (string.IsNullOrWhiteSpace(selectedRow)) return Command.Result.Cancelled;
-                            var idx = ToRows(msgs).IndexOf(selectedRow);
-                            if (idx < 0) continue;
-
-                            var picked = msgs[idx];
-                            var opened = await provider.GetMessageAsync(picked.Id);
-                            if (opened is null) { Console.WriteLine("(message no longer available)"); continue; }
-
-                            // Read mode with scroll + ESC menu
-                            await ReadEmailLoop(provider, opened);
-                        }
+                        Console.WriteLine("Cancelled or invalid input.");
+                        return Task.FromResult(Command.Result.Cancelled);
                     }
                 },
 
                 // -------------------------
-                // 3) Summarize (topics)
+                // 5) Lookback window
                 // -------------------------
-                new Command {
-                    Name = "summarize",
-                    Description = () => "Summarize last N items in a favorite folder by configured topics (and Others)",
-                    Action = async () =>
+                new Command{
+                    Name = "lookback window",
+                    Description = () => $"Set the lookback window (in days) for fetching emails [currently: {Program.config.MailSettings.LookbackWindow}]",
+                    Action = () =>
                     {
-                        var provider = Program.SubsystemManager.Get<MapiMailClient>() as IMailProvider;
-                        if (provider is null) { Console.WriteLine("Mail provider unavailable."); return Command.Result.Failed; }
-
-                        var favs = Program.userManagedData.GetItems<FavoriteMailFolder>();
-                        if (favs.Count == 0) { Console.WriteLine("No favorites yet. Use 'Mail favorites' first."); return Command.Result.Cancelled; }
-
-                        var topics = Program.userManagedData.GetItems<MailTopic>();
-                        if (topics.Count == 0)
+                        int max = 365;
+                        Console.Write($"Current lookback window (days): {Program.config.MailSettings.LookbackWindow}\n");
+                        Console.Write($"Enter new lookback window (1-{max}): ");
+                        var input = Console.ReadLine();
+                        if (int.TryParse(input, out int newWindow) && newWindow >= 1 && newWindow <= max)
                         {
-                            Console.WriteLine("No topics configured. Add some with Data→add (type: MailTopic) or create a small helper command if you like.");
+                            Program.config.MailSettings.LookbackWindow = newWindow;
+                            Config.Save(Program.config, Program.ConfigFilePath);
+                            Console.WriteLine($"Lookback window updated to {newWindow} days.");
+                            return Task.FromResult(Command.Result.Success);
                         }
-
-                        var favChoices = favs.Select(f => f.DisplayName).ToList();
-                        var favPick = User.RenderMenu("Select a favorite folder\n" + new string('─', Math.Max(60, Console.WindowWidth-1)), favChoices);
-                        if (string.IsNullOrWhiteSpace(favPick)) return Command.Result.Cancelled;
-
-                        int topN = 25;
-                        Console.Write($"Last N items (default {topN}): ");
-                        var nText = Console.ReadLine();
-                        if (!string.IsNullOrWhiteSpace(nText) && int.TryParse(nText, out var n) && n > 0) topN = n;
-
-                        var folder = await provider.GetFolderByIdOrNameAsync(favPick);
-                        if (folder is null) { Console.WriteLine("Folder not found."); return Command.Result.Failed; }
-
-                        var msgs = await provider.ListMessagesSinceAsync(folder, TimeSpan.FromDays(7), topN);
-                        msgs = msgs.OrderByDescending(m => m.ReceivedDateTime).Take(topN).ToList();
-
-                        // Build a blob and ask LLM to bucket by topics; then present summaries.
-                        var topicBlock = string.Join("\n\n", topics.Select(t => $"- {t.Name}: {t.Description}\n  keywords: {t.Keywords}"));
-                        var docs = string.Join("\n---\n", msgs.Select(m =>
-                            $"From: {m.From?.EmailAddress}\nDate: {m.ReceivedDateTime.LocalDateTime:yyyy-MM-dd HH:mm}\nSubject: {m.Subject}\nPreview: {m.BodyPreview}"));
-
-                        var prompt =
-@"You are a mail analyst. Given topics (name/description/keywords) and a set of recent emails (header + first-line preview),
-1) Assign each email to at most one topic; if none fits, label it 'Other'.
-2) For each topic, produce a concise summary (1-2 short paragraphs) and 3-6 bullets with concrete action items or follow-ups.
-3) After topics, create an 'Other' section for remaining emails (same format).
-Be crisp and avoid duplication.";
-                        var ctx = new Context(prompt);
-                        ctx.AddUserMessage("Topics:\n" + topicBlock + "\n\nEmails:\n" + docs);
-
-                        try
-                        {
-                            var summary = await Engine.Provider!.PostChatAsync(ctx, 0.2f);
-                            Console.WriteLine("\n—— Summary ——");
-                            Console.WriteLine(summary);
-                            Console.WriteLine("—— End ——");
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Summarization failed: {ex.Message}");
-                        }
-
-                        return Command.Result.Success;
+                        Console.WriteLine("Cancelled or invalid input.");
+                        return Task.FromResult(Command.Result.Cancelled);
                     }
                 },
-
                 // -------------------------
-                // 4) Spam filter trainer
-                // -------------------------
-                new Command {
-                    Name = "spam filter",
-                    Description = () => "Run SPAM rules on last N items in a favorite folder; confirm/move and adapt rules",
-                    Action = async () =>
+                // 6) Lookback count
+                // -------------------------                
+                new Command
+                {
+                    Name="lookback count",
+                    Description = () => $"Set the lookback count for fetching emails [currently: {Program.config.MailSettings.LookbackCount}]",
+                    Action = () =>
                     {
-                        var provider = Program.SubsystemManager.Get<MapiMailClient>() as IMailProvider;
-                        if (provider is null) { Console.WriteLine("Mail provider unavailable."); return Command.Result.Failed; }
-
-                        var favs = Program.userManagedData.GetItems<FavoriteMailFolder>();
-                        if (favs.Count == 0) { Console.WriteLine("No favorites yet. Use 'Mail favorites' first."); return Command.Result.Cancelled; }
-
-                        var favChoices = favs.Select(f => f.DisplayName).ToList();
-                        var favPick = User.RenderMenu("Select a favorite folder\n" + new string('─', Math.Max(60, Console.WindowWidth-1)), favChoices);
-                        if (string.IsNullOrWhiteSpace(favPick)) return Command.Result.Cancelled;
-
-                        Console.Write("Last N items (default 80): ");
-                        var nText = Console.ReadLine();
-                        int topN = 80;
-                        if (!string.IsNullOrWhiteSpace(nText) && int.TryParse(nText, out var n) && n > 0) topN = n;
-
-                        var folder = await provider.GetFolderByIdOrNameAsync(favPick);
-                        if (folder is null) { Console.WriteLine("Folder not found."); return Command.Result.Failed; }
-
-                        var msgs = await provider.ListMessagesSinceAsync(folder, TimeSpan.FromDays(3650), topN);
-                        msgs = msgs.OrderByDescending(m => m.ReceivedDateTime).Take(topN).ToList();
-
-                        var rules = Program.userManagedData.GetItems<SpamRule>();
-
-                        foreach (var m in msgs)
+                        Console.Write($"Current lookback count: {Program.config.MailSettings.LookbackCount}\n");
+                        int max = 250;
+                        Console.Write($"Enter new lookback count (1-{max}): ");
+                        var input = Console.ReadLine();
+                        if (int.TryParse(input, out int newCount) && newCount >= 1 && newCount <= max)
                         {
-                            // Ask LLM to evaluate stochastic spam rules (and propose new rule if none match strongly)
-                            var evalPrompt =
-$@"You are a mail spam evaluator. You have a set of existing rules and one email.
-Return a JSON object {{ ""isSpam"": bool, ""confidence"": 0..1, ""matchingRuleId"": ""guid or null"", ""proposedRule"": ""optional text"" }}.
-Consider sender patterns, greeting errors (e.g. wrong name), solicitation cues, and common spam telltales.
-
-Existing rules:
-{string.Join("\n", rules.Select(r => $"- [{r.Id}] w={r.Weight:0.0}: {r.RuleText}"))}
-
-Email:
-From: {m.From?.EmailAddress}
-Subject: {m.Subject}
-Preview: {m.BodyPreview}";
-                            var ctx = new Context(evalPrompt);
-                            string json = "{}";
-                            try { json = await Engine.Provider!.PostChatAsync(ctx, 0.0f); } catch {}
-
-                            // naive extraction
-                            bool isSpam = json.IndexOf("\"isSpam\": true", StringComparison.OrdinalIgnoreCase) >= 0;
-                            string snippet = Utilities.TruncatePlain($"{m.From?.EmailAddress} | {m.Subject} | {m.BodyPreview}", Math.Max(20, Console.WindowWidth - 4));
-
-                            Console.WriteLine();
-                            Console.WriteLine($"? SPAM?  {snippet}");
-                            Console.Write("[y/N/cancel]> ");
-                            var resp = (Console.ReadLine() ?? "").Trim().ToLowerInvariant();
-
-                            if (resp == "cancel" || resp == "c") return Command.Result.Cancelled;
-
-                            if (resp == "y" || (resp == "" && isSpam))
-                            {
-                                // move to Deleted Items
-                                var deleted = await provider.GetFolderByIdOrNameAsync("Deleted Items") ?? await provider.GetFolderByIdOrNameAsync("Trash");
-                                if (deleted != null) await provider.MoveAsync(m, deleted);
-                                else await provider.DeleteAsync(m);
-
-                                // update rule stats (very rough heuristic)
-                                var firstRule = rules.FirstOrDefault();
-                                if (firstRule != null)
-                                {
-                                    firstRule.TruePositives += 1;
-                                    Program.userManagedData.UpdateItem(firstRule, x => x.Id == firstRule.Id);
-                                }
-                            }
-                            else
-                            {
-                                // not spam: update FP for first rule (rough; in practice parse matchingRuleId from json)
-                                var firstRule = rules.FirstOrDefault();
-                                if (firstRule != null)
-                                {
-                                    firstRule.FalsePositives += 1;
-                                    Program.userManagedData.UpdateItem(firstRule, x => x.Id == firstRule.Id);
-                                }
-                            }
+                            Program.config.MailSettings.LookbackCount = newCount;
+                            Config.Save(Program.config, Program.ConfigFilePath);
+                            Console.WriteLine($"Lookback count updated to {newCount}.");
+                            return Task.FromResult(Command.Result.Success);
                         }
-
-                        Console.WriteLine("\nDone.");
-                        return Command.Result.Success;
-                    }
-                },
-
-                // -------------------------
-                // (Existing) list folders
-                // -------------------------
-                new Command {
-                    Name = "list folders",
-                    Description = () => "List folders (top-two levels)",
-                    Action = async () =>
-                    {
-                        var provider = Program.SubsystemManager.Get<MapiMailClient>() as IMailProvider;
-                        var folders = await provider!.ListFoldersAsync(null, 200);
-                        foreach (var f in folders)
-                        {
-                            Console.WriteLine($"- {f.DisplayName} ({f.TotalItemCount}/{f.UnreadItemCount} unread)");
-                            var subfolders = await provider.ListFoldersAsync(f.DisplayName, 50);
-                            foreach (var sf in subfolders)
-                            {
-                                Console.WriteLine($"  - {sf.DisplayName} ({sf.TotalItemCount}/{sf.UnreadItemCount} unread)");
-                            }
-                        }
-                        return Command.Result.Success;
+                        Console.WriteLine("Cancelled or invalid input.");
+                        return Task.FromResult(Command.Result.Cancelled);
                     }
                 }
             }
         };
     }
-
+    
     // ===== Helpers =====
-
     private static async Task ReadEmailLoop(IMailProvider provider, IMailMessage msg)
     {
-        string RenderBody(IMailMessage m)
+        // Build a compact, fixed header
+        void BuildHeader(IMailMessage m)
         {
-            var sb = new StringBuilder();
-            sb.AppendLine($"From: {m.From?.EmailAddress}");
-            sb.AppendLine($"To:   {string.Join("; ", m.ToRecipients?.Select(r => r.EmailAddress) ?? Enumerable.Empty<string>())}");
-            if (m.CcRecipients?.Count > 0) sb.AppendLine($"Cc:   {string.Join("; ", m.CcRecipients.Select(r => r.EmailAddress))}");
-            sb.AppendLine($"Date: {m.ReceivedDateTime.LocalDateTime:yyyy-MM-dd HH:mm}");
-            sb.AppendLine($"Subj: {m.Subject}");
-            sb.AppendLine(new string('─', Math.Max(60, Console.WindowWidth-1)));
-            // We only have BodyPreview here; if/when full body is available, substitute in.
-            sb.AppendLine(m.BodyPreview ?? string.Empty);
-            return sb.ToString();
+            if (null == m) throw new ArgumentNullException(nameof(m));
+            var to = string.Join("; ", m.ToRecipients?.Select(r => r.EmailAddress) ?? Enumerable.Empty<string>());
+            var dt = m?.ReceivedDateTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "????-??-?? ??:??";
+            var colColor = ConsoleColor.Green;
+            var valColor = ConsoleColor.White;
+            Console.ForegroundColor = colColor;
+            Console.Write("From:  ");
+            Console.ForegroundColor = valColor;
+            // Width is set to half the width of the console, truncated with ellipsis if too long, and minus 7 for padding
+            var fromValue = String.Format("{0,-" + (Console.WindowWidth / 2 - 7) + "}", m?.From?.EmailAddress ?? "(unknown)");
+            Console.Write(fromValue);
+            Console.ForegroundColor = colColor;
+            Console.Write("Date:  ");
+            Console.ForegroundColor = valColor;
+            Console.WriteLine(dt);
+            Console.ForegroundColor = colColor;
+            Console.Write("To:    ");
+            Console.ForegroundColor = valColor;
+            Console.WriteLine(to);
+
+            if (m?.CcRecipients.Count > 0)
+            {
+                Console.ForegroundColor = colColor;
+                Console.Write("Cc:    ");
+                Console.ForegroundColor = valColor;
+                Console.WriteLine(string.Join("; ", m?.CcRecipients?.Select(r => r.EmailAddress) ?? Enumerable.Empty<string>()));
+            }
+
+            Console.ForegroundColor = colColor;
+            Console.Write("Subj:  ");
+            Console.ForegroundColor = valColor;
+            Console.WriteLine(m?.Subject ?? "(unknown)");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($@"{new string('─', Math.Max(60, Console.WindowWidth - 1))}");
+            Console.ForegroundColor = ConsoleColor.Gray;
         }
 
+        // Body (for now we use BodyPreview; swap in the full body when available)
+        var bodyText = msg.BodyPreview ?? string.Empty;
+        var bodyLines = bodyText.Split('\n');
+
+        // Viewport scroll state applies ONLY to the body
         int topLine = 0;
-        var lines = (RenderBody(msg)).Split('\n');
+
         while (true)
         {
             Console.Clear();
-            int height = Math.Max(5, Console.WindowHeight - 3);
-            for (int i = 0; i < height && topLine + i < lines.Length; i++)
+
+            // 1) Render fixed header (not part of the scrollable region)
+            BuildHeader(msg);
+
+            // 2) Render scrollable body region below the header
+            int headerLines = Console.CursorTop; // how many rows the header consumed
+            int viewport = Math.Max(5, Console.WindowHeight - headerLines) - 3; // leave room for footer line + hint
+            for (int i = 0; i < viewport && topLine + i < bodyLines.Length; i++)
             {
-                var ln = lines[topLine + i];
+                var ln = bodyLines[topLine + i];
                 if (ln.Length > Console.WindowWidth - 1) ln = ln.Substring(0, Console.WindowWidth - 2) + "…";
                 Console.WriteLine(ln);
             }
-            Console.WriteLine(new string('─', Math.Max(20, Console.WindowWidth-1)));
+
+            // Footer / controls hint
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine(new string('─', Math.Max(20, Console.WindowWidth - 1)));
+            Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine("[↑/↓/PgUp/PgDn/Home/End to scroll]  [ESC: menu]");
+            Console.ForegroundColor = ConsoleColor.Gray;
 
             var key = Console.ReadKey(true);
             if (key.Key == ConsoleKey.Escape)
             {
-                var choices = new List<string> { "done", "reply", "reply-all", "delete", "mark as spam", "move" };
-                var pick = User.RenderMenu("Email actions (ESC to cancel)\n" + new string('─', Math.Max(60, Console.WindowWidth-1)), choices);
+                var choices = new List<string> { "reply", "reply-all", "delete", "move" };
+                var pick = User.RenderMenu("Email actions (ESC to cancel)\n" + new string('─', Math.Max(60, Console.WindowWidth - 1)), choices);
                 if (string.IsNullOrWhiteSpace(pick))
-                {
-                    continue;
-                }
-                else if (pick.StartsWith("done", StringComparison.OrdinalIgnoreCase))
                 {
                     return;
                 }
@@ -378,17 +508,15 @@ Preview: {m.BodyPreview}";
                     Console.Write("Prompt to draft the reply: ");
                     var prompt = User.ReadLineWithHistory() ?? "";
                     var ctx = new Context(@"Draft a professional, concise email reply. Keep it short, specific, and kind. Output plain text only.");
-                    var blob = $"ORIGINAL EMAIL\nFrom: {msg.From?.EmailAddress}\nSubj: {msg.Subject}\nPreview: {msg.BodyPreview}";
-                    ctx.AddUserMessage($"User prompt: {prompt}\n\n{blob}");
-                    try
-                    {
-                        var draftBody = await Engine.Provider!.PostChatAsync(ctx, 0.2f);
-                        IMailMessage draft = pick.StartsWith("reply-all", StringComparison.OrdinalIgnoreCase)
-                            ? await provider.DraftReplyAllAsync(msg, draftBody)
-                            : await provider.DraftReplyAsync(msg, draftBody);
-                        Console.WriteLine("Draft saved to Drafts.");
-                    }
-                    catch (Exception ex) { Console.WriteLine($"Drafting failed: {ex.Message}"); }
+                    ctx.AddUserMessage($"Original message subject: {msg.Subject}\n\nUser prompt for the reply:\n{prompt}");
+                    var replyBody = await Engine.Provider!.PostChatAsync(ctx, 0.2f);
+
+                    // Draft (reply vs reply-all)
+                    var draft = pick.StartsWith("reply-all", StringComparison.OrdinalIgnoreCase)
+                        ? await provider.DraftReplyAllAsync(msg, replyBody)
+                        : await provider.DraftReplyAsync(msg, replyBody);
+
+                    Console.WriteLine($"Draft saved. Subject: {draft.Subject}");
                 }
                 else if (pick.StartsWith("delete", StringComparison.OrdinalIgnoreCase))
                 {
@@ -409,32 +537,15 @@ Preview: {m.BodyPreview}";
                             catch (Exception ex) { Console.WriteLine($"Move failed: {ex.Message}"); }
                         }
                     }
-                }
-                else if (pick.StartsWith("mark as spam", StringComparison.OrdinalIgnoreCase))
-                {
-                    // Create/update a SpamRule using LLM proposal
-                    var seed = $"From: {msg.From?.EmailAddress}\nSubject: {msg.Subject}\nPreview: {msg.BodyPreview}";
-                    var ctx = new Context(
-@"Given this email, propose a short rule text that would likely match similar spam in the future.
-Focus on features like sender domain patterns, wrong salutation, solicitation language, etc.
-Return only the rule text, one or two sentences.");
-                    ctx.AddUserMessage(seed);
-                    try
-                    {
-                        var ruleText = await Engine.Provider!.PostChatAsync(ctx, 0.0f);
-                        var rule = new SpamRule { RuleText = ruleText?.Trim() ?? "(heuristic)", Weight = 1.0f };
-                        Program.userManagedData.AddItem(rule);
-                        Console.WriteLine("A spam rule was added to UserManagedData.");
-                    }
-                    catch (Exception ex) { Console.WriteLine($"Could not create spam rule: {ex.Message}"); }
+                    return;
                 }
             }
-            else if (key.Key == ConsoleKey.UpArrow)       { topLine = Math.Max(0, topLine - 1); }
-            else if (key.Key == ConsoleKey.DownArrow)     { topLine = Math.Min(Math.Max(0, lines.Length - 1), topLine + 1); }
-            else if (key.Key == ConsoleKey.PageUp)        { topLine = Math.Max(0, topLine - Math.Max(5, Console.WindowHeight - 4)); }
-            else if (key.Key == ConsoleKey.PageDown)      { topLine = Math.Min(Math.Max(0, lines.Length - 1), topLine + Math.Max(5, Console.WindowHeight - 4)); }
-            else if (key.Key == ConsoleKey.Home)          { topLine = 0; }
-            else if (key.Key == ConsoleKey.End)           { topLine = Math.Max(0, lines.Length - 1); }
+            else if (key.Key == ConsoleKey.UpArrow) { if (topLine > 0) topLine--; }
+            else if (key.Key == ConsoleKey.DownArrow) { if (topLine < Math.Max(0, bodyLines.Length - 1)) topLine++; }
+            else if (key.Key == ConsoleKey.PageUp) { topLine = Math.Max(0, topLine - viewport); }
+            else if (key.Key == ConsoleKey.PageDown) { topLine = Math.Min(Math.Max(0, bodyLines.Length - viewport), topLine + viewport); }
+            else if (key.Key == ConsoleKey.Home) { topLine = 0; }
+            else if (key.Key == ConsoleKey.End) { topLine = Math.Max(0, bodyLines.Length - viewport); }
         }
     }
 }

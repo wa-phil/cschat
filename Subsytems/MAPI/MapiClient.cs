@@ -555,8 +555,18 @@ public sealed class MapiMailClient : ISubsystem, IMailProvider
         {
             get
             {
-                var f = (string)(_item.SenderEmailAddress ?? _item.Sender?.Address ?? string.Empty);
-                return new MailRecipient(f);
+                // Prefer a human-friendly display name when the sender is an EX/legacy DN.
+                string email = (string)(_item?.SenderEmailAddress ?? _item?.Sender?.Address ?? string.Empty);
+                string name  = (string)(_item?.SenderName        ?? _item?.Sender?.Name    ?? string.Empty);
+                string type  = (string)(_item?.Sender?.Type      ?? string.Empty);
+
+                bool looksLegacy =
+                    (!string.IsNullOrWhiteSpace(type)  && type.Equals("EX", StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrWhiteSpace(email) && (email.StartsWith("/O=", StringComparison.OrdinalIgnoreCase)
+                                                        || email.IndexOf("EXCHANGE ADMINISTRATIVE GROUP", StringComparison.OrdinalIgnoreCase) >= 0));
+
+                var display = looksLegacy && !string.IsNullOrWhiteSpace(name) ? name : (string.IsNullOrWhiteSpace(email) ? name : email);
+                return new MailRecipient(display);
             }
         }
 

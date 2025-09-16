@@ -33,22 +33,3 @@ public class MailTopic
 
     public override string ToString() => $"{Name} — {Description}";
 }
-
-[UserManagedAttribute("Spam Rule", "Stochastic LLM-evaluated spam rules")]
-public class SpamRule
-{
-    [UserKey]
-    [UserField(required: true)] public Guid Id { get; set; } = Guid.NewGuid();
-
-    // Human-authored or LLM-authored rule description/patterns/heuristics
-    [UserField(required: true)] public string RuleText { get; set; } = string.Empty;
-
-    // Optional weight / confidence (for ranking rules if multiple fire)
-    [UserField] public float Weight { get; set; } = 1.0f;
-
-    // Simple telemetry to adapt rules
-    [UserField] public int TruePositives { get; set; } = 0;
-    [UserField] public int FalsePositives { get; set; } = 0;
-
-    public override string ToString() => $"{RuleText} (w={Weight:0.00}, TP={TruePositives}, FP={FalsePositives})";
-}
