@@ -213,7 +213,17 @@ public partial class CommandManager : Command
             new Command
             {
                 Name = "exit", Description = () => "Quit the application",
-                Action = () => { Environment.Exit(0); return Task.FromResult(Command.Result.Success); }
+                Action = () =>
+                {
+                    var activeName = Program.config.ChatThreadSettings.ActiveThreadName;
+                    var active = Program.userManagedData.GetItems<ChatThread>().FirstOrDefault(t => t.Name.Equals(activeName, StringComparison.OrdinalIgnoreCase));
+                    if (active != null)
+                    {
+                        ChatManager.SaveActiveThread(active);
+                    }
+                    Environment.Exit(0);
+                    return Task.FromResult(Command.Result.Success);
+                }
             }
         });
 

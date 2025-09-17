@@ -43,13 +43,15 @@ public class DependsOnAttribute : Attribute
 public sealed class UserFieldAttribute : Attribute
 {
     public bool Required { get; }
+    public bool Hidden { get; }
     public string? Display { get; }
     public string? Hint { get; }
 
-    public UserFieldAttribute(bool required = false, string? display = null, string? hint = null)
+    public UserFieldAttribute(bool required = false, string? display = null, bool hidden = false, string? hint = null)
     {
         Required = required;
         Display = display;
+        Hidden = hidden;
         Hint = hint;
     }
 }

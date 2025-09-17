@@ -105,6 +105,80 @@ public partial class CommandManager
                     },
                     new Command
                     {
+                        Name = "current working directory", Description = () => $"Show the current working directory [currently: {Environment.CurrentDirectory}]",
+                        Action = async () =>
+                        {
+                            Console.WriteLine($"Current working directory: {Environment.CurrentDirectory}");
+                            Console.Write("Enter new working directory (or leave blank to keep current): ");
+                            var input = await User.ReadPathWithAutocompleteAsync(true);
+                            if (!string.IsNullOrWhiteSpace(input) && Directory.Exists(input))
+                            {
+                                try
+                                {
+                                    Program.config.DefaultDirectory = input;
+                                    Environment.CurrentDirectory = Program.config.DefaultDirectory;
+                                    Config.Save(Program.config, Program.ConfigFilePath);
+                                    Console.WriteLine($"Working directory changed to: {Environment.CurrentDirectory}");
+                                    return Command.Result.Success;
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"Failed to change directory: {ex.Message}");
+                                    return Command.Result.Failed;
+                                }
+                            }
+                            return Command.Result.Cancelled;
+                        }
+                    },
+                    new Command
+                    {
+                        Name = "Chat thread settings", Description = () => "Configure chat thread settings",
+                        SubCommands = new List<Command>
+                        {
+                            new Command
+                            {
+                                Name = "show", Description = () => "Show current chat thread settings",
+                                Action = () =>
+                                {
+                                    Console.WriteLine("Current Chat Thread Settings:");
+                                    Console.WriteLine(Program.config.ChatThreadSettings.ToJson());
+                                    return Task.FromResult(Command.Result.Success);
+                                }
+                            },
+                            new Command
+                            {
+                                Name = "set root directory", Description = () => $"Set the root directory for chat threads [currently: {Program.config.ChatThreadSettings.RootDirectory}]",
+                                Action = async () =>
+                                {
+                                    Console.Write("Enter new root directory for chat threads (note '.threads' always appended): ");
+                                    var input = await User.ReadPathWithAutocompleteAsync(false);
+                                    if (!string.IsNullOrWhiteSpace(input))
+                                    {
+                                        input = Path.Combine(input, ".threads");
+                                        try
+                                        {
+                                            if (!Directory.Exists(input))
+                                            {
+                                                Directory.CreateDirectory(input);
+                                            }
+                                            Program.config.ChatThreadSettings.RootDirectory = input;
+                                            Config.Save(Program.config, Program.ConfigFilePath);
+                                            Console.WriteLine($"Chat thread root directory set to: {input}");
+                                            return Command.Result.Success;
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Console.WriteLine($"Failed to set root directory: {ex.Message}");
+                                            return Command.Result.Failed;
+                                        }
+                                    }
+                                    return Command.Result.Cancelled;
+                                }
+                            }
+                        }
+                    },
+                    new Command
+                    {
                         Name = "max menu items", Description = () => $"Configure maximum number of menu items displayed at once [currently: {Program.config.MaxMenuItems}]",
                         Action = () =>
                         {
@@ -123,7 +197,26 @@ public partial class CommandManager
                             }
                             return Task.FromResult(Command.Result.Success);
                         }
-                    }
+                    },
+                    new Command
+                    {
+                        Name = "set max steps", Description = () => $"Set maximum steps for planning [currently: {Program.config.MaxSteps}]",
+                        Action = () =>
+                        {
+                            Console.Write("Enter maximum steps (default 25): ");
+                            var input = Console.ReadLine();
+                            if (int.TryParse(input, out int maxSteps))
+                            {
+                                Program.config.MaxSteps = maxSteps;
+                                Console.WriteLine($"Maximum steps set to {maxSteps}.");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Invalid input. Maximum steps remain at {Program.config.MaxSteps}.");
+                            }
+                            return Task.FromResult(Command.Result.Success);
+                        }
+                    }                    
                 }
             }
         };

@@ -80,6 +80,7 @@ static class Program
         SubsystemManager.Register(DictionaryOfTypesToNamesForInterface<ISubsystem>(serviceCollection, types));
         userManagedData = new UserManagedData();
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
+        Environment.CurrentDirectory = Program.config.DefaultDirectory;
     }
 
     public static async Task InitProgramAsync()
@@ -99,6 +100,28 @@ static class Program
         // before subsystems query or load items from it.
         userManagedData.Connect();
         SubsystemManager.Connect();
+
+        // initialize chat manager to monitor thread deletions, load last active thread or create a new one
+        Directory.CreateDirectory(Program.config.ChatThreadSettings.RootDirectory);
+        ChatManager.Initialize(userManagedData);
+        var activeName = config.ChatThreadSettings.ActiveThreadName;
+        var threads = userManagedData.GetItems<ChatThread>().ToList();
+        ChatThread? active = null;
+
+        if (!string.IsNullOrWhiteSpace(activeName))
+        {
+            active = threads.FirstOrDefault(t => t.Name.Equals(activeName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (active == null)
+        {
+            active = new ChatThread { Name = Program.config.ChatThreadSettings.DefaultNewThreadName };
+            userManagedData.AddItem(active);
+        }
+
+        ChatManager.LoadThread(active);
+        Program.config.ChatThreadSettings.ActiveThreadName = active.Name;
+        Config.Save(Program.config, Program.ConfigFilePath);
 
         // Add all the tools to the context
         var toolNames = $"You can use the following tools to help the user:\n{ToolRegistry.GetRegisteredTools()

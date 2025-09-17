@@ -48,5 +48,21 @@ public interface IMailProvider
     Task MoveAsync(IMailMessage message, IMailFolder folder, CancellationToken ct = default);
     Task DeleteAsync(IMailMessage message, CancellationToken ct = default);
 }
+#endregion
 
+#region mail subsystem related helper types
+[ExampleText("""
+Return STRICT JSON in this shape:
+
+{ "Topic": "<topic_name>" }
+
+WHERE:
+<topic_name> is the name of the most relevant topic from the provided list, or "Other" if none are relevant.
+
+ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.
+""")]
+public class MailAssignment
+{
+    public string? Topic { get; set; }
+}
 #endregion
