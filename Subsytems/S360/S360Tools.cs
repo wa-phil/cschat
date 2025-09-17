@@ -26,7 +26,7 @@ public sealed class S360FetchTool : ITool
         var s360 = Program.SubsystemManager.Get<S360Client>();
         var table = await s360.FetchAsync(profile);  // <-- built-in Kusto
 
-        var rendered = table.ToText(Console.WindowWidth);
+        var rendered = table.ToText(Program.ui.Width);
         ctx.AddToolMessage(rendered);
         await ContextManager.AddContent(rendered, $"s360/{profile.Name}/results");
 
@@ -195,7 +195,7 @@ public sealed class S360SliceTool : ITool
         }).ToList();
 
     var outTable = new Table(headers, outRows);
-    ctx.AddToolMessage(outTable.ToText(Console.WindowWidth));
+    ctx.AddToolMessage(outTable.ToText(Program.ui.Width));
 
         if (!string.IsNullOrWhiteSpace(p.Export))
         {
@@ -203,11 +203,11 @@ public sealed class S360SliceTool : ITool
             var content = ext switch {
                 ".csv"  => outTable.ToCsv(),
                 ".json" => outTable.ToJson(),
-                _       => outTable.ToText(Console.WindowWidth)
+                _       => outTable.ToText(Program.ui.Width)
             };
             File.WriteAllText(p.Export!, content);
             ctx.AddToolMessage($"Saved: {p.Export}");
         }
-    return ToolResult.Success(outTable.ToText(Console.WindowWidth), ctx);
+    return ToolResult.Success(outTable.ToText(Program.ui.Width), ctx);
     }
 }

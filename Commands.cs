@@ -37,7 +37,7 @@ public class Command
         {
             // render the menu of subcommands, the text passed in should be a concatenation of the subcommand names with their descriptions,
             // formatted such that the descriptions are aligned with the command names
-            var selected = User.RenderMenu($"{GetFullPath()} commands", SubCommands.Select(c => $"{c.Name} - {c.Description()}").ToList());
+            var selected = Program.ui.RenderMenu($"{GetFullPath()} commands", SubCommands.Select(c => $"{c.Name} - {c.Description()}").ToList());
             if (string.IsNullOrEmpty(selected))
             {
                 return Result.Cancelled;
@@ -48,7 +48,7 @@ public class Command
             var command = SubCommands.FirstOrDefault(c => c.Name.Equals(selected, StringComparison.OrdinalIgnoreCase));
             if (command == null)
             {
-                Console.WriteLine($"Command '{selected}' not found.");
+                Program.ui.WriteLine($"Command '{selected}' not found.");
                 return Result.Failed;
             }
             // Execute the command's action
@@ -147,9 +147,9 @@ public partial class CommandManager : Command
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error parsing tool input: {ex.Message}");
-            Console.WriteLine($"Expected type: {tool.InputType.Name}");
-            Console.WriteLine($"Tool usage: {tool.Usage}");
+            Program.ui.WriteLine($"Error parsing tool input: {ex.Message}");
+            Program.ui.WriteLine($"Expected type: {tool.InputType.Name}");
+            Program.ui.WriteLine($"Tool usage: {tool.Usage}");
             
             // Return a default instance if parsing fails
             return Activator.CreateInstance(tool.InputType) ?? new NoInput();
@@ -174,8 +174,8 @@ public partial class CommandManager : Command
                 Name = "restart", Description = () => "Reset chat history, RAG state, logs, and clear the console",
                 Action = async () =>
                 {
-                    Console.ResetColor();
-                    Console.Clear();
+                    Program.ui.ResetColor();
+                    Program.ui.Clear();
                     Program.Context.Clear();
                     Program.Context.AddSystemMessage(Program.config.SystemPrompt);
                     Engine.VectorStore.Clear();
@@ -183,9 +183,9 @@ public partial class CommandManager : Command
                     GraphStoreManager.Graph.Clear();
                     Log.ClearOutput();
                     await Program.InitProgramAsync();
-                    Console.WriteLine("Chat history, RAG state, and logs have been reset.");
-                    Console.WriteLine("Current Configuration:");
-                    Console.WriteLine(Program.config.ToJson());
+                    Program.ui.WriteLine("Chat history, RAG state, and logs have been reset.");
+                    Program.ui.WriteLine("Current Configuration:");
+                    Program.ui.WriteLine(Program.config.ToJson());
                     return Command.Result.Success;
                 }
             },
@@ -195,18 +195,18 @@ public partial class CommandManager : Command
                 Description = () => "Explain the program and generate summary of available commands",
                 Action = async () =>
                 {
-                    Console.WriteLine("Menu structure and layout:");
+                    Program.ui.WriteLine("Menu structure and layout:");
                     var menuTree = Engine.BuildCommandTreeArt(Program.commandManager.SubCommands);
                     var summary = await ToolRegistry.InvokeToolAsync("summarize_text", new SummarizeText {
                         Prompt = "Confidently summarize and explain the cschat program's command and layout to a user.",
                         Text = menuTree });
                     if (string.IsNullOrEmpty(summary))
                     {
-                        Console.WriteLine("Failed to generate summary.");
+                        Program.ui.WriteLine("Failed to generate summary.");
                         return Command.Result.Failed;
                     }
-                    Console.WriteLine("Generated helptext:");
-                    Console.WriteLine(summary);
+                    Program.ui.WriteLine("Generated helptext:");
+                    Program.ui.WriteLine(summary);
                     return Command.Result.Success;
                 }
             },
@@ -248,15 +248,15 @@ public partial class CommandManager : Command
                         Description = () => tool.Description,
                         Action = async () =>
                         {
-                            Console.WriteLine($"Using tool: {tool.Name}");
-                            Console.WriteLine($"Description: {tool.Description}");
-                            Console.WriteLine($"Usage: {tool.Usage}");
-                            Console.WriteLine();
+                            Program.ui.WriteLine($"Using tool: {tool.Name}");
+                            Program.ui.WriteLine($"Description: {tool.Description}");
+                            Program.ui.WriteLine($"Usage: {tool.Usage}");
+                            Program.ui.WriteLine();
 
                             var toolInstance = ToolRegistry.GetTool(tool.Name);
                             if (toolInstance == null)
                             {
-                                Console.WriteLine($"Tool '{tool.Name}' not found.");
+                                Program.ui.WriteLine($"Tool '{tool.Name}' not found.");
                                 return Command.Result.Failed;
                             }
 
@@ -266,12 +266,12 @@ public partial class CommandManager : Command
                             var (guidance, isRequired) = GetInputFormatGuidance(toolInstance);
                             if (isRequired)
                             {
-                                Console.WriteLine(guidance);
-                                Console.WriteLine();
-                                Console.Write("Enter input: ");
+                                Program.ui.WriteLine(guidance);
+                                Program.ui.WriteLine();
+                                Program.ui.Write("Enter input: ");
 
                                 // Get user input
-                                input = User.ReadLineWithHistory();
+                                input = Program.ui.ReadLineWithHistory();
                                 try
                                 {
                                     // Parse input based on the tool's expected input type
@@ -279,16 +279,16 @@ public partial class CommandManager : Command
                                 }
                                 catch (Exception ex)
                                 {
-                                    Console.WriteLine($"Error parsing input: {ex.Message}");
+                                    Program.ui.WriteLine($"Error parsing input: {ex.Message}");
                                     return Command.Result.Failed;
                                 }
                             }
 
                             var tempContext = new Context(string.Empty); // Create temporary Context for command execution
                             var result = await ToolRegistry.InvokeToolAsync(tool.Name, toolInput, tempContext) ?? string.Empty;
-                            Console.WriteLine($"Tool result: {result}");
-                            Console.WriteLine("Tool Context:");
-                            User.RenderChatHistory(tempContext.Messages());
+                            Program.ui.WriteLine($"Tool result: {result}");
+                            Program.ui.WriteLine("Tool Context:");
+                            Program.ui.RenderChatHistory(tempContext.Messages());
                             return Command.Result.Success;
                         }
                     }).ToList();

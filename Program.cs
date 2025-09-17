@@ -21,6 +21,7 @@ static class Program
     public static ServiceProvider serviceProvider = null!;
     public static SubsystemManager SubsystemManager = null!;
     public static UserManagedData userManagedData = null!;
+    public static IUi ui = new Terminal();
 
     static Dictionary<string, Type> DictionaryOfTypesToNamesForInterface<T>(ServiceCollection serviceCollection, IEnumerable<Type> types)
         where T : class
@@ -134,7 +135,7 @@ static class Program
         }
         else
         {
-            Console.WriteLine("No tools registered. Please check your configuration.");
+            Program.ui.WriteLine("No tools registered. Please check your configuration.");
         }
 
         foreach (var tool in ToolRegistry.GetRegisteredTools())
@@ -146,7 +147,7 @@ static class Program
 
     static async Task Main(string[] args)
     {
-        Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
+        Program.ui.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
         Startup();
 
         bool showHelp = false;
@@ -178,38 +179,38 @@ static class Program
 
             Config.Save(config, ConfigFilePath);
 
-            Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-            Console.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
-            Console.WriteLine();
+            Program.ui.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
+            Program.ui.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
+            Program.ui.WriteLine();
 
             while (true)
             {
-                Console.Write("> ");
-                var userInput = await User.ReadInputWithFeaturesAsync(commandManager);
+                Program.ui.Write("> ");
+                var userInput = await ui.ReadInputWithFeaturesAsync(commandManager);
                 if (string.IsNullOrWhiteSpace(userInput)) continue;
 
                 // Add and render user message with proper formatting
                 Context.AddUserMessage(userInput);
                 var userMessage = Context.Messages().Last(); // Get the message we just added
-                User.RenderChatMessage(userMessage);
+                ui.RenderChatMessage(userMessage);
 
                 var (response, updatedContext) = await Engine.PostChatAsync(Context);
                 var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
-                User.RenderChatMessage(assistantMessage);
+                ui.RenderChatMessage(assistantMessage);
                 Context = updatedContext;
                 Context.AddAssistantMessage(response);
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Exception: {ex.Message}");
-            Console.WriteLine("Log Entries:");
+            ui.WriteLine($"Exception: {ex.Message}");
+            ui.WriteLine("Log Entries:");
             var entries = Log.GetOutput().ToList();
-            Console.WriteLine($"Log Entries [{entries.Count}]:");
-            entries.ToList().ForEach(entry => Console.WriteLine(entry));
-            Console.WriteLine("Chat History:");
-            User.RenderChatHistory(Context.Messages());
-            throw; // unhandled exceptions result in a stack trace in the console.
+            ui.WriteLine($"Log Entries [{entries.Count}]:");
+            entries.ToList().ForEach(entry => ui.WriteLine(entry));
+            ui.WriteLine("Chat History:");
+            ui.RenderChatHistory(Context.Messages());
+            throw; // unhandled exceptions result in a stack trace in the Program.ui.
         }
         finally
         {

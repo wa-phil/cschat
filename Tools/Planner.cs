@@ -189,9 +189,9 @@ You do not need to summarize the user's question, or comment on it, or explain y
 
         var input = context.Messages().LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         int stepsTaken = 0, maxAllowedSteps = Program.config.MaxSteps;
-        Console.ForegroundColor = ConsoleColor.DarkYellow;
-        Console.WriteLine($"working on: {objective.Goal}");
-        Console.ResetColor();
+        Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
+        Program.ui.WriteLine($"working on: {objective.Goal}");
+        Program.ui.ResetColor();
 
         ctx.Append(Log.Data.Message, "Taking steps to achieve the goal.");
         // Conversation implies action on the part of the planner.
@@ -214,9 +214,9 @@ You do not need to summarize the user's question, or comment on it, or explain y
             var key = $"{step.ToolName}:{step.ToolInput.ToJson() ?? ""}";
             if (actionsTaken.Contains(key))
             {
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine($"Skipping duplicate step: {step.ToolName ?? "<unknown>"} with already attempted input.");
-                Console.ResetColor();
+                Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+                Program.ui.WriteLine($"Skipping duplicate step: {step.ToolName ?? "<unknown>"} with already attempted input.");
+                Program.ui.ResetColor();
 
                 if (0 == --duplicatesAllowed)
                 {
@@ -233,9 +233,9 @@ You do not need to summarize the user's question, or comment on it, or explain y
             actionsTaken.Add(key);
 
             ctx.Append(Log.Data.Count, stepsTaken);
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.Write($"Step {stepsTaken}: {step.ToolName}...");
-            Console.ResetColor();
+            Program.ui.ForegroundColor = ConsoleColor.Yellow;
+            Program.ui.Write($"Step {stepsTaken}: {step.ToolName}...");
+            Program.ui.ResetColor();
 
             var result = await ToolRegistry.InvokeInternalAsync(step!.ToolName!, step!.ToolInput!, context);
             var status = result.Succeeded ? "✅" : "❌";
@@ -260,9 +260,9 @@ You do not need to summarize the user's question, or comment on it, or explain y
             context.AddToolMessage(stepSummaryForPlanner);
             results.Add(stepSummaryForPlanner);
 
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine($"{status}\n{summary}"); // show what user would see
-            Console.ResetColor();
+            Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+            Program.ui.WriteLine($"{status}\n{summary}"); // show what user would see
+            Program.ui.ResetColor();
 
             // check progress towards the goal
             var progress = await GetPlanProgress(context, objective.Goal, input);
@@ -368,17 +368,17 @@ Use the following context to inform your response to the user's statement.
             if (State.failed == state)
             {
                 onPlanningFailure?.Invoke(reason);
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine(reason);
-                Console.ResetColor();
+                Program.ui.ForegroundColor = ConsoleColor.Red;
+                Program.ui.WriteLine(reason);
+                Program.ui.ResetColor();
                 yield break;
             }
 
             if (State.noFurtherActionRequired == state)
             {
-                Console.ForegroundColor = ConsoleColor.DarkYellow;
-                Console.WriteLine("Done.");
-                Console.ResetColor();
+                Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
+                Program.ui.WriteLine("Done.");
+                Program.ui.ResetColor();
                 yield break;
             }
 

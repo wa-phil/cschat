@@ -20,7 +20,7 @@ public partial class CommandManager
                     Action = () =>
                     {
                         var forked = ChatManager.CreateNewThread();
-                        Console.WriteLine($"Created and switched to '{forked.Name}'.");
+                        Program.ui.WriteLine($"Created and switched to '{forked.Name}'.");
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -31,7 +31,7 @@ public partial class CommandManager
                         var items = Program.userManagedData.GetItems<ChatThread>()
                                 .OrderByDescending(t => t.LastUsedUtc).ToList();
 
-                        var chosen = User.RenderMenu("Switch to thread", items.Select(t => t.Name).ToList());
+                        var chosen = Program.ui.RenderMenu("Switch to thread", items.Select(t => t.Name).ToList());
                         if (string.IsNullOrEmpty(chosen)) return Task.FromResult(Command.Result.Cancelled);
                         var target = items.First(x => x.Name.Equals(chosen, StringComparison.OrdinalIgnoreCase));
 
@@ -48,7 +48,7 @@ public partial class CommandManager
                         Program.config.ChatThreadSettings.ActiveThreadName = target.Name;
                         Config.Save(Program.config, Program.ConfigFilePath);
 
-                        Console.WriteLine($"Switched to '{target.Name}'.");
+                        Program.ui.WriteLine($"Switched to '{target.Name}'.");
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -57,7 +57,7 @@ public partial class CommandManager
                     Name = "show", Description = () => "Show chat history",
                     Action = () =>
                     {
-                        User.RenderChatHistory(Program.Context.Messages());
+                        Program.ui.RenderChatHistory(Program.Context.Messages());
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -68,7 +68,7 @@ public partial class CommandManager
                     {
                         Program.Context.Clear();
                         Program.Context.AddSystemMessage(Program.config.SystemPrompt);
-                        Console.WriteLine("Chat history cleared.");
+                        Program.ui.WriteLine("Chat history cleared.");
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -78,12 +78,12 @@ public partial class CommandManager
                     Description = () => $"Set default name for new chat threads (current: {Program.config.ChatThreadSettings.DefaultNewThreadName})",
                     Action = () =>
                     {
-                        Console.Write("New default name> ");
-                        var name = User.ReadLineWithHistory();
+                        Program.ui.Write("New default name> ");
+                        var name = Program.ui.ReadLineWithHistory();
                         if (string.IsNullOrWhiteSpace(name)) return Task.FromResult(Command.Result.Cancelled);
                         Program.config.ChatThreadSettings.DefaultNewThreadName = name!;
                         Config.Save(Program.config, Program.ConfigFilePath);
-                        Console.WriteLine($"Default new chat thread name set to '{name}'.");
+                        Program.ui.WriteLine($"Default new chat thread name set to '{name}'.");
                         return Task.FromResult(Command.Result.Success);
                     }
                 }

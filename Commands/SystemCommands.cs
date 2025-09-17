@@ -29,7 +29,7 @@ public partial class CommandManager
                         Action = () =>
                         {
                             Log.ClearOutput();
-                            Console.WriteLine("Log cleared.");
+                            Program.ui.WriteLine("Log cleared.");
                             return Task.FromResult(Command.Result.Success);
                         }
                     },
@@ -38,19 +38,19 @@ public partial class CommandManager
                         Name = "save", Description = () => "Save the contents of the log to a file",
                         Action = () =>
                         {
-                            Console.Write("Enter file path to save the log: ");
-                            var filePath = User.ReadLineWithHistory();
+                            Program.ui.Write("Enter file path to save the log: ");
+                            var filePath = Program.ui.ReadLineWithHistory();
                             if (!string.IsNullOrWhiteSpace(filePath))
                             {
                                 try
                                 {
                                     var logEntries = Log.GetOutput();
                                     System.IO.File.WriteAllLines(filePath, logEntries);
-                                    Console.WriteLine($"Log saved to '{filePath}'.");
+                                    Program.ui.WriteLine($"Log saved to '{filePath}'.");
                                 }
                                 catch (Exception ex)
                                 {
-                                    Console.WriteLine($"Failed to save log: {ex.Message}");
+                                    Program.ui.WriteLine($"Failed to save log: {ex.Message}");
                                 }
                             }
                             return Task.FromResult(Command.Result.Success);
@@ -63,7 +63,7 @@ public partial class CommandManager
                 Name = "clear", Description = () => "Clear the console screen",
                 Action = () =>
                 {
-                    Console.Clear();
+                    Program.ui.Clear();
                     return Task.FromResult(Command.Result.Success);
                 }
             },
@@ -76,8 +76,8 @@ public partial class CommandManager
                         Name = "show", Description = () => "Show current system configuration",
                         Action = () =>
                         {
-                            Console.WriteLine("Current Configuration:");
-                            Console.WriteLine(Program.config.ToJson());
+                            Program.ui.WriteLine("Current Configuration:");
+                            Program.ui.WriteLine(Program.config.ToJson());
                             return Task.FromResult(Command.Result.Success);
                         }
                     },
@@ -87,7 +87,7 @@ public partial class CommandManager
                         Action = () =>
                         {
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine("Configuration saved.");
+                            Program.ui.WriteLine("Configuration saved.");
                             return Task.FromResult(Command.Result.Success);
                         }
                     },
@@ -99,7 +99,7 @@ public partial class CommandManager
                             File.Delete(Program.ConfigFilePath);
                             Program.config = new Config(); // Reset to default config
                             await Program.InitProgramAsync();
-                            Console.WriteLine("Configuration reset to default.");
+                            Program.ui.WriteLine("Configuration reset to default.");
                             return Command.Result.Success;
                         }
                     },
@@ -108,9 +108,9 @@ public partial class CommandManager
                         Name = "current working directory", Description = () => $"Show the current working directory [currently: {Environment.CurrentDirectory}]",
                         Action = async () =>
                         {
-                            Console.WriteLine($"Current working directory: {Environment.CurrentDirectory}");
-                            Console.Write("Enter new working directory (or leave blank to keep current): ");
-                            var input = await User.ReadPathWithAutocompleteAsync(true);
+                            Program.ui.WriteLine($"Current working directory: {Environment.CurrentDirectory}");
+                            Program.ui.Write("Enter new working directory (or leave blank to keep current): ");
+                            var input = await Program.ui.ReadPathWithAutocompleteAsync(true);
                             if (!string.IsNullOrWhiteSpace(input) && Directory.Exists(input))
                             {
                                 try
@@ -118,12 +118,12 @@ public partial class CommandManager
                                     Program.config.DefaultDirectory = input;
                                     Environment.CurrentDirectory = Program.config.DefaultDirectory;
                                     Config.Save(Program.config, Program.ConfigFilePath);
-                                    Console.WriteLine($"Working directory changed to: {Environment.CurrentDirectory}");
+                                    Program.ui.WriteLine($"Working directory changed to: {Environment.CurrentDirectory}");
                                     return Command.Result.Success;
                                 }
                                 catch (Exception ex)
                                 {
-                                    Console.WriteLine($"Failed to change directory: {ex.Message}");
+                                    Program.ui.WriteLine($"Failed to change directory: {ex.Message}");
                                     return Command.Result.Failed;
                                 }
                             }
@@ -140,8 +140,8 @@ public partial class CommandManager
                                 Name = "show", Description = () => "Show current chat thread settings",
                                 Action = () =>
                                 {
-                                    Console.WriteLine("Current Chat Thread Settings:");
-                                    Console.WriteLine(Program.config.ChatThreadSettings.ToJson());
+                                    Program.ui.WriteLine("Current Chat Thread Settings:");
+                                    Program.ui.WriteLine(Program.config.ChatThreadSettings.ToJson());
                                     return Task.FromResult(Command.Result.Success);
                                 }
                             },
@@ -150,8 +150,8 @@ public partial class CommandManager
                                 Name = "set root directory", Description = () => $"Set the root directory for chat threads [currently: {Program.config.ChatThreadSettings.RootDirectory}]",
                                 Action = async () =>
                                 {
-                                    Console.Write("Enter new root directory for chat threads (note '.threads' always appended): ");
-                                    var input = await User.ReadPathWithAutocompleteAsync(false);
+                                    Program.ui.Write("Enter new root directory for chat threads (note '.threads' always appended): ");
+                                    var input = await Program.ui.ReadPathWithAutocompleteAsync(false);
                                     if (!string.IsNullOrWhiteSpace(input))
                                     {
                                         input = Path.Combine(input, ".threads");
@@ -163,12 +163,12 @@ public partial class CommandManager
                                             }
                                             Program.config.ChatThreadSettings.RootDirectory = input;
                                             Config.Save(Program.config, Program.ConfigFilePath);
-                                            Console.WriteLine($"Chat thread root directory set to: {input}");
+                                            Program.ui.WriteLine($"Chat thread root directory set to: {input}");
                                             return Command.Result.Success;
                                         }
                                         catch (Exception ex)
                                         {
-                                            Console.WriteLine($"Failed to set root directory: {ex.Message}");
+                                            Program.ui.WriteLine($"Failed to set root directory: {ex.Message}");
                                             return Command.Result.Failed;
                                         }
                                     }
@@ -182,18 +182,18 @@ public partial class CommandManager
                         Name = "max menu items", Description = () => $"Configure maximum number of menu items displayed at once [currently: {Program.config.MaxMenuItems}]",
                         Action = () =>
                         {
-                            Console.WriteLine($"Current max menu items: {Program.config.MaxMenuItems}");
-                            Console.Write("Enter new value (minimum 1): ");
-                            var input = User.ReadLineWithHistory();
+                            Program.ui.WriteLine($"Current max menu items: {Program.config.MaxMenuItems}");
+                            Program.ui.Write("Enter new value (minimum 1): ");
+                            var input = Program.ui.ReadLineWithHistory();
                             if (int.TryParse(input, out int value) && value >= 1)
                             {
                                 Program.config.MaxMenuItems = value;
                                 Config.Save(Program.config, Program.ConfigFilePath);
-                                Console.WriteLine($"Max menu items set to {value}");
+                                Program.ui.WriteLine($"Max menu items set to {value}");
                             }
                             else
                             {
-                                Console.WriteLine("Invalid input. Please enter a number >= 1.");
+                                Program.ui.WriteLine("Invalid input. Please enter a number >= 1.");
                             }
                             return Task.FromResult(Command.Result.Success);
                         }
@@ -203,16 +203,16 @@ public partial class CommandManager
                         Name = "set max steps", Description = () => $"Set maximum steps for planning [currently: {Program.config.MaxSteps}]",
                         Action = () =>
                         {
-                            Console.Write("Enter maximum steps (default 25): ");
-                            var input = Console.ReadLine();
+                            Program.ui.Write("Enter maximum steps (default 25): ");
+                            var input = Program.ui.ReadLine();
                             if (int.TryParse(input, out int maxSteps))
                             {
                                 Program.config.MaxSteps = maxSteps;
-                                Console.WriteLine($"Maximum steps set to {maxSteps}.");
+                                Program.ui.WriteLine($"Maximum steps set to {maxSteps}.");
                             }
                             else
                             {
-                                Console.WriteLine($"Invalid input. Maximum steps remain at {Program.config.MaxSteps}.");
+                                Program.ui.WriteLine($"Invalid input. Maximum steps remain at {Program.config.MaxSteps}.");
                             }
                             return Task.FromResult(Command.Result.Success);
                         }
@@ -235,9 +235,9 @@ public partial class CommandManager
             Name = "about", Description = () => "Show information about Console# Chat",
             Action = () =>
             {
-                Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
-                Console.WriteLine("A console-based chat application with RAG capabilities.");
-                Console.WriteLine("For more information, visit: https://github.com/wa-phil/cschat");
+                Program.ui.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
+                Program.ui.WriteLine("A console-based chat application with RAG capabilities.");
+                Program.ui.WriteLine("For more information, visit: https://github.com/wa-phil/cschat");
                 return Task.FromResult(Command.Result.Success);
             }
         });

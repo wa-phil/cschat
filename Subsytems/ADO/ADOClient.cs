@@ -390,7 +390,7 @@ public static class AdoCredentialHelper
         }
 
         // 3. Prompt user interactively
-        Console.Write("Enter your Azure DevOps Personal Access Token (PAT): ");
+        Program.ui.Write("Enter your Azure DevOps Personal Access Token (PAT): ");
         var pat = ReadPasswordMasked();
         if (string.IsNullOrWhiteSpace(pat))
         {
@@ -440,29 +440,29 @@ public static class AdoCredentialHelper
 
     private static string ReadPasswordMasked()
     {
-        Console.Write("Enter your Azure DevOps Personal Access Token (PAT)\nInput will be masked, press Enter when done, ESC to cancel.");
+        Program.ui.Write("Enter your Azure DevOps Personal Access Token (PAT)\nInput will be masked, press Enter when done, ESC to cancel.");
         var password = new StringBuilder();
         while (true)
         {
-            var key = Console.ReadKey(intercept: true);
+            var key = Program.ui.ReadKey(intercept: true);
             if (key.Key == ConsoleKey.Enter)
             {
-                Console.WriteLine();
+                Program.ui.WriteLine();
                 break;
             }
             else if (key.Key == ConsoleKey.Backspace && password.Length > 0)
             {
-                Console.Write("\b \b");
+                Program.ui.Write("\b \b");
                 password.Length--;
             }
             else if (key.Key == ConsoleKey.Escape)
             {
-                Console.WriteLine("\nInput cancelled.");
+                Program.ui.WriteLine("\nInput cancelled.");
                 return string.Empty; // Allow cancellation
             }
             else if (!char.IsControl(key.KeyChar))
             {
-                Console.Write("*");
+                Program.ui.Write("*");
                 password.Append(key.KeyChar);
             }
 

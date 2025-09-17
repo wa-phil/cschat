@@ -22,14 +22,14 @@ public partial class CommandManager
                         var fileTypes = Program.config.RagSettings.SupportedFileTypes;
                         if (fileTypes.Count == 0)
                         {
-                            Console.WriteLine("No supported file types configured.");
+                            Program.ui.WriteLine("No supported file types configured.");
                         }
                         else
                         {
-                            Console.WriteLine("Supported File Types:");
+                            Program.ui.WriteLine("Supported File Types:");
                             foreach (var type in fileTypes)
                             {
-                                Console.WriteLine($"- {type}");
+                                Program.ui.WriteLine($"- {type}");
                             }
                         }
                         return Task.FromResult(Command.Result.Success);
@@ -40,17 +40,17 @@ public partial class CommandManager
                     Name = "add", Description = () => "Add a new supported file type",
                     Action = () =>
                     {
-                        Console.Write("Enter new file type (e.g., .txt, .md): ");
-                        var input = User.ReadLineWithHistory();
+                        Program.ui.Write("Enter new file type (e.g., .txt, .md): ");
+                        var input = Program.ui.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(input) && !Program.config.RagSettings.SupportedFileTypes.Contains(input.Trim(), StringComparer.OrdinalIgnoreCase))
                         {
                             Program.config.RagSettings.SupportedFileTypes.Add(input.Trim());
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine($"Added file type '{input.Trim()}' to supported types.");
+                            Program.ui.WriteLine($"Added file type '{input.Trim()}' to supported types.");
                         }
                         else
                         {
-                            Console.WriteLine("Invalid or duplicate file type.");
+                            Program.ui.WriteLine("Invalid or duplicate file type.");
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
@@ -60,16 +60,16 @@ public partial class CommandManager
                     Name = "remove", Description = () => "Remove a supported file type",
                     Action = () =>
                     {
-                        Console.Write("Enter file type to remove: ");
-                        var input = User.ReadLineWithHistory();
+                        Program.ui.Write("Enter file type to remove: ");
+                        var input = Program.ui.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(input) && Program.config.RagSettings.SupportedFileTypes.Remove(input.Trim()))
                         {
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine($"Removed file type '{input.Trim()}' from supported types.");
+                            Program.ui.WriteLine($"Removed file type '{input.Trim()}' from supported types.");
                         }
                         else
                         {
-                            Console.WriteLine("Invalid or non-existent file type.");
+                            Program.ui.WriteLine("Invalid or non-existent file type.");
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
@@ -81,7 +81,7 @@ public partial class CommandManager
                     {
                         Program.config.RagSettings.SupportedFileTypes.Clear();
                         Config.Save(Program.config, Program.ConfigFilePath);
-                        Console.WriteLine("Cleared all supported file types.");
+                        Program.ui.WriteLine("Cleared all supported file types.");
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -90,8 +90,8 @@ public partial class CommandManager
                     Name = "set", Description = () => "Set the supported file types from a comma-separated list",
                     Action = () =>
                     {
-                        Console.Write("Enter comma-separated file types (e.g., .txt, .md): ");
-                        var input = User.ReadLineWithHistory();
+                        Program.ui.Write("Enter comma-separated file types (e.g., .txt, .md): ");
+                        var input = Program.ui.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(input))
                         {
                             var types = input.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
@@ -101,7 +101,7 @@ public partial class CommandManager
                                              .ToList();
                             Program.config.RagSettings.SupportedFileTypes = types;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine("Updated supported file types.");
+                            Program.ui.WriteLine("Updated supported file types.");
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
@@ -120,13 +120,13 @@ public partial class CommandManager
                                 var fileTypes = Program.config.RagSettings.SupportedFileTypes.ToList();
                                 if (fileTypes.Count == 0)
                                 {
-                                    Console.WriteLine("No supported file types configured. Please add some first.");
+                                    Program.ui.WriteLine("No supported file types configured. Please add some first.");
                                     return Task.FromResult(Command.Result.Failed);
                                 }
-                                var selectedType = User.RenderMenu("Select file type to add exclude rule for:", fileTypes);
+                                var selectedType = Program.ui.RenderMenu("Select file type to add exclude rule for:", fileTypes);
                                 if (string.IsNullOrWhiteSpace(selectedType))
                                 {
-                                    Console.WriteLine("No file type selected.");
+                                    Program.ui.WriteLine("No file type selected.");
                                     return Task.FromResult(Command.Result.Cancelled);
                                 }
                                 var type = selectedType.Trim();
@@ -135,8 +135,8 @@ public partial class CommandManager
                                     rules = new FileFilterRules();
                                     Program.config.RagSettings.FileFilters[type] = rules;
                                 }
-                                Console.Write("Enter exclude regex pattern: ");
-                                var pattern = User.ReadLineWithHistory();
+                                Program.ui.Write("Enter exclude regex pattern: ");
+                                var pattern = Program.ui.ReadLineWithHistory();
                                 if (!string.IsNullOrWhiteSpace(pattern))
                                 {
                                     // validate that the pattern is a valid regex
@@ -146,16 +146,16 @@ public partial class CommandManager
                                     }
                                     catch (ArgumentException)
                                     {
-                                        Console.WriteLine("Invalid regex pattern.");
+                                        Program.ui.WriteLine("Invalid regex pattern.");
                                         return Task.FromResult(Command.Result.Failed);
                                     }
                                     rules.Exclude.Add(pattern);
                                     Config.Save(Program.config, Program.ConfigFilePath);
-                                    Console.WriteLine($"Added exclude rule '{pattern}' for file type '{type}'.");
+                                    Program.ui.WriteLine($"Added exclude rule '{pattern}' for file type '{type}'.");
                                 }
                                 else
                                 {
-                                    Console.WriteLine("Invalid pattern.");
+                                    Program.ui.WriteLine("Invalid pattern.");
                                 }
                                 return Task.FromResult(Command.Result.Success);
                             }
@@ -169,13 +169,13 @@ public partial class CommandManager
                                 var fileTypes = Program.config.RagSettings.SupportedFileTypes.ToList();
                                 if (fileTypes.Count == 0)
                                 {
-                                    Console.WriteLine("No supported file types configured. Please add some first.");
+                                    Program.ui.WriteLine("No supported file types configured. Please add some first.");
                                     return Task.FromResult(Command.Result.Failed);
                                 }
-                                var selectedType = User.RenderMenu("Select file type to add include rule for:", fileTypes);
+                                var selectedType = Program.ui.RenderMenu("Select file type to add include rule for:", fileTypes);
                                 if (string.IsNullOrWhiteSpace(selectedType))
                                 {
-                                    Console.WriteLine("No file type selected.");
+                                    Program.ui.WriteLine("No file type selected.");
                                     return Task.FromResult(Command.Result.Cancelled);
                                 }
                                 var type = selectedType.Trim();
@@ -184,8 +184,8 @@ public partial class CommandManager
                                     rules = new FileFilterRules();
                                     Program.config.RagSettings.FileFilters[type] = rules;
                                 }
-                                Console.Write("Enter include regex pattern: ");
-                                var pattern = User.ReadLineWithHistory();
+                                Program.ui.Write("Enter include regex pattern: ");
+                                var pattern = Program.ui.ReadLineWithHistory();
                                 if (!string.IsNullOrWhiteSpace(pattern))
                                 {
                                     // validate that the pattern is a valid regex
@@ -195,16 +195,16 @@ public partial class CommandManager
                                     }
                                     catch (ArgumentException)
                                     {
-                                        Console.WriteLine("Invalid regex pattern.");
+                                        Program.ui.WriteLine("Invalid regex pattern.");
                                         return Task.FromResult(Command.Result.Failed);
                                     }
                                     rules.Include.Add(pattern);
                                     Config.Save(Program.config, Program.ConfigFilePath);
-                                    Console.WriteLine($"Added include rule '{pattern}' for file type '{type}'.");
+                                    Program.ui.WriteLine($"Added include rule '{pattern}' for file type '{type}'.");
                                 }
                                 else
                                 {
-                                    Console.WriteLine("Invalid pattern.");
+                                    Program.ui.WriteLine("Invalid pattern.");
                                 }
                                 return Task.FromResult(Command.Result.Success);
                             }
@@ -223,33 +223,33 @@ public partial class CommandManager
                                     .ToList();
                                 if (fileTypes.Count == 0)
                                 {
-                                    Console.WriteLine("No rules configured for supported file types. Please add some first.");
+                                    Program.ui.WriteLine("No rules configured for supported file types. Please add some first.");
                                     return Task.FromResult(Command.Result.Failed);
                                 }
-                                var selectedType = User.RenderMenu("Select file type to list rules for:", fileTypes);
+                                var selectedType = Program.ui.RenderMenu("Select file type to list rules for:", fileTypes);
                                 if (string.IsNullOrWhiteSpace(selectedType))
                                 {
-                                    Console.WriteLine("No file type selected.");
+                                    Program.ui.WriteLine("No file type selected.");
                                     return Task.FromResult(Command.Result.Cancelled);
                                 }
                                 var type = selectedType.Trim();
                                 if (Program.config.RagSettings.FileFilters.TryGetValue(type, out var rules))
                                 {
-                                    Console.WriteLine($"Rules for file type '{type}':");
-                                    Console.WriteLine("Include Patterns:");
+                                    Program.ui.WriteLine($"Rules for file type '{type}':");
+                                    Program.ui.WriteLine("Include Patterns:");
                                     foreach (var include in rules.Include)
                                     {
-                                        Console.WriteLine($"- {include}");
+                                        Program.ui.WriteLine($"- {include}");
                                     }
-                                    Console.WriteLine("Exclude Patterns:");
+                                    Program.ui.WriteLine("Exclude Patterns:");
                                     foreach (var exclude in rules.Exclude)
                                     {
-                                        Console.WriteLine($"- {exclude}");
+                                        Program.ui.WriteLine($"- {exclude}");
                                     }
                                 }
                                 else
                                 {
-                                    Console.WriteLine($"No rules found for file type '{type}'.");
+                                    Program.ui.WriteLine($"No rules found for file type '{type}'.");
                                 }
                                 return Task.FromResult(Command.Result.Success);
                             }
@@ -268,22 +268,22 @@ public partial class CommandManager
                                     .ToList();
                                 if (fileTypes.Count == 0)
                                 {
-                                    Console.WriteLine("No supported file types configured. Please add some first.");
+                                    Program.ui.WriteLine("No supported file types configured. Please add some first.");
                                     return Task.FromResult(Command.Result.Failed);
                                 }
-                                var selectedType = User.RenderMenu("Select file type to remove rule from:", fileTypes);
+                                var selectedType = Program.ui.RenderMenu("Select file type to remove rule from:", fileTypes);
                                 if (string.IsNullOrWhiteSpace(selectedType))
                                 {
-                                    Console.WriteLine("No file type selected.");
+                                    Program.ui.WriteLine("No file type selected.");
                                     return Task.FromResult(Command.Result.Cancelled);
                                 }
                                 var type = selectedType.Trim();
                                 if (!Program.config.RagSettings.FileFilters.TryGetValue(type, out var rules))
                                 {
-                                    Console.WriteLine($"No rules found for file type '{type}'.");
+                                    Program.ui.WriteLine($"No rules found for file type '{type}'.");
                                     return Task.FromResult(Command.Result.Failed);
                                 }
-                                Console.WriteLine("Select a rule to remove:");
+                                Program.ui.WriteLine("Select a rule to remove:");
                                 var choices = new List<string>();
                                 choices.AddRange(rules.Include.Where(p=>!string.IsNullOrWhiteSpace(p)).Select(p => $"Include: {p}"));
                                 choices.AddRange(rules.Exclude.Where(p=>!string.IsNullOrWhiteSpace(p)).Select(p => $"Exclude: {p}"));
@@ -291,13 +291,13 @@ public partial class CommandManager
                                 {
                                     Program.config.RagSettings.FileFilters.Remove(type);
                                     Config.Save(Program.config, Program.ConfigFilePath);
-                                    Console.WriteLine($"No rules found for file type '{type}'. Removed file type from configuration.");
+                                    Program.ui.WriteLine($"No rules found for file type '{type}'. Removed file type from configuration.");
                                     return Task.FromResult(Command.Result.Success);
                                 }
-                                var selectedRule = User.RenderMenu("Select a rule to remove:", choices);
+                                var selectedRule = Program.ui.RenderMenu("Select a rule to remove:", choices);
                                 if (string.IsNullOrWhiteSpace(selectedRule))
                                 {
-                                    Console.WriteLine("No rule selected.");
+                                    Program.ui.WriteLine("No rule selected.");
                                     return Task.FromResult(Command.Result.Cancelled);
                                 }
                                 choices.Remove(selectedRule);
@@ -306,11 +306,11 @@ public partial class CommandManager
                                     var rule = selectedRule.Substring("Include: ".Length);
                                     if (rules.Include.Remove(rule))
                                     {
-                                        Console.WriteLine($"Removed include rule '{rule}' from file type '{type}'.");
+                                        Program.ui.WriteLine($"Removed include rule '{rule}' from file type '{type}'.");
                                     }
                                     else
                                     {
-                                        Console.WriteLine($"Rule '{rule}' not found in include rules for file type '{type}'.");
+                                        Program.ui.WriteLine($"Rule '{rule}' not found in include rules for file type '{type}'.");
                                     }
                                 }
                                 else if (selectedRule.StartsWith("Exclude: "))
@@ -318,22 +318,22 @@ public partial class CommandManager
                                     var rule = selectedRule.Substring("Exclude: ".Length);
                                     if (rules.Exclude.Remove(rule))
                                     {
-                                        Console.WriteLine($"Removed exclude rule '{rule}' from file type '{type}'.");
+                                        Program.ui.WriteLine($"Removed exclude rule '{rule}' from file type '{type}'.");
                                     }
                                     else
                                     {
-                                        Console.WriteLine($"Rule '{rule}' not found in exclude rules for file type '{type}'.");
+                                        Program.ui.WriteLine($"Rule '{rule}' not found in exclude rules for file type '{type}'.");
                                     }
                                 }
                                 else
                                 {
-                                    Console.WriteLine("Invalid rule selected.");
+                                    Program.ui.WriteLine("Invalid rule selected.");
                                     return Task.FromResult(Command.Result.Failed);
                                 }
                                 if (0 == choices.Count)
                                 {
                                     Program.config.RagSettings.FileFilters.Remove(type);
-                                    Console.WriteLine($"No rules left for file type '{type}'. Removed file type from configuration.");
+                                    Program.ui.WriteLine($"No rules left for file type '{type}'. Removed file type from configuration.");
                                 }
                                 Config.Save(Program.config, Program.ConfigFilePath);
                                 return Task.FromResult(Command.Result.Success);
@@ -358,20 +358,20 @@ public partial class CommandManager
                     Name = "use embeddings", Description = () => $"Toggle the use of embeddings for RAG [currently: {(Program.config.RagSettings.UseEmbeddings ? "Enabled" : "Disabled")}]",
                     Action = () =>
                     {
-                        var selected = User.RenderMenu("Use embeddings:", new List<string> { "true", "false" }, Program.config.RagSettings.UseEmbeddings ? 0 : 1);
+                        var selected = Program.ui.RenderMenu("Use embeddings:", new List<string> { "true", "false" }, Program.config.RagSettings.UseEmbeddings ? 0 : 1);
                         if (selected == null)
                         {
-                            Console.WriteLine("No selection made.");
+                            Program.ui.WriteLine("No selection made.");
                             return Task.FromResult(Command.Result.Cancelled);
                         }
                         if (!bool.TryParse(selected, out var useEmbeddings))
                         {
-                            Console.WriteLine("Invalid selection. Please select 'true' or 'false'.");
+                            Program.ui.WriteLine("Invalid selection. Please select 'true' or 'false'.");
                             return Task.FromResult(Command.Result.Failed);
                         }
                         Program.config.RagSettings.UseEmbeddings = useEmbeddings;
                         Config.Save(Program.config, Program.ConfigFilePath);
-                        Console.WriteLine($"Use embeddings set to {Program.config.RagSettings.UseEmbeddings}");
+                        Program.ui.WriteLine($"Use embeddings set to {Program.config.RagSettings.UseEmbeddings}");
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -380,14 +380,14 @@ public partial class CommandManager
                     Name = "embedding model", Description = () => $"Set the embedding model for RAG [currently: {Program.config.RagSettings.EmbeddingModel}]",
                     Action = () =>
                     {
-                        Console.WriteLine($"Current embedding model: {Program.config.RagSettings.EmbeddingModel}");
-                        Console.Write("Enter new embedding model (or press enter to keep current): ");
-                        var modelInput = User.ReadLineWithHistory();
+                        Program.ui.WriteLine($"Current embedding model: {Program.config.RagSettings.EmbeddingModel}");
+                        Program.ui.Write("Enter new embedding model (or press enter to keep current): ");
+                        var modelInput = Program.ui.ReadLineWithHistory();
                         if (!string.IsNullOrWhiteSpace(modelInput))
                         {
                             Program.config.RagSettings.EmbeddingModel = modelInput.Trim();
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine("Embedding model updated.");
+                            Program.ui.WriteLine("Embedding model updated.");
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
@@ -398,13 +398,13 @@ public partial class CommandManager
                     Action = () =>
                     {
                         var maxValue = 100;
-                        Console.Write($"Current MaxEmbeddingConcurrency: {Program.config.RagSettings.MaxEmbeddingConcurrency}. Enter new value (1 to {maxValue}): ");
-                        var concurrencyInput = User.ReadLineWithHistory();
+                        Program.ui.Write($"Current MaxEmbeddingConcurrency: {Program.config.RagSettings.MaxEmbeddingConcurrency}. Enter new value (1 to {maxValue}): ");
+                        var concurrencyInput = Program.ui.ReadLineWithHistory();
                         if (int.TryParse(concurrencyInput, out var concurrency) && concurrency >= 1 && concurrency <= maxValue)
                         {
                             Program.config.RagSettings.MaxEmbeddingConcurrency = concurrency;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine($"MaxEmbeddingConcurrency set to {concurrency}");
+                            Program.ui.WriteLine($"MaxEmbeddingConcurrency set to {concurrency}");
                             return Task.FromResult(Command.Result.Success);
                         }
                         return Task.FromResult(Command.Result.Cancelled);
@@ -416,13 +416,13 @@ public partial class CommandManager
                     Action = () =>
                     {
                         var maxValue = 100;
-                        Console.Write($"Current MaxIngestConcurrency: {Program.config.RagSettings.MaxIngestConcurrency}. Enter new value (1 to {maxValue}): ");
-                        var concurrencyInput = User.ReadLineWithHistory();
+                        Program.ui.Write($"Current MaxIngestConcurrency: {Program.config.RagSettings.MaxIngestConcurrency}. Enter new value (1 to {maxValue}): ");
+                        var concurrencyInput = Program.ui.ReadLineWithHistory();
                         if (int.TryParse(concurrencyInput, out var concurrency) && concurrency >= 1 && concurrency <= maxValue)
                         {
                             Program.config.RagSettings.MaxIngestConcurrency = concurrency;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine($"MaxIngestConcurrency set to {concurrency}");
+                            Program.ui.WriteLine($"MaxIngestConcurrency set to {concurrency}");
                             return Task.FromResult(Command.Result.Success);
                         }
                         return Task.FromResult(Command.Result.Cancelled);
@@ -434,12 +434,12 @@ public partial class CommandManager
                     Action = () =>
                     {
                         var chunkers = Program.Chunkers.Keys.ToList();
-                        var selected = User.RenderMenu("Select a text chunker:", chunkers, chunkers.IndexOf(Program.config.RagSettings.ChunkingStrategy));
+                        var selected = Program.ui.RenderMenu("Select a text chunker:", chunkers, chunkers.IndexOf(Program.config.RagSettings.ChunkingStrategy));
                         if (!string.IsNullOrWhiteSpace(selected) && !selected.Equals(Program.config.RagSettings.ChunkingStrategy, StringComparison.OrdinalIgnoreCase))
                         {
                             Program.config.RagSettings.ChunkingStrategy = selected;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine($"Switched to chunker '{Program.config.RagSettings.ChunkingStrategy}'");
+                            Program.ui.WriteLine($"Switched to chunker '{Program.config.RagSettings.ChunkingStrategy}'");
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
@@ -449,17 +449,17 @@ public partial class CommandManager
                     Name = "chunk size", Description = () => $"Set the chunk size for RAG [currently: {Program.config.RagSettings.ChunkSize}]",
                     Action = () =>
                     {
-                        Console.Write($"Current chunk size: {Program.config.RagSettings.ChunkSize}. Enter new value (1 to 10000): ");
-                        var sizeInput = User.ReadLineWithHistory();
+                        Program.ui.Write($"Current chunk size: {Program.config.RagSettings.ChunkSize}. Enter new value (1 to 10000): ");
+                        var sizeInput = Program.ui.ReadLineWithHistory();
                         if (int.TryParse(sizeInput, out var size) && size >= 1 && size <= 10000)
                         {
                             Program.config.RagSettings.ChunkSize = size;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine($"Chunk size set to {size}");
+                            Program.ui.WriteLine($"Chunk size set to {size}");
                         }
                         else
                         {
-                            Console.WriteLine("Invalid chunk size value. Must be between 1 and 10000.");
+                            Program.ui.WriteLine("Invalid chunk size value. Must be between 1 and 10000.");
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
@@ -469,13 +469,13 @@ public partial class CommandManager
                     Name = "max tokens per chunk", Description = () => $"Set the maximum tokens per chunk for RAG [currently: {Program.config.RagSettings.MaxTokensPerChunk}]",
                     Action = () =>
                     {
-                        Console.Write($"Current MaxTokensPerChunk: {Program.config.RagSettings.MaxTokensPerChunk}. Enter new value (1 to 32000): ");
-                        var maxTokensInput = User.ReadLineWithHistory();
+                        Program.ui.Write($"Current MaxTokensPerChunk: {Program.config.RagSettings.MaxTokensPerChunk}. Enter new value (1 to 32000): ");
+                        var maxTokensInput = Program.ui.ReadLineWithHistory();
                         if (int.TryParse(maxTokensInput, out var maxTokens) && maxTokens >= 1 && maxTokens <= 32000)
                         {
                             Program.config.RagSettings.MaxTokensPerChunk = maxTokens;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine($"MaxTokensPerChunk set to {maxTokens}");
+                            Program.ui.WriteLine($"MaxTokensPerChunk set to {maxTokens}");
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
@@ -485,13 +485,13 @@ public partial class CommandManager
                     Name = "max line length", Description = () => $"Set the maximum line length for RAG [currently: {Program.config.RagSettings.MaxLineLength}]",
                     Action = () =>
                     {
-                        Console.Write($"Current MaxLineLength: {Program.config.RagSettings.MaxLineLength}. Enter new value (1 to 32000): ");
-                        var maxLineLengthInput = User.ReadLineWithHistory();
+                        Program.ui.Write($"Current MaxLineLength: {Program.config.RagSettings.MaxLineLength}. Enter new value (1 to 32000): ");
+                        var maxLineLengthInput = Program.ui.ReadLineWithHistory();
                         if (int.TryParse(maxLineLengthInput, out var maxLineLength) && maxLineLength >= 1 && maxLineLength <= 32000)
                         {
                             Program.config.RagSettings.MaxLineLength = maxLineLength;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine($"MaxLineLength set to {maxLineLength}");
+                            Program.ui.WriteLine($"MaxLineLength set to {maxLineLength}");
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
@@ -501,17 +501,17 @@ public partial class CommandManager
                     Name = "overlap", Description = () => $"Set the overlap size for RAG chunks [currently: {Program.config.RagSettings.Overlap}]",
                     Action = () =>
                     {
-                        Console.Write($"Current overlap size: {Program.config.RagSettings.Overlap}. Enter new value (0 to 100): ");
-                        var overlapInput = User.ReadLineWithHistory();
+                        Program.ui.Write($"Current overlap size: {Program.config.RagSettings.Overlap}. Enter new value (0 to 100): ");
+                        var overlapInput = Program.ui.ReadLineWithHistory();
                         if (int.TryParse(overlapInput, out var overlap) && overlap >= 0 && overlap <= 100)
                         {
                             Program.config.RagSettings.Overlap = overlap;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine($"Overlap size set to {overlap}");
+                            Program.ui.WriteLine($"Overlap size set to {overlap}");
                         }
                         else
                         {
-                            Console.WriteLine("Invalid overlap size value. Must be between 0 and 100.");
+                            Program.ui.WriteLine("Invalid overlap size value. Must be between 0 and 100.");
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
@@ -522,17 +522,17 @@ public partial class CommandManager
                     Action = () =>
                     {
                         const int maxK = 25;
-                        Console.Write($"Current TopK value: {Program.config.RagSettings.TopK}. Enter new value (1 to {maxK}): ");
-                        var topKInput = User.ReadLineWithHistory();
+                        Program.ui.Write($"Current TopK value: {Program.config.RagSettings.TopK}. Enter new value (1 to {maxK}): ");
+                        var topKInput = Program.ui.ReadLineWithHistory();
                         if (int.TryParse(topKInput, out var topK) && topK >= 1 && topK <= maxK)
                         {
                             Program.config.RagSettings.TopK = topK;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine($"TopK set to {topK}");
+                            Program.ui.WriteLine($"TopK set to {topK}");
                         }
                         else
                         {
-                            Console.WriteLine("Invalid TopK value. Must be between 1 and {maxK}.");
+                            Program.ui.WriteLine("Invalid TopK value. Must be between 1 and {maxK}.");
                         }
                         return Task.FromResult(Command.Result.Success);
                     }
@@ -544,7 +544,7 @@ public partial class CommandManager
                     {
                         Program.config.RagSettings.UseMmr = !Program.config.RagSettings.UseMmr;
                         Config.Save(Program.config, Program.ConfigFilePath);
-                        Console.WriteLine($"UseMmr set to {Program.config.RagSettings.UseMmr}");
+                        Program.ui.WriteLine($"UseMmr set to {Program.config.RagSettings.UseMmr}");
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -553,13 +553,13 @@ public partial class CommandManager
                     Name = "MMR Lambda", Description = () => $"Set the MMR lambda value for RAG [currently: {Program.config.RagSettings.MmrLambda}]",
                     Action = () =>
                     {
-                        Console.Write($"Current MMR Lambda: {Program.config.RagSettings.MmrLambda}. Enter new value (0.0 to 1.0): ");
-                        var lambdaInput = User.ReadLineWithHistory();
+                        Program.ui.Write($"Current MMR Lambda: {Program.config.RagSettings.MmrLambda}. Enter new value (0.0 to 1.0): ");
+                        var lambdaInput = Program.ui.ReadLineWithHistory();
                         if (float.TryParse(lambdaInput, out var lambda) && lambda >= 0.0f && lambda <= 1.0f)
                         {
                             Program.config.RagSettings.MmrLambda = lambda;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine($"MMR Lambda set to {lambda}");
+                            Program.ui.WriteLine($"MMR Lambda set to {lambda}");
                             return Task.FromResult(Command.Result.Success);
                         }
                         return Task.FromResult(Command.Result.Cancelled);
@@ -570,13 +570,13 @@ public partial class CommandManager
                     Name = "MMR Pool Multiplier" , Description = () => $"Set the MMR pool multiplier for RAG [currently: {Program.config.RagSettings.MmrPoolMultiplier}]",
                     Action = () =>
                     {
-                        Console.Write($"Current MMR Pool Multiplier: {Program.config.RagSettings.MmrPoolMultiplier}. Enter new value (0.0 to 10.0): ");
-                        var multiplierInput = User.ReadLineWithHistory();
+                        Program.ui.Write($"Current MMR Pool Multiplier: {Program.config.RagSettings.MmrPoolMultiplier}. Enter new value (0.0 to 10.0): ");
+                        var multiplierInput = Program.ui.ReadLineWithHistory();
                         if (float.TryParse(multiplierInput, out var multiplier) && multiplier >= 0.0f && multiplier <= 10.0f)
                         {
                             Program.config.RagSettings.MmrPoolMultiplier = multiplier;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Console.WriteLine($"MMR Pool Multiplier set to {multiplier}");
+                            Program.ui.WriteLine($"MMR Pool Multiplier set to {multiplier}");
                             return Task.FromResult(Command.Result.Success);
                         }
                         return Task.FromResult(Command.Result.Cancelled);

@@ -129,23 +129,23 @@ public class McpManager : ISubsystem
                     if (success)
                     {
                         loadedCount++;
-                        Console.ForegroundColor = ConsoleColor.Green;
-                        Console.WriteLine($"Successfully connected to MCP server: {serverDef.Name}");
-                        Console.ResetColor();
+                        Program.ui.ForegroundColor = ConsoleColor.Green;
+                        Program.ui.WriteLine($"Successfully connected to MCP server: {serverDef.Name}");
+                        Program.ui.ResetColor();
                     }
                     else
                     {
-                        Console.ForegroundColor = ConsoleColor.Red;
-                        Console.WriteLine($"Failed to connect to MCP server: {serverDef.Name}");
-                        Console.ResetColor();
+                        Program.ui.ForegroundColor = ConsoleColor.Red;
+                        Program.ui.WriteLine($"Failed to connect to MCP server: {serverDef.Name}");
+                        Program.ui.ResetColor();
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"Warning: Failed to load MCP server {serverDef?.Name}: {ex.Message}.  See system logs for additional details.");
-                Console.ResetColor();
+                Program.ui.ForegroundColor = ConsoleColor.Red;
+                Program.ui.WriteLine($"Warning: Failed to load MCP server {serverDef?.Name}: {ex.Message}.  See system logs for additional details.");
+                Program.ui.ResetColor();
             }
         }
 
@@ -161,9 +161,9 @@ public class McpManager : ISubsystem
         
         try
         {
-            Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.Write($"Connecting client to MCP server: {serverDef.Name}...");
-            Console.ResetColor();
+            Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
+            Program.ui.Write($"Connecting client to MCP server: {serverDef.Name}...");
+            Program.ui.ResetColor();
 
             // Create the MCP client using the simplified API
             var client = await McpClient.CreateAsync(serverDef);
@@ -217,18 +217,18 @@ public class McpManager : ISubsystem
             _clients[serverDef.Name] = client;
             _serverTools[serverDef.Name] = tools;
             
-            Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.WriteLine($"✅ {clientTools.Count} tools added.");
-            Console.ResetColor();
+            Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
+            Program.ui.WriteLine($"✅ {clientTools.Count} tools added.");
+            Program.ui.ResetColor();
             ctx.Append(Log.Data.Count, tools.Count);
             ctx.Succeeded();
             return true;
         }
         catch (Exception ex)
         {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($" failed: {ex.Message}");
-            Console.ResetColor();
+            Program.ui.ForegroundColor = ConsoleColor.Red;
+            Program.ui.WriteLine($" failed: {ex.Message}");
+            Program.ui.ResetColor();
             ctx.Failed($"Error connecting to MCP server: {ex.Message}", ex);
             return false;
         }

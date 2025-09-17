@@ -39,8 +39,8 @@ public static class ADOExtensions
 
         static int SafeConsoleWidth()
         {
-            if (Console.IsOutputRedirected) return 120;
-            try { return Math.Max(60, Console.WindowWidth); }
+            if (Program.ui.IsOutputRedirected) return 120;
+            try { return Math.Max(60, Program.ui.Width); }
             catch { return 120; }
         }
     }

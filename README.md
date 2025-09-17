@@ -214,8 +214,8 @@ Interaction with UserSelectedQuery and the menu system
 - `UserSelectedQuery` is a small user-managed type (see `Subsytems/UserManagedData/UserSelectedQuery.cs`) that stores a query's GUID, name, project and path. It's discoverable and editable via the `Data` component menu (the UserManagedData component exposes per-type `list/add/update/delete` commands automatically).
 - Many ADO commands obtain the user's saved queries via:
   - `var saved = Program.userManagedData.GetItems<UserSelectedQuery>()`
-  - They then build a human-friendly list of choices like `$"{q.Name} ({q.Project}) - {q.Path}"` and call `User.RenderMenu(header, choices)` to let the user pick one.
-- The same `User.RenderMenu(...)` infra is used throughout ADO commands to:
+  - They then build a human-friendly list of choices like `$"{q.Name} ({q.Project}) - {q.Path}"` and call `Program.ui.RenderMenu(header, choices)` to let the user pick one.
+- The same `Program.ui.RenderMenu(...)` infra is used throughout ADO commands to:
   - Present saved queries to pick which query to act on
   - Present work-item rows (formatted via `ToMenuRows()`/aligned columns) so you can pick a row to summarize
   - Navigate query folders when browsing

@@ -22,7 +22,7 @@ namespace Subsytems.Mcp
                         Description = () => "Reload and reconnect to all configured MCP servers",
                         Action = async () =>
                         {
-                            Console.WriteLine("Reloading MCP servers...");
+                            Program.ui.WriteLine("Reloading MCP servers...");
                             
                             try
                             {
@@ -33,17 +33,17 @@ namespace Subsytems.Mcp
                                 await McpManager.Instance.LoadAllServersAsync();
                                 
                                 var connectedServers = McpManager.Instance.GetConnectedServers();
-                                Console.WriteLine($"Successfully reloaded {connectedServers.Count} MCP servers.");
+                                Program.ui.WriteLine($"Successfully reloaded {connectedServers.Count} MCP servers.");
                                 
                                 if (connectedServers.Count > 0)
                                 {
                                     var totalTools = connectedServers.Sum(cs => cs.Tools.Count);
-                                    Console.WriteLine($"Total tools available: {totalTools}");
+                                    Program.ui.WriteLine($"Total tools available: {totalTools}");
                                 }
                             }
                             catch (Exception ex)
                             {
-                                Console.WriteLine($"Error reloading MCP servers: {ex.Message}");
+                                Program.ui.WriteLine($"Error reloading MCP servers: {ex.Message}");
                                 return Command.Result.Failed;
                             }
 
@@ -59,10 +59,10 @@ namespace Subsytems.Mcp
                             var connectedServers = McpManager.Instance.GetConnectedServers();
                             if (connectedServers.Count == 0)
                             {
-                                Console.WriteLine("No MCP servers are currently connected.");
+                                Program.ui.WriteLine("No MCP servers are currently connected.");
                                 return Task.FromResult(Command.Result.Success);
                             }
-                            Console.WriteLine("Creating documentation for MCP servers and tools...");
+                            Program.ui.WriteLine("Creating documentation for MCP servers and tools...");
                             var docPath = Path.Combine(Directory.GetCurrentDirectory(), "mcp_documentation.md");
                             using (var writer = new StreamWriter(docPath, false))
                             {
@@ -102,31 +102,31 @@ namespace Subsytems.Mcp
                             var connectedServers = McpManager.Instance.GetConnectedServers();
                             if (connectedServers.Count == 0)
                             {
-                                Console.WriteLine("No MCP servers are currently connected.");
+                                Program.ui.WriteLine("No MCP servers are currently connected.");
                                 return Task.FromResult(Command.Result.Success);
                             }
 
-                            Console.WriteLine($"Tools from connected MCP servers ({connectedServers.Count} servers):");
+                            Program.ui.WriteLine($"Tools from connected MCP servers ({connectedServers.Count} servers):");
                             foreach (var (serverName, tools) in connectedServers)
                             {
-                                Console.WriteLine($"\n{serverName} ({tools.Count} tools):");
+                                Program.ui.WriteLine($"\n{serverName} ({tools.Count} tools):");
                                 foreach (var tool in tools)
                                 {
-                                    Console.ForegroundColor = ConsoleColor.Yellow;
-                                    Console.WriteLine($"{tool.ToolName}");
-                                    Console.ForegroundColor = ConsoleColor.Gray;
-                                    Console.WriteLine($"    Usage: {tool.Usage}");
-                                    Console.WriteLine($"    Description: {tool.Description}");
-                                    Console.ResetColor();
+                                    Program.ui.ForegroundColor = ConsoleColor.Yellow;
+                                    Program.ui.WriteLine($"{tool.ToolName}");
+                                    Program.ui.ForegroundColor = ConsoleColor.Gray;
+                                    Program.ui.WriteLine($"    Usage: {tool.Usage}");
+                                    Program.ui.WriteLine($"    Description: {tool.Description}");
+                                    Program.ui.ResetColor();
                                     var exmapleText = tool.InputType?.GetCustomAttribute<ExampleText>()?.Text ?? string.Empty;
                                     if (!string.IsNullOrEmpty(exmapleText))
                                     {
                                         exmapleText = exmapleText.Replace("ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.", string.Empty);
-                                        Console.ForegroundColor = ConsoleColor.DarkGray;
-                                        Console.WriteLine($"    Example input:\n{exmapleText}");
-                                        Console.ResetColor();
+                                        Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+                                        Program.ui.WriteLine($"    Example input:\n{exmapleText}");
+                                        Program.ui.ResetColor();
                                     }
-                                    Console.WriteLine("---------------------------------------------------------");
+                                    Program.ui.WriteLine("---------------------------------------------------------");
                                 }
                             }
 
