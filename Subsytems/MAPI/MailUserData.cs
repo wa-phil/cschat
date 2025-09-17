@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-[UserManagedAttribute("Favorite Mail Folder", "Stores user-favorited mail folders for quick access")]
+[UserManagedAttribute("Favorite Mail Folders", "Stores user-favorited mail folders for quick access")]
 public class FavoriteMailFolder
 {
     [UserKey]
@@ -20,7 +20,7 @@ public class FavoriteMailFolder
     public override string ToString() => $"{DisplayName} [{IdOrName}]";
 }
 
-[UserManagedAttribute("Mail Topic", "Keywords and description for topic-based mail summaries")]
+[UserManagedAttribute("Mail Topics", "Keywords and description for topic-based mail summaries")]
 public class MailTopic
 {
     [UserKey]

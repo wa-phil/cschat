@@ -1,6 +1,6 @@
 using System;
 
-[UserManagedAttribute("User Selected Query", "Stores user-selected ADO queries with their names and GUIDs")]
+[UserManagedAttribute("User Selected Queries", "Stores user-selected ADO queries with their names and GUIDs")]
 public class UserSelectedQuery
 {
     [UserKey] // use ID as the logical key for updates

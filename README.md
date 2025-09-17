@@ -340,9 +340,49 @@ To add a new tool, implement the `ITool` interface and and mark it with the IsCo
 
 ---
 
-**Note:** This project is a simple example and does not persist chat history or RAG data between runs. For advanced features, consider extending the codebase.
+## Chat threads and chat commands
+
+CSChat now has managed chat threads and chat-related commands to make conversations forkable, persistent, and easy to navigate.
+
+What changed
+- New user-managed type `ChatThread` (`Chat/ChatThread.cs`) stores simple metadata: `Name`, `Description`, and `LastUsedUtc` for sorting.
+- Chat management logic added in `Chat/ChatManager.cs` to create, save, load, delete, and switch chat threads. Threads are persisted to disk under a configurable root (see settings below).
+- New top-level `chat` command and subcommands implemented in `Chat/ChatCommands.cs`:
+  - `chat new` — fork the current conversation into a new thread (auto-names the thread or uses an LLM suggestion) and switch to a fresh conversation.
+  - `chat switch` — pick an existing thread to switch to; the active thread is saved before switching.
+  - `chat show` — display the current chat history in a readable format.
+  - `chat clear` — clear the in-memory chat history and re-instantiate the system prompt.
+  - `chat default new chat name` — set the default name used when creating new threads.
+
+Usage examples
+- Create a new thread based on the current conversation:
+  - Run the menu and choose `chat -> new` or type `chat new`.
+  - The conversation is saved as a new thread; a fresh thread becomes active.
+- Switch to a previous thread:
+  - Run `chat switch` and select a thread from the menu. The previous active thread is saved automatically.
+- Inspect or clear history:
+  - `chat show` prints the messages in the current active context.
+  - `chat clear` empties the current context and re-applies the system prompt.
+
+Design notes and behavior
+- Thread storage: threads are stored under `Program.config.ChatThreadSettings.RootDirectory` (by default a `.threads` folder next to the app base directory). Each thread has a `chat.json` file holding its messages.
+- Active thread tracking: `Program.config.ChatThreadSettings.ActiveThreadName` records the currently active thread and is persisted via `Config.Save(...)`.
+- Naming: When forking, the system attempts to produce a meaningful name using `ChatManager.NameAndDescribeThread` which can call the model to suggest a name and optional description; `ChatManager.EnsureUniqueThreadName` avoids collisions by appending ` (n)` when needed.
+- Lifecycle: Deleting a thread removes its on-disk files; if the deleted thread was active, a replacement default-named thread is created and switched to.
+- Safe exits: on application exit the code will attempt to save the active thread before terminating.
+
+
+**Note:** This project is a simple example and does not persist RAG data between runs. For advanced features, consider extending the codebase.
 
 ## History
+
+### v0.5 (September 17, 2025)
+- **Chat threads & commands:** Introduced managed chat threads (`ChatThread`) and a `ChatManager` to create, save, load, switch, and delete threads. Added the `chat` command group with `new`, `switch`, `show`, `clear`, and `default new chat name` subcommands to make conversations forkable and persistent.
+- **Config & startup integration:** Added `ChatThreadSettings` to `Config` (root directory, default new-thread name, active thread tracking) and wired thread initialization into startup so the last active thread is loaded automatically.
+- **Thread persistence & storage:** Each thread is persisted on disk (per-thread `chat.json`) under a configurable `.threads` root. Thread lifecycle handles safe deletion along with automatic fallback to a default thread when the active thread is removed.
+- **LLM-assisted naming:** Implemented `ChatManager.NameAndDescribeThread` which can ask the model to propose a concise thread name and optional description; `EnsureUniqueThreadName` avoids naming collisions.
+- **UX & safety:** Active thread is saved on switches and on exit; `chat switch` saves the current active thread before loading another. Exit behavior saves the active thread where possible. `chat clear` preserves the system prompt after clearing history.
+- **Commands refactor & minor improvements:** Organization and various command behaviors were adjusted (exit now attempts to save active thread, system commands gained chat/thread-related settings). Several small attribute and naming normalizations across user-managed types and config were applied.
 
 ### v.04 (July 28, 2025)
 #### MCP Support and code refactoring

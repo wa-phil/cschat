@@ -2,6 +2,13 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 
+public class ChatThreadSettings
+{
+    public string RootDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, ".threads");
+    public string DefaultNewThreadName { get; set; } = "New chat";
+    public string? ActiveThreadName { get; set; }
+}
+
 public class FileFilterRules
 {
     public List<string> Exclude { get; set; } = new();
@@ -66,12 +73,15 @@ public class Config
     public float Temperature { get; set; } = 0.7f;
     public string SystemPrompt { get; set; } = "You are a helpful system agent.  When answering questions, if you do not know the answer, tell the user as much. Always strive to be honest and truthful.  You have access to an array of tools that you can use to get the information you need to help the user. These tools can list the contents of a directory, read metadata about files, read file contents, etc...";
 
+    public string DefaultDirectory { get; set; } = Directory.GetCurrentDirectory();
+
     public RagSettings RagSettings { get; set; } = new RagSettings();
 
     public bool VerboseEventLoggingEnabled { get; set; } = false;
     public int MaxSteps { get; set; } = 25; // Maximum number of steps for planning
     public int MaxMenuItems { get; set; } = 10; // Maximum number of menu items to display at once
 
+    public ChatThreadSettings ChatThreadSettings { get; set; } = new ChatThreadSettings();
     public MailSettings MailSettings { get; set; } = new MailSettings();
 
     public Dictionary<string, bool> EventSources { get; set; } = new Dictionary<string, bool>

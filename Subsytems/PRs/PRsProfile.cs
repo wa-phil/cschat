@@ -4,7 +4,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
-[UserManaged("PRs Profile", "Settings for PR triage and reporting over Azure DevOps pull requests (via 1ES Kusto)")]
+[UserManaged("Pull Request Profiles", "Settings for PR triage and reporting over Azure DevOps pull requests (via 1ES Kusto)")]
 public sealed class PRsProfile
 {
     [UserKey]

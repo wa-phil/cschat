@@ -10,7 +10,7 @@ public enum KustoAuthMode
     managedIdentity,
 }
 
-[UserManaged("Kusto Config", "Connection details and saved queries for a Kusto database")]
+[UserManaged("Kusto Configuration", "Connection details and saved queries for a Kusto database")]
 public sealed class KustoConfig
 {
     [UserKey]

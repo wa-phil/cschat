@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 
-[UserManaged("McpServer", "MCP server definition")]
+[UserManaged("McpServers", "MCP server definition")]
 public class McpServerDefinition
 {
     [DataMember(Name = "name")]
