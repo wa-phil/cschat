@@ -125,8 +125,7 @@ public sealed class PhotinoUi : IUi
 
 				if (File.Exists(IndexHtmlPath))
 				{
-					var uri = new Uri(Path.GetFullPath(IndexHtmlPath));
-					_win.Load(uri.ToString());
+					_win.Load(IndexHtmlPath);
 				}
 
 				_win.RegisterWebMessageReceivedHandler((sender, raw) => HandleInbound(raw));
