@@ -34,4 +34,7 @@ public interface IUi
     void Write(string text);
     void WriteLine(string? text = null);
     void Clear();
+
+    // lets each UI decide how to run/pump itself
+    Task RunAsync(Func<Task> appMain);
 }

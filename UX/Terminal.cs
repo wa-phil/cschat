@@ -401,7 +401,7 @@ public class Terminal : IUi
         while (true)
         {
             key = ReadKey(intercept: true);
-            
+
             if (key.Key == ConsoleKey.Enter)
             {
                 WriteLine();
@@ -425,12 +425,12 @@ public class Terminal : IUi
                     {
                         Write("\b \b");
                     }
-                    
+
                     // Set buffer to last input
                     buffer.Clear();
                     buffer.AddRange(lastInput.ToCharArray());
                     cursor = buffer.Count;
-                    
+
                     // Display the recalled input
                     Write(lastInput);
                 }
@@ -442,20 +442,20 @@ public class Terminal : IUi
                 Write(key.KeyChar.ToString());
             }
         }
-        
+
         var input = new string(buffer.ToArray()).Trim();
-        
+
         // Store the input for history if it's not empty
         if (!string.IsNullOrWhiteSpace(input))
         {
             lastInput = input;
         }
-        
+
         return string.IsNullOrWhiteSpace(input) ? null : input;
     }
 
     public string ReadLine() => Console.ReadLine() ?? string.Empty;
-    
+
     public ConsoleKeyInfo ReadKey(bool intercept) => Console.ReadKey(intercept);
 
     public void RenderChatMessage(ChatMessage message)
@@ -511,24 +511,24 @@ public class Terminal : IUi
     {
         WriteLine("Chat History:");
         WriteLine(new string('-', 50));
-        
+
         foreach (var message in messages)
         {
             // Skip empty system messages in history view
             if (message.Role == Roles.System && string.IsNullOrWhiteSpace(message.Content))
                 continue;
-                
+
             RenderChatMessage(message);
         }
-        
+
         WriteLine(new string('-', 50));
     }
 
     public void BeginUpdate() { }
-    public void EndUpdate() {}
+    public void EndUpdate() { }
 
-    public int CursorTop { get => Console.CursorTop;  }
-    public int CursorLeft { get => Console.CursorLeft;  }    
+    public int CursorTop { get => Console.CursorTop; }
+    public int CursorLeft { get => Console.CursorLeft; }
 
     public int Width { get => Console.WindowWidth; }
 
@@ -540,13 +540,13 @@ public class Terminal : IUi
     public bool IsOutputRedirected { get; } = Console.IsOutputRedirected;
     public void SetCursorPosition(int left, int top) => Console.SetCursorPosition(left, top);
 
-    public ConsoleColor ForegroundColor 
+    public ConsoleColor ForegroundColor
     {
         get => Console.ForegroundColor;
         set => Console.ForegroundColor = value;
     }
 
-    public ConsoleColor BackgroundColor 
+    public ConsoleColor BackgroundColor
     {
         get => Console.BackgroundColor;
         set => Console.BackgroundColor = value;
@@ -558,4 +558,6 @@ public class Terminal : IUi
     public void WriteLine(string? text = null) => Console.WriteLine(text);
 
     public void Clear() => Console.Clear();
+    
+    public Task RunAsync(Func<Task> appMain) => appMain();
 }

@@ -8,7 +8,6 @@ using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text;
 
-
 static class Program
 {
     public static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
@@ -145,6 +144,7 @@ static class Program
         }
     }
 
+    [STAThread]
     static async Task Main(string[] args)
     {
         Program.ui.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
@@ -157,6 +157,7 @@ static class Program
             { "s|system=", "System prompt", v => { if (v != null) config.SystemPrompt = v; } },
             { "p|provider=", "Provider name (default: ollama)", v => { if (v != null) config.Provider = v; } },
             { "e|embedding_model=", "Embedding model for RAG (default: nomic-embed-text)", v => { if (v != null) config.RagSettings.EmbeddingModel = v; } },
+            { "u|ui=", "UI mode: terminal|gui", v => { if (!string.IsNullOrWhiteSpace(v)) config.UiMode = Enum.TryParse<UiMode>(v, true, out var mode) ? mode : UiMode.Terminal; } },
             { "?|help", "Show help", v => showHelp = v != null }
         };
         options.Parse(args);
@@ -166,40 +167,64 @@ static class Program
             return;
         }
 
+        // choose UI
+        switch (config.UiMode)
+        {
+            case UiMode.Terminal:
+                Console.WriteLine("Using terminal UI mode.");
+                ui = new Terminal();
+                break;
+            case UiMode.Gui:
+                Console.WriteLine("Using GUI UI mode.");
+                ui = new PhotinoUi();
+                break;
+            default:
+                ui = new Terminal();
+                break;
+        }
+
         try
         {
             await InitProgramAsync();
 
-            if (string.IsNullOrWhiteSpace(config.Model))
+            // ----- Run the application loop via the UI -----
+            await ui.RunAsync(async () =>
             {
-                var selected = await Engine.SelectModelAsync();
-                if (selected == null) return;
-                config.Model = selected;
-            }
+                if (string.IsNullOrWhiteSpace(config.Model))
+                {
+                    var selected = await Engine.SelectModelAsync();
+                    if (selected == null) return;
+                    config.Model = selected;
+                }
 
-            Config.Save(config, ConfigFilePath);
+                Config.Save(config, ConfigFilePath);
 
-            Program.ui.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-            Program.ui.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
-            Program.ui.WriteLine();
+                ui.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
+                ui.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
+                ui.WriteLine();
 
-            while (true)
-            {
-                Program.ui.Write("> ");
-                var userInput = await ui.ReadInputWithFeaturesAsync(commandManager);
-                if (string.IsNullOrWhiteSpace(userInput)) continue;
+                while (true)
+                {
+                    ui.Write("> ");
+                    var userInput = await ui.ReadInputWithFeaturesAsync(commandManager);
 
-                // Add and render user message with proper formatting
-                Context.AddUserMessage(userInput);
-                var userMessage = Context.Messages().Last(); // Get the message we just added
-                ui.RenderChatMessage(userMessage);
+                    // IMPORTANT: when the Photino window closes, ReadInput... returns null -> exit loop
+                    if (userInput is null) break;
 
-                var (response, updatedContext) = await Engine.PostChatAsync(Context);
-                var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
-                ui.RenderChatMessage(assistantMessage);
-                Context = updatedContext;
-                Context.AddAssistantMessage(response);
-            }
+                    if (string.IsNullOrWhiteSpace(userInput)) continue;
+
+                    // Add and render user message with proper formatting
+                    Context.AddUserMessage(userInput);
+                    var userMessage = Context.Messages().Last(); // Get the message we just added
+                    ui.RenderChatMessage(userMessage);
+
+                    var (response, updatedContext) = await Engine.PostChatAsync(Context);
+                    var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
+                    ui.RenderChatMessage(assistantMessage);
+                    Context = updatedContext;
+                    Context.AddAssistantMessage(response);
+                }
+            });
         }
         catch (Exception ex)
         {

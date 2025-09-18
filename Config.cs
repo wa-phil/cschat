@@ -2,6 +2,12 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 
+public enum UiMode
+{
+    Terminal,
+    Gui
+}
+
 public class ChatThreadSettings
 {
     public string RootDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, ".threads");
@@ -66,6 +72,7 @@ public class MailSettings
 
 public class Config
 {
+    public UiMode UiMode { get; set; } = UiMode.Terminal;
     public string Provider { get; set; } = "Ollama";
     public string Model { get; set; } = string.Empty; // Ensure non-nullable property is initialized
     public string Host { get; set; } = "http://localhost:11434";
