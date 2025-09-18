@@ -207,9 +207,9 @@
 	//(window.external ??= {}).receiveMessage = handle;  // safe even if Photino overwrites later
 
 	// Native WebView2:
-	if (window.chrome?.webview?.addEventListener) {
-		window.chrome.webview.addEventListener('message', e => handle(e.data));
-	}
+	// if (window.chrome?.webview?.addEventListener) {
+	// 	window.chrome.webview.addEventListener('message', e => handle(e.data));
+	// }
 
   function add(kind, text) {
 	const el = document.createElement('pre');
