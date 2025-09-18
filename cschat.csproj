@@ -16,11 +16,15 @@
     <PackageReference Include="Microsoft.TeamFoundationServer.Client" Version="19.225.1" />
     <PackageReference Include="ModelContextProtocol.Core" Version="0.3.0-preview.3" />
     <PackageReference Include="Mono.Options" Version="6.12.0.148" />
-    <PackageReference Include="Photino.NET" Version="3.2.3" />
+    <PackageReference Include="Photino.NET" Version="4.0.16" />
  </ItemGroup>
 
 <PropertyGroup>
   <GeneratedDir>Generated</GeneratedDir>
+</PropertyGroup>
+
+<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+  <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
 </PropertyGroup>
 
 <Target Name="GenerateBuildInfo" BeforeTargets="BeforeBuild">

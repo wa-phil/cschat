@@ -6,7 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using System.Text.Json.Serialization;
+using System.Runtime.InteropServices;
 
 public sealed class PhotinoUi : IUi
 {
@@ -43,181 +43,206 @@ public sealed class PhotinoUi : IUi
     // ----------------- IUi.RunAsync: spin up STA UI thread and pump Photino -----------------
     public async Task RunAsync(Func<Task> appMain)
     {
-      // Start the UI thread (STA) where we will both create the window and call WaitForClose().
-      var uiReady = new ManualResetEventSlim(false);
-      var uiExited = new ManualResetEventSlim(false);
-
-      _uiThread = new Thread(() =>
-      {
-        try
+        var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        if (isWindows)
         {
-          Thread.CurrentThread.Name = "Photino UI";
-          // STA is required by Photino
-          if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
-            Thread.CurrentThread.SetApartmentState(ApartmentState.STA);
+            // --- Windows: run Photino on a dedicated STA UI thread ---
+            var uiReady = new ManualResetEventSlim(false);
+            var uiExited = new ManualResetEventSlim(false);
 
-          _win = new PhotinoWindow()
-                  .SetTitle(_title)
-                  .SetUseOsDefaultSize(true)
-                  .SetResizable(true)
-                  .Center();
+            _uiThread = new Thread(() =>
+            {
+                try
+                {
+                    Thread.CurrentThread.Name = "Photino UI (Windows STA)";
+#if WINDOWS                    
+                    // STA required for COM-based UI plumbing on Windows
+                    // (We are already running on the brand-new thread here.)
+                    if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
+                    {
+                      Thread.CurrentThread.SetApartmentState(ApartmentState.STA);
+                    }
+#endif
+                    _win = new PhotinoWindow()
+                        .SetTitle(_title)
+                        .SetUseOsDefaultSize(true)
+                        .SetResizable(true)
+                        .Center();
 
-          _win.RegisterWindowClosingHandler((s, e) =>
-          {
-              // Do not cancel; just let close proceed, and unblock any awaits.
-              NudgeWaitersAndStop();
-              return false; // do not cancel;
-          });
+                    _win.RegisterWindowClosingHandler((s, e) => { NudgeWaitersAndStop(); return false; });
 
-          // Load HTML
-          if (File.Exists(IndexHtmlPath))
-            _win.Load(new Uri("file://" + IndexHtmlPath).ToString());
-          else
-            _win.LoadRawString(MinimalHtml);
+                    if (File.Exists(IndexHtmlPath))
+                        _win.Load(new Uri("file://" + IndexHtmlPath).ToString());
+                    else
+                        _win.LoadRawString(MinimalHtml);
 
-          // Inbound messages from JS
-          _win.RegisterWebMessageReceivedHandler((sender, raw) =>
-          {
+                    _win.RegisterWebMessageReceivedHandler((sender, raw) => HandleInbound(raw));
+
+                    _uiAlive = true;
+                    uiReady.Set();
+                    _win.WaitForClose();
+                }
+                finally
+                {
+                    NudgeWaitersAndStop();
+                    _uiAlive = false;
+                    uiExited.Set();
+                }
+            });
+
+            _uiThread.IsBackground = false;
+            // Important: Set STA **before** Start on Windows to avoid races
+#if WINDOWS            
+            _uiThread.SetApartmentState(ApartmentState.STA);
+#endif
+            _uiThread.Start();
+
+            uiReady.Wait();
+            var appTask = Task.Run(appMain);
+
+            uiExited.Wait();
+            await appTask;
+        }
+        else
+        {
+            // --- macOS/Linux: run Photino on the **main thread** ---
+            // We are already on the process' main thread here (Program.Main).
+            // Move your app loop to a worker so the UI thread can block in WaitForClose().
+            var appTask = Task.Run(appMain);
+
             try
             {
-                if (!_ready) { _ready = true; SafeFlush(); }
+                Thread.CurrentThread.Name = "Photino UI (Main thread)";
 
-                // raw is a JSON string from JS
-                var map = JSONParser.FromJson<Dictionary<string, object?>>(raw);
-                if (map is null) return;
+                _win = new PhotinoWindow()
+                    .SetTitle(_title)
+                    .SetUseOsDefaultSize(true)
+                    .SetResizable(true)
+                    .Center();
 
-                string? S(params string[] keys)
-                {
-                    foreach (var k in keys) if (map.TryGetValue(k, out var v) && v is not null) return Convert.ToString(v);
-                    return null;
-                }
-                bool B(params string[] keys)
-                {
-                    foreach (var k in keys)
-                    {
-                        if (map.TryGetValue(k, out var v) && v is not null)
-                        {
-                            if (v is bool b) return b;
-                            if (bool.TryParse(Convert.ToString(v), out var bb)) return bb;
-                        }
-                    }
-                    return false;
-                }
-                int I(params string[] keys)
-                {
-                    foreach (var k in keys)
-                    {
-                        if (map.TryGetValue(k, out var v) && v is not null &&
-                            int.TryParse(Convert.ToString(v), out var ii)) return ii;
-                    }
-                    return 0;
-                }
+                _win.RegisterWindowClosingHandler((s, e) => { NudgeWaitersAndStop(); return false; });
 
-                var type = S("type", "Type");
-                if (string.IsNullOrWhiteSpace(type)) return;
+                if (File.Exists(IndexHtmlPath))
+                    _win.Load(new Uri("file://" + IndexHtmlPath).ToString());
+                else
+                    _win.LoadRawString(MinimalHtml);
 
-                switch (type)
-                {
-                    case "UserText":
-                        _tcsReadLine?.TrySetResult(S("text", "Text"));
-                        if (!string.IsNullOrWhiteSpace(S("text", "Text")))
-                            _lastInput = S("text", "Text");
-                        break;
+                _win.RegisterWebMessageReceivedHandler((sender, raw) => HandleInbound(raw));
 
-                    case "MenuResult":
-                        _tcsMenu?.TrySetResult(S("text", "Text"));
-                        break;
+                _uiAlive = true;
 
-                    case "Key":
-                    {
-                        var key  = S("key",  "Key");
-                        var chr  = S("char", "Char");
-                        var cki = MapToConsoleKeyInfo(key, chr, B("shift","Shift"), B("ctrl","Ctrl"), B("alt","Alt"));
-                        _tcsKey?.TrySetResult(cki);
-                        break;
-                    }
-
-                    case "Resize":
-                        var w = I("width","Width"); if (w > 0) _width = w;
-                        var h = I("height","Height"); if (h > 0) _height = h;
-                        break;
-
-                    // ignore unknowns
-                }
+                // Block the main thread here per AppKit/GTK rules
+                _win.WaitForClose();
             }
-            catch
+            finally
             {
-                // swallow malformed payloads
+                NudgeWaitersAndStop();
+                _uiAlive = false;
+                await appTask;
             }
-          });
+        }
+    }
+    
+    private void HandleInbound(string raw)
+    {
+        try
+        {
+            if (!_ready) { _ready = true; SafeFlush(); }
 
-          _uiAlive = true;
-          uiReady.Set();
+            var map = JSONParser.FromJson<Dictionary<string, object?>>(raw);
+            if (map is null) return;
 
-          // This must run on the same thread that created the window.
-          _win.WaitForClose();
+            string? S(params string[] keys)
+            {
+                foreach (var k in keys) if (map.TryGetValue(k, out var v) && v is not null) return Convert.ToString(v);
+                return null;
+            }
+            bool B(params string[] keys)
+            {
+                foreach (var k in keys)
+                {
+                    if (map.TryGetValue(k, out var v) && v is not null)
+                    {
+                        if (v is bool b) return b;
+                        if (bool.TryParse(Convert.ToString(v), out var bb)) return bb;
+                    }
+                }
+                return false;
+            }
+            int I(params string[] keys)
+            {
+                foreach (var k in keys)
+                {
+                    if (map.TryGetValue(k, out var v) && v is not null &&
+                        int.TryParse(Convert.ToString(v), out var ii)) return ii;
+                }
+                return 0;
+            }
+
+            var type = S("type", "Type");
+            if (string.IsNullOrWhiteSpace(type)) return;
+
+            switch (type)
+            {
+                case "UserText":
+                    _tcsReadLine?.TrySetResult(S("text", "Text"));
+                    if (!string.IsNullOrWhiteSpace(S("text", "Text")))
+                        _lastInput = S("text", "Text");
+                    break;
+
+                case "MenuResult":
+                    _tcsMenu?.TrySetResult(S("text", "Text"));
+                    break;
+
+                case "Key":
+                {
+                    var key  = S("key",  "Key");
+                    var chr  = S("char", "Char");
+                    var cki = MapToConsoleKeyInfo(key, chr, B("shift","Shift"), B("ctrl","Ctrl"), B("alt","Alt"));
+                    _tcsKey?.TrySetResult(cki);
+                    break;
+                }
+
+                case "Resize":
+                    var w = I("width","Width"); if (w > 0) _width = w;
+                    var h = I("height","Height"); if (h > 0) _height = h;
+                    break;
+            }
         }
         catch
         {
-          // If Photino throws, make sure waiters get nudged so the app can unwind.
-          _tcsReadLine?.TrySetResult(null);
-          _tcsMenu?.TrySetResult(null);
-          _tcsKey?.TrySetResult(new ConsoleKeyInfo('\0', ConsoleKey.Escape, false, false, false));
-          throw;
+            // swallow malformed payloads
         }
-        finally
-        {
-          NudgeWaitersAndStop();   
-          _uiAlive = false;
-          uiExited.Set();
-      }
-      });
-
-      _uiThread.SetApartmentState(ApartmentState.STA);
-      _uiThread.IsBackground = false; // keep process alive while window is open
-      _uiThread.Start();
-
-      // Wait until UI is ready enough to accept messages.
-      uiReady.Wait();
-
-      // Run your app loop on a worker.
-      var appTask = Task.Run(appMain);
-
-      // Block here until the UI exits.
-      uiExited.Wait();
-
-      // Let the app loop clean up / finish.
-      await appTask;
-    }
+    }    
 
     // ----------------- Input -----------------
 
-    public async Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager)
+  public async Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager)
+  {
+    _tcsReadLine = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    Post(new { type = "FocusInput" });
+
+    // ESC opens menu (non-blocking)
+    _ = Task.Run(async () =>
     {
-        _tcsReadLine = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        Post(new { type = "FocusInput" });
-
-        // ESC opens menu (non-blocking)
-        _ = Task.Run(async () =>
+      var keyWait = ReadKeyInternalAsync(intercept: true);
+      while (_uiAlive)
+      {
+        var k = await keyWait;
+        if (k.Key == ConsoleKey.Escape)
         {
-            var keyWait = ReadKeyInternalAsync(intercept: true);
-            while (_uiAlive)
-            {
-                var k = await keyWait;
-                if (k.Key == ConsoleKey.Escape)
-                {
-                    var result = await commandManager.Action();
-                    if (result == Command.Result.Failed) WriteLine("Command failed.");
-                    Post(new { type = "ShowToast", text = "[press ESC to open menu]" });
-                    Post(new { type = "FocusInput" });
-                }
-                keyWait = ReadKeyInternalAsync(intercept: true);
-            }
-        });
+          var result = await commandManager.Action();
+          if (result == Command.Result.Failed) WriteLine("Command failed.");
+          Post(new { type = "ShowToast", text = "[press ESC to open menu]" });
+          Post(new { type = "FocusInput" });
+        }
+        keyWait = ReadKeyInternalAsync(intercept: true);
+      }
+    });
 
-        var text = await _tcsReadLine.Task;  // null when window closes
-        return string.IsNullOrWhiteSpace(text) ? null : text;
-    }
+    var text = await _tcsReadLine.Task;  // null when window closes
+    return string.IsNullOrWhiteSpace(text) ? null : text;
+  }
 
     public async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
     {

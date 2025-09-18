@@ -185,11 +185,11 @@ static class Program
 
         try
         {
-            await InitProgramAsync();
-
             // ----- Run the application loop via the UI -----
             await ui.RunAsync(async () =>
             {
+                await InitProgramAsync();
+
                 if (string.IsNullOrWhiteSpace(config.Model))
                 {
                     var selected = await Engine.SelectModelAsync();
