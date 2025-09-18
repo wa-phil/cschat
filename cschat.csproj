@@ -78,6 +78,10 @@
   <Compile Remove="BuildInfo.template.cs" />
   <Compile Remove="unittests\**\*.cs" />
   <Compile Include="$(GeneratedDir)\BuildInfo.cs" />
+  <Compile Remove="UX\wwwroot\**" />
+  <None Update="UX\wwwroot\**">
+    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+  </None>  
 </ItemGroup>
 
 

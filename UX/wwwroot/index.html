@@ -1,0 +1,250 @@
+<!doctype html>
+<html>
+<head>
+<meta charset='utf-8'/>
+<title>CSChat</title>
+<style>
+  :root { --bg:#111; --fg:#eee; }
+  body { font-family: system-ui, sans-serif; margin:0; height:100vh; display:grid; grid-template-rows:auto 1fr auto; }
+  header { padding: 8px 12px; background:var(--bg); color:var(--fg); }
+  #main  { display:flex; flex-direction:column; }
+  #console { flex:1; overflow:auto; padding:12px; white-space:pre-wrap;
+             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
+  #composer { display:flex; padding:8px; gap:8px; border-top:1px solid #ddd; }
+  #t { flex:1; padding:8px; font: inherit; }
+  pre { margin:0 0 8px 0; white-space:pre-wrap; }
+  .user { color:#08f; } .assistant { color:#0a0; } .tool { color:#aa0 } .system { color:#666; }	
+	#menuOverlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:grid; place-items:center; z-index:9999; }
+	#menuOverlay[hidden] { display: none !important; }
+	#menuPanel   { width:min(760px, 92vw); max-height:min(70vh, 600px); background:#fff; color:#000; border-radius:10px;
+								box-shadow:0 20px 50px rgba(0,0,0,.35); display:grid; grid-template-rows:auto auto 1fr auto; overflow:hidden; }
+	#menuHeader  { padding:12px 14px; font-weight:600; background:#111; color:#eee; }
+	#menuFilter  { margin:10px; padding:10px; font:inherit; border:1px solid #ccc; border-radius:8px; }
+	#menuList    { list-style:none; margin:0; padding:6px 8px 12px 8px; overflow:auto; }
+	#menuList li { padding:8px 10px; border-radius:8px; }
+	#menuList li[data-active="true"] { background:#111; color:#fff; }
+	#menuHint    { padding:8px 12px; font-size:.9em; color:#444; border-top:1px solid #eee; background:#fafafa; }
+</style>
+<body>
+  <header>CSChat</header>
+  <div id='main'>
+    <div id='console'></div> <!-- big scrollable console/log -->
+  </div>
+  <div id='composer'>
+    <input id='t' placeholder='Type and press Enter'/>
+    <button id='send'>Send</button>
+  </div>
+	<!-- MENU OVERLAY -->
+	<div id="menuOverlay" hidden>
+		<div id="menuPanel">
+			<div id="menuHeader"></div>
+			<input id="menuFilter" placeholder="[filter]" autocomplete="off" />
+			<ul id="menuList"></ul>
+			<div id="menuHint">↑/↓ select • Enter choose • Esc back/cancel</div>
+		</div>
+	</div>
+<script>
+  const consoleEl = document.getElementById('console');
+  const t = document.getElementById('t');
+  const send = document.getElementById('send');
+
+  function post(obj) { try { window.external?.sendMessage?.(JSON.stringify(obj)); } catch {} }
+  function cwrite(s){ consoleEl.textContent += (s ?? ''); consoleEl.scrollTop = consoleEl.scrollHeight; }
+  function cwriteline(s){ cwrite((s ?? '') + '\n'); }
+
+	// --- menu controller ---------------------------------------------------------
+	const menuOverlay = document.getElementById('menuOverlay');
+	const menuHeader  = document.getElementById('menuHeader');
+	const menuFilter  = document.getElementById('menuFilter');
+	const menuList    = document.getElementById('menuList');
+
+	let menuState = null;         // { header, choices, filtered, idx }
+	const menuStack = [];         // for Esc "back"
+
+	function openMenu(payload) {
+		// Push current state if we are already in a menu (for nested menus)
+		if (menuState) menuStack.push(structuredClone(menuState));
+
+		menuState = {
+			header: payload.header || 'Menu',
+			choices: (payload.choices || []).slice(),
+			filtered: (payload.choices || []).slice(),
+			idx: Math.min(Math.max(0, payload.selected|0), (payload.choices||[]).length-1)
+		};
+
+		menuHeader.textContent = menuState.header;
+		menuFilter.value = '';
+		renderMenu();
+		menuOverlay.hidden = false;
+
+		// Trap focus & keystrokes while menu is open
+		menuOverlay.hidden = false;
+		document.body.style.overflow = 'hidden';
+		t.disabled = true;		
+		menuFilter.focus();
+	}
+
+	function closeMenu(sendResult /* string|null|undefined */) {
+		menuOverlay.hidden = true;
+
+		if (sendResult !== undefined) {
+			// Post selection/cancel to host so RenderMenu(...) can return synchronously.
+			post({ type:'MenuResult', text: sendResult ?? null });
+		}
+		// Always restore focus to composer
+		menuOverlay.hidden = true;
+		document.body.style.overflow = '';
+		t.disabled = false;
+		if (result !== undefined) post({ type:'MenuResult', text: result ?? null });		
+		t.focus();
+	}
+
+	function renderMenu() {
+		const q = menuFilter.value.trim().toLowerCase();
+		menuState.filtered = q
+			? menuState.choices.filter(c => c.toLowerCase().includes(q))
+			: menuState.choices.slice();
+
+		if (menuState.filtered.length === 0) menuState.idx = 0;
+		else if (menuState.idx >= menuState.filtered.length) menuState.idx = menuState.filtered.length - 1;
+
+		// (re)build list
+		menuList.innerHTML = '';
+		const frag = document.createDocumentFragment();
+		menuState.filtered.forEach((c, i) => {
+			const li = document.createElement('li');
+			li.textContent = (menuState.filtered.length <= 9 ? `[${i+1}] ` : '') + c;
+			li.dataset.active = (i === menuState.idx ? 'true' : 'false');
+			li.onclick = () => { menuState.idx = i; chooseActive(); };
+			frag.appendChild(li);
+		});
+		menuList.appendChild(frag);
+
+		// Keep active item visible
+		const active = menuList.querySelector('li[data-active="true"]');
+		if (active) {
+			const r = active.getBoundingClientRect();
+			const pr = menuList.getBoundingClientRect();
+			if (r.top < pr.top) menuList.scrollTop += r.top - pr.top;
+			else if (r.bottom > pr.bottom) menuList.scrollTop += r.bottom - pr.bottom;
+		}
+	}
+
+	function chooseActive() {
+		const items = menuState.filtered;
+		const chosen = (items.length > 0) ? items[menuState.idx] : null;
+		// Clear stack on final choose
+		menuStack.length = 0;
+		closeMenu(chosen);
+	}
+
+	// Filter typing
+	menuFilter.addEventListener('input', renderMenu);
+
+	// Keyboard in the menu
+	menuOverlay.addEventListener('keydown', (e) => {
+		// Prevent these from leaking to the host while overlay is open
+		if (['ArrowUp','ArrowDown','PageUp','PageDown','Home','End','Escape','Enter'].includes(e.key)) {
+			e.stopPropagation(); e.preventDefault();
+		}
+		const len = menuState.filtered.length;
+		switch (e.key) {
+			case 'ArrowUp':   if (len) menuState.idx = Math.max(0, menuState.idx-1); renderMenu(); break;
+			case 'ArrowDown': if (len) menuState.idx = Math.min(len-1, menuState.idx+1); renderMenu(); break;
+			case 'PageUp':    if (len) menuState.idx = Math.max(0, menuState.idx-10);  renderMenu(); break;
+			case 'PageDown':  if (len) menuState.idx = Math.min(len-1, menuState.idx+10); renderMenu(); break;
+			case 'Home':      if (len) menuState.idx = 0;            renderMenu(); break;
+			case 'End':       if (len) menuState.idx = len-1;        renderMenu(); break;
+			case 'Enter':     chooseActive(); break;
+			case 'Escape':
+				if (menuStack.length > 0) {
+					// Go "back" to previous menu
+					menuState = menuStack.pop();
+					menuHeader.textContent = menuState.header;
+					menuFilter.value = '';
+					renderMenu();
+					menuFilter.focus();
+				} else {
+					// Cancel this menu entirely
+					closeMenu(null);
+				}
+				break;
+		}
+	});
+
+	// Close if user clicks outside the panel
+	menuOverlay.addEventListener('click', (e) => {
+		if (e.target === menuOverlay) closeMenu(null);
+	});
+	// --- end menu controller ------------------------------------------------------
+
+  // --- unified handler for ANY host→page message ---
+  function handle(raw) {
+    try {
+      //cwriteline("RX: " + (typeof raw === 'string' ? raw : JSON.stringify(raw)));
+      const msg = (typeof raw === 'string') ? JSON.parse(raw) : raw;
+      if (!msg || !msg.type) return;
+
+      switch (msg.type) {
+        case 'AppendMessage': add((msg.role||'').toLowerCase(), `[${msg.role}] ${msg.content||''}`); break;
+        case 'RenderHistory': consoleEl.innerHTML=''; (msg.items||[]).forEach(x=>add((x.role||'').toLowerCase(), `[${x.role}] ${x.content||''}`)); break;
+        case 'ConsoleWrite': cwrite(msg.text||''); break;
+        case 'ConsoleWriteLine': cwriteline(msg.text||''); break;
+        case 'ShowMenu': openMenu(msg); break;
+        case 'PromptLine': post({ type:'UserText', text: prompt('Input:', msg.placeholder||'') || '' }); break;
+        case 'PromptPath': post({ type:'UserText', text: prompt('Path:', '') || '' }); break;
+        case 'FocusInput': t.focus(); break;
+        case 'BeginBatch': break;
+        case 'Clear': consoleEl.innerHTML=''; break;
+        case 'ShowToast': cwriteline(msg.text||''); break;
+      }
+    } catch (e) {
+      cwriteline(`RX error: ${e.message}`);
+    }
+  }
+
+  // --- wire BOTH channels so we always receive ---
+  // Photino shim:
+  (window.external ??= {}).receiveMessage = handle;  // safe even if Photino overwrites later
+  // Native WebView2:
+  if (window.chrome?.webview?.addEventListener) {
+    window.chrome.webview.addEventListener('message', e => handle(e.data));
+  }
+
+  function add(kind, text) {
+    const el = document.createElement('pre');
+    el.className = kind;
+    el.textContent = text;
+    consoleEl.appendChild(el);
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+  }
+
+  function submit() {
+    const v = t.value.trim();
+    if (!v) return;
+    post({ type:'UserText', text:v });
+    t.value = '';
+  }
+  send.onclick = submit;
+
+  t.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+    else post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
+  });
+  document.addEventListener('keydown', (e) => {
+		if (!menuOverlay.hidden) return;           // menu open → ignore
+    if (e.target === t && e.key === 'Enter' && !e.shiftKey) return;
+    post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
+  });
+
+  // Initial ping → enables .NET flush
+  const ping = () => post({ type:'Resize', width: Math.floor(window.innerWidth/8), height: Math.floor(window.innerHeight/18) });
+  new ResizeObserver(ping).observe(document.body);
+  ping();
+
+  cwriteline("HTML build: 2025-09-18 14:XX (expect RX echoes)");
+  cwriteline('UI ready...');
+  t.focus();
+</script>
+</body>
+</html>
