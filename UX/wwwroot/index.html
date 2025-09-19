@@ -6,7 +6,6 @@
 <style>
 	:root { --bg:#111; --fg:#eee; }
 	body { font-family: system-ui, sans-serif; margin:0; height:100vh; display:grid; grid-template-rows:auto 1fr auto; }
-	header { padding: 8px 12px; background:var(--bg); color:var(--fg); }
 	#main  { display:flex; flex-direction:column; }
 	#console { flex:1; overflow:auto; padding:12px; white-space:pre-wrap;
 				font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
@@ -14,19 +13,87 @@
 	#t { flex:1; padding:8px; font: inherit; }
 	pre { margin:0 0 8px 0; white-space:pre-wrap; }
 	.user { color:#08f; } .assistant { color:#0a0; } .tool { color:#aa0 } .system { color:#666; }	
-	#menuOverlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:grid; place-items:center; z-index:9999; }
-	#menuOverlay[hidden] { display: none !important; }
-	#menuPanel   { width:min(760px, 92vw); max-height:min(70vh, 600px); background:#fff; color:#000; border-radius:10px;
-				box-shadow:0 20px 50px rgba(0,0,0,.35); display:grid; grid-template-rows:auto auto 1fr auto; overflow:hidden; }
+	#menuOverlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0,0,0,.0); /* transparent so clicks can still close if desired */
+		pointer-events: none;         /* disabled when menu is closed */
+		z-index: 9999;
+	}
+
+	#menuPanel {
+		position: absolute;
+		top: -90%; /* mostly hidden above */
+		left: 50%;
+		transform: translateX(-50%);
+		width: min(760px, 92vw);
+		max-height: min(70vh, 600px);
+		background: #fff;
+		color: #000;
+		border-radius: 0 0 10px 10px;
+		box-shadow: 0 20px 50px rgba(0,0,0,.35);
+		display: grid;
+		grid-template-rows: auto auto 1fr auto;
+		overflow: hidden;
+		transition: top 0.3s ease-in-out;
+	}
+
+	/* active state (pulled down) */
+	#menuOverlay.active { pointer-events: auto; }
+	#menuOverlay.active #menuPanel { top: 0; /* slide down into view */ }
+
+	/* menu item add/remove animation styles */
+	#menuList li {
+		padding: 8px 10px;
+		border-radius: 8px;
+		opacity: 1;
+		transform: translateY(0);
+		transition: opacity 0.2s ease, transform 0.2s ease;
+	}
+
+	#menuList li.fade-out {
+		opacity: 0;
+		transform: translateY(-10px);
+	}
+
+	#menuList li.fade-in {
+		opacity: 0;
+		transform: translateY(10px);
+		animation: fadeInMove 0.2s forwards;
+	}
+
+	@keyframes fadeInMove {
+		to { opacity: 1; transform: translateY(0); }
+	}
+
 	#menuHeader { padding:12px 14px; font-weight:600; background:#111; color:#eee; }
 	#menuFilter { margin:10px; padding:10px; font:inherit; border:1px solid #ccc; border-radius:8px; }
 	#menuList { list-style:none; margin:0; padding:6px 8px 12px 8px; overflow:auto; }
 	#menuList li { padding:8px 10px; border-radius:8px; }
 	#menuList li[data-active="true"] { background:#111; color:#fff; }
 	#menuHint { padding:8px 12px; font-size:.9em; color:#444; border-top:1px solid #eee; background:#fafafa; }
+
+	#menuTab {
+	position: fixed;
+	top: 0;
+	left: 50%;
+	transform: translateX(-50%);
+	background: #111;
+	color: #eee;
+	padding: 4px 10px;
+	font-size: 0.85em;
+	border-radius: 0 0 6px 6px;
+	cursor: pointer;
+	z-index: 9998;
+	}
+
+	#menuOverlay.active ~ #menuTab {
+	display: none;
+	}
 </style>
 <body>
-  <header>CSChat</header>
+  <header></header>
+  <div id="menuTab">press ESC key to open</div>
   <div id='main'>
 	<div id='console'></div> <!-- big scrollable console/log -->
   </div>
@@ -44,13 +111,13 @@
 		</div>
 	</div>
 <script>
-  const consoleEl = document.getElementById('console');
-  const t = document.getElementById('t');
-  const send = document.getElementById('send');
+	const consoleEl = document.getElementById('console');
+	const t = document.getElementById('t');
+	const send = document.getElementById('send');
 
-  function post(obj) { try { window.external?.sendMessage?.(JSON.stringify(obj)); } catch {} }
-  function cwrite(s){ consoleEl.textContent += (s ?? ''); consoleEl.scrollTop = consoleEl.scrollHeight; }
-  function cwriteline(s){ cwrite((s ?? '') + '\n'); }
+	function post(obj) { try { window.external?.sendMessage?.(JSON.stringify(obj)); } catch {} }
+	function cwrite(s){ consoleEl.textContent += (s ?? ''); consoleEl.scrollTop = consoleEl.scrollHeight; }
+	function cwriteline(s){ cwrite((s ?? '') + '\n'); }
 
 	// --- menu controller ---------------------------------------------------------
 	const menuOverlay = document.getElementById('menuOverlay');
@@ -59,12 +126,12 @@
 	const menuList    = document.getElementById('menuList');
 
 	let menuState = null;         // { header, choices, filtered, idx }
-	const menuStack = [];         // for Esc "back"
+
+	document.getElementById('menuTab').onclick = () => {
+		post({ type:'Key', key:'Escape' }); // mimic ESC keypress to open menu
+	};
 
 	function openMenu(payload) {
-		// Push current state if we are already in a menu (for nested menus)
-		if (menuState) menuStack.push(structuredClone(menuState));
-
 		menuState = {
 			header: payload.header || 'Menu',
 			choices: (payload.choices || []).slice(),
@@ -76,15 +143,16 @@
 		menuFilter.value = '';
 		renderMenu();
 		menuOverlay.hidden = false;
-
+		menuOverlay.classList.add('active');
 		// Trap focus & keystrokes while menu is open
 		menuOverlay.hidden = false;
 		document.body.style.overflow = 'hidden';
-		t.disabled = true;		
+		t.disabled = true;
 		menuFilter.focus();
 	}
 
-	function closeMenu(sendResult /* string|null|undefined */) {
+	function closeMenu(sendResult) {
+		menuOverlay.classList.remove('active');
 		menuOverlay.hidden = true;
 
 		if (sendResult !== undefined) {
@@ -99,26 +167,53 @@
 
 	function renderMenu() {
 		const q = menuFilter.value.trim().toLowerCase();
-		menuState.filtered = q
+		const newItems = q
 			? menuState.choices.filter(c => c.toLowerCase().includes(q))
 			: menuState.choices.slice();
 
+		// Keep filtered in sync for chooseActive()
+		menuState.filtered = newItems;
+
+		// Clamp idx if needed
 		if (menuState.filtered.length === 0) menuState.idx = 0;
 		else if (menuState.idx >= menuState.filtered.length) menuState.idx = menuState.filtered.length - 1;
 
-		// (re)build list
-		menuList.innerHTML = '';
-		const frag = document.createDocumentFragment();
-		menuState.filtered.forEach((c, i) => {
-			const li = document.createElement('li');
-			li.textContent = (menuState.filtered.length <= 9 ? `[${i+1}] ` : '') + c;
-			li.dataset.active = (i === menuState.idx ? 'true' : 'false');
-			li.onclick = () => { menuState.idx = i; chooseActive(); };
-			frag.appendChild(li);
-		});
-		menuList.appendChild(frag);
+		const oldLis   = [...menuList.querySelectorAll('li')];
+		const oldTexts = oldLis.map(li => li.dataset.value);
 
-		// Keep active item visible
+		// Fade-out removes
+		oldLis.forEach(li => {
+			if (!newItems.includes(li.dataset.value)) {
+				li.classList.add('fade-out');
+				setTimeout(() => li.remove(), 200);
+			}
+		});
+
+		// Add missing items (fade-in)
+		newItems.forEach((c, i) => {
+			if (!oldTexts.includes(c)) {
+				const li = document.createElement('li');
+				li.dataset.value = c;  // stable key
+				li.textContent = c;
+				li.classList.add('fade-in');
+				li.onclick = () => { menuState.idx = i; chooseActive(); };
+				menuList.appendChild(li);
+			}
+		});
+
+		// Reindex & active state on all survivors (order matters)
+		const lis = [...menuList.querySelectorAll('li')];
+		lis.sort((a,b) => newItems.indexOf(a.dataset.value) - newItems.indexOf(b.dataset.value))
+			.forEach((li, i) => {
+				// normalize label
+				li.textContent = li.dataset.value;
+				// active row
+				li.dataset.active = (i === menuState.idx ? 'true' : 'false');
+				// click maps to current index
+				li.onclick = () => { menuState.idx = i; chooseActive(); };
+			});
+
+		// keep active visible
 		const active = menuList.querySelector('li[data-active="true"]');
 		if (active) {
 			const r = active.getBoundingClientRect();
@@ -131,8 +226,6 @@
 	function chooseActive() {
 		const items = menuState.filtered;
 		const chosen = (items.length > 0) ? items[menuState.idx] : null;
-		// Clear stack on final choose
-		menuStack.length = 0;
 		closeMenu(chosen);
 	}
 
@@ -154,19 +247,7 @@
 			case 'Home':      if (len) menuState.idx = 0;            renderMenu(); break;
 			case 'End':       if (len) menuState.idx = len-1;        renderMenu(); break;
 			case 'Enter':     chooseActive(); break;
-			case 'Escape':
-				if (menuStack.length > 0) {
-					// Go "back" to previous menu
-					menuState = menuStack.pop();
-					menuHeader.textContent = menuState.header;
-					menuFilter.value = '';
-					renderMenu();
-					menuFilter.focus();
-				} else {
-					// Cancel this menu entirely
-					closeMenu(null);
-				}
-				break;
+			case 'Escape':    closeMenu(null); break; // close this menu, let host know it was cancelled
 		}
 	});
 
