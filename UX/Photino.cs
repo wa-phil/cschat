@@ -365,19 +365,19 @@ public sealed class PhotinoUi : IUi
 
 		var parsed = (key ?? string.Empty) switch
 		{
-			"Enter" => ConsoleKey.Enter,
-			"Escape" => ConsoleKey.Escape,
-			"Backspace" => ConsoleKey.Backspace,
-			"Tab" => ConsoleKey.Tab,
-			"Up" or "ArrowUp" => ConsoleKey.UpArrow,
-			"Down" or "ArrowDown" => ConsoleKey.DownArrow,
-			"Left" or "ArrowLeft" => ConsoleKey.LeftArrow,
+			"Enter"                 => ConsoleKey.Enter,
+			"Escape"                => ConsoleKey.Escape,
+			"Backspace"             => ConsoleKey.Backspace,
+			"Tab"                   => ConsoleKey.Tab,
+			"Up" or "ArrowUp"       => ConsoleKey.UpArrow,
+			"Down" or "ArrowDown"   => ConsoleKey.DownArrow,
+			"Left" or "ArrowLeft"   => ConsoleKey.LeftArrow,
 			"Right" or "ArrowRight" => ConsoleKey.RightArrow,
-			"Home" => ConsoleKey.Home,
-			"End" => ConsoleKey.End,
-			"PageUp" => ConsoleKey.PageUp,
-			"PageDown" => ConsoleKey.PageDown,
-			"Delete" => ConsoleKey.Delete,
+			"Home"                  => ConsoleKey.Home,
+			"End"                   => ConsoleKey.End,
+			"PageUp"                => ConsoleKey.PageUp,
+			"PageDown"              => ConsoleKey.PageDown,
+			"Delete"                => ConsoleKey.Delete,
 			_ when !string.IsNullOrEmpty(key) && key!.Length == 1 &&
 					Enum.TryParse<ConsoleKey>(key.ToUpper(), out var pk) => pk,
 			_ => default

@@ -74,21 +74,21 @@
 	#menuHint { padding:8px 12px; font-size:.9em; color:#444; border-top:1px solid #eee; background:#fafafa; }
 
 	#menuTab {
-	position: fixed;
-	top: 0;
-	left: 50%;
-	transform: translateX(-50%);
-	background: #111;
-	color: #eee;
-	padding: 4px 10px;
-	font-size: 0.85em;
-	border-radius: 0 0 6px 6px;
-	cursor: pointer;
-	z-index: 9998;
+		position: fixed;
+		top: 0;
+		left: 50%;
+		transform: translateX(-50%);
+		background: #111;
+		color: #eee;
+		padding: 4px 10px;
+		font-size: 0.85em;
+		border-radius: 0 0 6px 6px;
+		cursor: pointer;
+		z-index: 9998;
 	}
 
 	#menuOverlay.active ~ #menuTab {
-	display: none;
+		display: none;
 	}
 </style>
 <body>
@@ -257,74 +257,67 @@
 	});
 	// --- end menu controller ------------------------------------------------------
 
-  // --- unified handler for ANY host→page message ---
-  function handle(raw) {
-	try {
-	  //cwriteline("RX: " + (typeof raw === 'string' ? raw : JSON.stringify(raw)));
-	  const msg = (typeof raw === 'string') ? JSON.parse(raw) : raw;
-	  if (!msg || !msg.type) return;
+	// --- unified handler for ANY host→page message ---
+	function handle(raw) {
+		try {
+			//cwriteline("RX: " + (typeof raw === 'string' ? raw : JSON.stringify(raw)));
+			const msg = (typeof raw === 'string') ? JSON.parse(raw) : raw;
+			if (!msg || !msg.type) return;
 
-	  switch (msg.type) {
-		case 'AppendMessage': add((msg.role||'').toLowerCase(), `[${msg.role}] ${msg.content||''}`); break;
-		case 'RenderHistory': consoleEl.innerHTML=''; (msg.items||[]).forEach(x=>add((x.role||'').toLowerCase(), `[${x.role}] ${x.content||''}`)); break;
-		case 'ConsoleWrite': cwrite(msg.text||''); break;
-		case 'ConsoleWriteLine': cwriteline(msg.text||''); break;
-		case 'ShowMenu': openMenu(msg); break;
-		case 'PromptLine': post({ type:'UserText', text: prompt('Input:', msg.placeholder||'') || '' }); break;
-		case 'PromptPath': post({ type:'UserText', text: prompt('Path:', '') || '' }); break;
-		case 'FocusInput': t.focus(); break;
-		case 'BeginBatch': break;
-		case 'Clear': consoleEl.innerHTML=''; break;
-		case 'ShowToast': cwriteline(msg.text||''); break;
-	  }
-	} catch (e) {
-	  cwriteline(`RX error: ${e.message}`);
+			switch (msg.type) {
+			case 'AppendMessage': add((msg.role||'').toLowerCase(), `[${msg.role}] ${msg.content||''}`); break;
+			case 'RenderHistory': consoleEl.innerHTML=''; (msg.items||[]).forEach(x=>add((x.role||'').toLowerCase(), `[${x.role}] ${x.content||''}`)); break;
+			case 'ConsoleWrite': cwrite(msg.text||''); break;
+			case 'ConsoleWriteLine': cwriteline(msg.text||''); break;
+			case 'ShowMenu': openMenu(msg); break;
+			case 'PromptLine': post({ type:'UserText', text: prompt('Input:', msg.placeholder||'') || '' }); break;
+			case 'PromptPath': post({ type:'UserText', text: prompt('Path:', '') || '' }); break;
+			case 'FocusInput': t.focus(); break;
+			case 'BeginBatch': break;
+			case 'Clear': consoleEl.innerHTML=''; break;
+			case 'ShowToast': cwriteline(msg.text||''); break;
+			}
+		} catch (e) {
+			cwriteline(`RX error: ${e.message}`);
+		}
 	}
-  }
 
-	// --- wire BOTH channels so we always receive ---
-	// Photino shim:
 	window.external.receiveMessage(message => handle(message));
-	//(window.external ??= {}).receiveMessage = handle;  // safe even if Photino overwrites later
 
-	// Native WebView2:
-	// if (window.chrome?.webview?.addEventListener) {
-	// 	window.chrome.webview.addEventListener('message', e => handle(e.data));
-	// }
+	function add(kind, text) {
+		const el = document.createElement('pre');
+		el.className = kind;
+		el.textContent = text;
+		consoleEl.appendChild(el);
+		consoleEl.scrollTop = consoleEl.scrollHeight;
+	}
 
-  function add(kind, text) {
-	const el = document.createElement('pre');
-	el.className = kind;
-	el.textContent = text;
-	consoleEl.appendChild(el);
-	consoleEl.scrollTop = consoleEl.scrollHeight;
-  }
+	function submit() {
+		const v = t.value.trim();
+		if (!v) return;
+		post({ type:'UserText', text:v });
+		t.value = '';
+	}
+	send.onclick = submit;
 
-  function submit() {
-	const v = t.value.trim();
-	if (!v) return;
-	post({ type:'UserText', text:v });
-	t.value = '';
-  }
-  send.onclick = submit;
+	t.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+		else post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
+	});
 
-  t.addEventListener('keydown', (e) => {
-	if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
-	else post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
-  });
-  document.addEventListener('keydown', (e) => {
+	document.addEventListener('keydown', (e) => {
 		if (!menuOverlay.hidden) return;           // menu open → ignore
-	if (e.target === t && e.key === 'Enter' && !e.shiftKey) return;
-	post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
-  });
+		if (e.target === t && e.key === 'Enter' && !e.shiftKey) return;
+		post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
+	});
 
-  // Initial ping → enables .NET flush
-  const ping = () => post({ type:'Resize', width: Math.floor(window.innerWidth/8), height: Math.floor(window.innerHeight/18) });
-  new ResizeObserver(ping).observe(document.body);
-  ping();
+	// Initial ping → enables .NET flush
+	const ping = () => post({ type:'Resize', width: Math.floor(window.innerWidth/8), height: Math.floor(window.innerHeight/18) });
+	new ResizeObserver(ping).observe(document.body);
+	ping();
 
-  cwriteline('UI ready...');
-  t.focus();
+	cwriteline('UI ready...');
+	t.focus();
 </script>
 </body>
 </html>
