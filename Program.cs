@@ -205,7 +205,7 @@ static class Program
 
                 while (true)
                 {
-                    ui.Write("> ");
+                    if (UiMode.Terminal == config.UiMode) ui.Write("> ");
                     var userInput = await ui.ReadInputWithFeaturesAsync(commandManager);
 
                     // IMPORTANT: when the Photino window closes, ReadInput... returns null -> exit loop

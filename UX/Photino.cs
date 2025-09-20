@@ -29,8 +29,8 @@ public sealed class PhotinoUi : IUi
 	private string? _lastInput;
 
 	public PhotinoUi(string title = "CSChat") { _title = title; }
-	private readonly string _title;
 	private string IndexHtmlPath => Path.Combine(AppContext.BaseDirectory, "UX/wwwroot", "index.html");
+	private readonly string _title;
 
 	private void NudgeWaitersAndStop()
 	{
@@ -40,64 +40,23 @@ public sealed class PhotinoUi : IUi
 		_tcsKey?.TrySetResult(new ConsoleKeyInfo('\0', ConsoleKey.Escape, false, false, false));
 	}
 
-	// ----------------- IUi.RunAsync: spin up STA UI thread and pump Photino -----------------
+	// ----------------- IUi.RunAsync: spin up UI thread and pump Photino -----------------
 	public async Task RunAsync(Func<Task> appMain)
 	{
-		var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-		if (isWindows)
+		if (OperatingSystem.IsWindows())
 		{
 			// --- Windows: run Photino on a dedicated STA UI thread ---
 			var uiReady = new ManualResetEventSlim(false);
 			var uiExited = new ManualResetEventSlim(false);
 
-			_uiThread = new Thread(() =>
+			_uiThread = new Thread(async () =>
 			{
-				try
-				{
-					if (!OperatingSystem.IsWindows()) throw new NotSupportedException("This threadproc only supported on Windows.");
-					Thread.CurrentThread.Name = "Photino UI (Windows STA)";
-#if WINDOWS
-					// STA required for COM-based UI plumbing on Windows
-					// (We are already running on the brand-new thread here.)
-					if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
-					{
-						Thread.CurrentThread.SetApartmentState(ApartmentState.STA);
-					}
-#endif
-					_win = new PhotinoWindow()
-										.SetTitle(_title)
-										.SetUseOsDefaultSize(true)
-										.SetResizable(true)
-										.Center();
-
-					_win.RegisterWindowClosingHandler((s, e) => { NudgeWaitersAndStop(); return false; });
-
-					if (File.Exists(IndexHtmlPath))
-					{
-						_win.Load(IndexHtmlPath);
-					}
-
-					_win.RegisterWebMessageReceivedHandler((sender, raw) => HandleInbound(raw));
-
-					_uiAlive = true;
-					uiReady.Set();
-					_win.WaitForClose();
-				}
-				finally
-				{
-					NudgeWaitersAndStop();
-					_uiAlive = false;
-					uiExited.Set();
-				}
+				await Init(uiReady, uiExited);
 			});
-
 			_uiThread.IsBackground = false;
 			// Important: Set STA **before** Start on Windows to avoid races
-#if WINDOWS
 			_uiThread.SetApartmentState(ApartmentState.STA);
-#endif
 			_uiThread.Start();
-
 			uiReady.Wait();
 			var appTask = Task.Run(appMain);
 
@@ -110,48 +69,74 @@ public sealed class PhotinoUi : IUi
 			// We are already on the process' main thread here (Program.Main).
 			// Move your app loop to a worker so the UI thread can block in WaitForClose().
 			var appTask = Task.Run(appMain);
-
-			try
-			{
-				Thread.CurrentThread.Name = "Photino UI (Main thread)";
-
-				_win = new PhotinoWindow()
-						.SetTitle(_title)
-						.SetUseOsDefaultSize(true)
-						.SetResizable(true)
-						.Center();
-
-				_win.RegisterWindowClosingHandler((s, e) => { NudgeWaitersAndStop(); return false; });
-
-				if (File.Exists(IndexHtmlPath))
-				{
-					_win.Load(IndexHtmlPath);
-				}
-
-				_win.RegisterWebMessageReceivedHandler((sender, raw) => HandleInbound(raw));
-
-				_uiAlive = true;
-
-				// Block the main thread here per AppKit/GTK rules
-				_win.WaitForClose();
-			}
-			finally
-			{
-				NudgeWaitersAndStop();
-				_uiAlive = false;
-				await appTask;
-			}
+			await Init(appTask: appTask);
 		}
 	}
 
-	private void HandleInbound(string raw)
+	private async Task Init(ManualResetEventSlim? uiReady = null, ManualResetEventSlim? uiExited = null, Task? appTask = null)
 	{
+		try
+		{
+			if (OperatingSystem.IsWindows())
+			{
+				Thread.CurrentThread.Name = "Photino UI (Windows STA)";
+				// STA required for COM-based UI plumbing on Windows
+				// (We are already running on the brand-new thread here.)
+				if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
+				{
+					Thread.CurrentThread.SetApartmentState(ApartmentState.STA);
+				}
+			}
+			else
+			{
+				Thread.CurrentThread.Name = "Photino UI (Main thread)";
+			}
+
+			_win = new PhotinoWindow()
+					.SetTitle(_title)
+					.SetUseOsDefaultSize(true)
+					.SetResizable(true)
+					.Center();
+
+			_win.RegisterWindowClosingHandler((s, e) => { NudgeWaitersAndStop(); return false; });
+
+			if (File.Exists(IndexHtmlPath))
+			{
+				_win.Load(IndexHtmlPath);
+			}
+
+			_win.RegisterWebMessageReceivedHandler((sender, raw) => HandleInbound(raw));
+
+			_uiAlive = true;
+			if (OperatingSystem.IsWindows()) { uiReady!.Set(); }
+			// Block the main thread here
+			_win.WaitForClose();
+		}
+		finally
+		{
+			NudgeWaitersAndStop();
+			_uiAlive = false;
+			if (OperatingSystem.IsWindows())
+			{
+				uiExited!.Set();
+			}
+			else
+			{
+				await appTask!;
+			}
+		}
+		return;
+	}
+
+	private void HandleInbound(string raw) => Log.Method(ctx =>
+	{
+		ctx.OnlyEmitOnFailure();
 		try
 		{
 			if (!_ready)
 			{
 				_ready = true; SafeFlush();
-				SafeFlush();				
+				SafeFlush();
 			}
 
 			var map = JSONParser.FromJson<Dictionary<string, object?>>(raw);
@@ -213,12 +198,15 @@ public sealed class PhotinoUi : IUi
 					var h = I("height", "Height"); if (h > 0) _height = h;
 					break;
 			}
+
+			ctx.Succeeded();
 		}
-		catch
+		catch (Exception ex)
 		{
-			// swallow malformed payloads
+			// swallow, but log malformed payloads
+			ctx.Failed($"malformed payload: {raw ?? "<null>"}", ex);
 		}
-	}
+	});
 
 	// ----------------- Input -----------------
 
@@ -238,7 +226,6 @@ public sealed class PhotinoUi : IUi
 				{
 					var result = await commandManager.Action();
 					if (result == Command.Result.Failed) WriteLine("Command failed.");
-					Post(new { type = "ShowToast", text = "[press ESC to open menu]" });
 					Post(new { type = "FocusInput" });
 				}
 				keyWait = ReadKeyInternalAsync(intercept: true);
@@ -307,8 +294,7 @@ public sealed class PhotinoUi : IUi
 	public void Write(string text) => Post(new { type = "ConsoleWrite", text = text ?? "" });
 	public void WriteLine(string? text = null) => Post(new { type = "ConsoleWriteLine", text = text ?? "" });
 	public void Clear() => Post(new { type = "Clear" });
-
-	public void BeginUpdate() => Post(new { type = "BeginBatch" });
+	public void BeginUpdate() { /* no-op */}
 	public void EndUpdate() => SafeFlush();
 
 	// ----------------- Console-ish props -----------------
