@@ -80,12 +80,12 @@
 	pre { margin:0 0 8px 0; white-space:pre-wrap; }
 	
 	/* Base bubble look for all messages */
-	#console > pre {
+	#console > .bubble {
+		white-space: normal;
 		margin: 0;                 /* rows are controlled by gap */
 		padding: 10px 12px;
 		border-radius: 10px;       /* not too rounded */
 		line-height: 1.35;
-		white-space: pre-wrap;     /* wrap but keep intentional newlines */
 		word-break: break-word;    /* avoid overflow for long tokens */
 		background: #1b1b1b;       /* default bubble bg */
 		border: 1px solid #333;
@@ -95,8 +95,12 @@
 		font-family: system-ui, sans-serif; /* override monospace bubble look */
 	}
 
+	/* trim vertical margins inside the bubble */
+	#console .bubble > :first-child { margin-top: 0; }
+	#console .bubble > :last-child  { margin-bottom: 0; }	
+
 	/* User bubble (right side, “blue-ish” tone) */
-	#console > pre.user {
+	#console > .bubble.user {
 		align-self: flex-end; /* right side */
 		background: #1d80ea;
 		border-color: #1d80ea;
@@ -104,14 +108,14 @@
 	}
 
 	/* Assistant bubble (left, neutral dark) */
-	#console > pre.assistant {
-		background: #ccc;
-		border-color: #ccc;
+	#console > .bubble.assistant {
+		background: #ddd;
+		border-color: #ddd;
 		color: #000;
 	}
 
 	/* Tool message: full-width, centered, visually distinct */
-	#console > pre.tool {
+	#console > .bubble.tool {
 		align-self: stretch;   /* span full row */
 		width: 100%;
 		max-width: none;
@@ -122,7 +126,7 @@
 	}
 
 	/* Optional: system messages centered, lighter text */
-	#console > pre.system {
+	#console > .bubble.system {
 		align-self: stretch;
 		max-width: 80%;
 		background: #1a1a1a;
@@ -227,6 +231,7 @@
 			<div id="menuHint">↑/↓ select • Enter choose • Esc back/cancel</div>
 		</div>
 	</div>
+<script src="marked.min.js"></script>
 <script>
 	const consoleEl = document.getElementById('console');
 	const t = document.getElementById('t');
@@ -383,7 +388,7 @@
 
 			switch (msg.type) {
 				case 'AppendMessage': add((msg.role||'').toLowerCase(), msg.content||''); break;
-				case 'RenderHistory': consoleEl.innerHTML=''; (msg.items||[]).forEach(x=>add((x.role||'').toLowerCase(), `[${x.role}] ${x.content||''}`)); break;
+				case 'RenderHistory': consoleEl.innerHTML=''; (msg.items||[]).forEach(x=>add((x.role||'').toLowerCase(), x.content||'')); break;
 				case 'ConsoleWrite': cwrite(msg.text||''); break;
 				case 'ConsoleWriteLine': cwriteline(msg.text||''); break;
 				case 'ShowMenu': openMenu(msg); break;
@@ -400,9 +405,9 @@
 	window.external.receiveMessage(message => handle(message));
 
 	function add(kind, text) {
-		const el = document.createElement('pre');
-		el.className = kind;
-		el.textContent = text;
+		const el = document.createElement('div');
+		el.className = 'bubble ' + (kind || '');
+		el.innerHTML = marked.parse(text ?? '');
 		consoleEl.appendChild(el);
 		consoleEl.scrollTop = consoleEl.scrollHeight;
 	}
