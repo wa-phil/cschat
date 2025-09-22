@@ -23,9 +23,9 @@ public static class KustoCommands
                         await Task.Yield();
                         var (failures, added) = await kusto.RefreshConnectionsAsync();
                         var connected = string.Join(", ", kusto.GetConnectedConfigNames().OrderBy(s => s));
-                        Console.WriteLine($"Updated connections: {added}");
-                        Console.WriteLine($"Connected: {(string.IsNullOrWhiteSpace(connected) ? "(none)" : connected)}");
-                        if (failures.Count > 0) Console.WriteLine($"Failed: {string.Join(", ", failures)} (see logs)");
+                        Program.ui.WriteLine($"Updated connections: {added}");
+                        Program.ui.WriteLine($"Connected: {(string.IsNullOrWhiteSpace(connected) ? "(none)" : connected)}");
+                        if (failures.Count > 0) Program.ui.WriteLine($"Failed: {string.Join(", ", failures)} (see logs)");
                         return Command.Result.Success;
                     }
                 },
@@ -37,8 +37,8 @@ public static class KustoCommands
                     {
                         await Task.Yield();
                         var names = kusto.GetConnectedConfigNames().OrderBy(s => s).ToList();
-                        if (names.Count == 0) { Console.WriteLine("(no active connections)"); return Command.Result.Success; }
-                        foreach (var n in names) Console.WriteLine($"- {n}");
+                        if (names.Count == 0) { Program.ui.WriteLine("(no active connections)"); return Command.Result.Success; }
+                        foreach (var n in names) Program.ui.WriteLine($"- {n}");
                         return Command.Result.Success;
                     }
                 },
@@ -54,7 +54,7 @@ public static class KustoCommands
                         // Delegate to the configured tool which performs the introspection and caching.
                         var input = new IntrospectKustoSchemaInput { ConfigName = cfg.Name };
                         var resp = await ToolRegistry.InvokeToolAsync("tool.kusto.introspect_schema", input);
-                        Console.WriteLine(resp);
+                        Program.ui.WriteLine(resp);
                         return Command.Result.Success;
                     }
                 },
@@ -67,10 +67,10 @@ public static class KustoCommands
                         await Task.Yield();
                         var cfg = PickConfig();
                         if (cfg is null) return Command.Result.Failed;
-                        if (cfg.Queries.Count == 0) { Console.WriteLine("(no saved queries)"); return Command.Result.Success; }
+                        if (cfg.Queries.Count == 0) { Program.ui.WriteLine("(no saved queries)"); return Command.Result.Success; }
                         foreach (var q in cfg.Queries.OrderBy(q => q.Name))
                         {
-                            Console.WriteLine($"- {q.Name} — {q.Description}");
+                            Program.ui.WriteLine($"- {q.Name} — {q.Description}");
                         }
                         return Command.Result.Success;
                     }
@@ -87,24 +87,24 @@ public static class KustoCommands
                         if (q is null) return Command.Result.Failed;
 
                         var table = await kusto.QueryAsync(cfg, q.Kql);
-                        Console.WriteLine(table.ToText(Console.WindowWidth));
+                        Program.ui.WriteLine(table.ToText(Program.ui.Width));
 
-                        Console.Write("Export? (none/csv/json) ");
-                        var how = (User.ReadLineWithHistory() ?? "").Trim().ToLowerInvariant();
+                        Program.ui.Write("Export? (none/csv/json) ");
+                        var how = (Program.ui.ReadLineWithHistory() ?? "").Trim().ToLowerInvariant();
                         if (how == "csv" || how == "json")
                         {
-                            Console.Write("Path: ");
-                            var path = User.ReadLineWithHistory();
+                            Program.ui.Write("Path: ");
+                            var path = Program.ui.ReadLineWithHistory();
                             if (!string.IsNullOrWhiteSpace(path))
                             {
                                 var content = how == "csv" ? table.ToCsv() : table.ToJson();
                                 File.WriteAllText(path!, content);
-                                Console.WriteLine($"Saved: {path}");
+                                Program.ui.WriteLine($"Saved: {path}");
                             }
                         }
 
                         Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-                        await ContextManager.AddContent(table.ToText(Console.WindowWidth), $"kusto/{cfg.Name}/results/{q.Name}");
+                        await ContextManager.AddContent(table.ToText(Program.ui.Width), $"kusto/{cfg.Name}/results/{q.Name}");
                         return Command.Result.Success;
                     }
                 },
@@ -118,14 +118,14 @@ public static class KustoCommands
                         var cfg = PickConfig();
                         if (cfg is null) return Command.Result.Failed;
 
-                        Console.Write("Query name: ");
-                        var name = User.ReadLineWithHistory() ?? "";
+                        Program.ui.Write("Query name: ");
+                        var name = Program.ui.ReadLineWithHistory() ?? "";
                         if (string.IsNullOrWhiteSpace(name)) return Command.Result.Failed;
 
-                        Console.Write("Description: ");
-                        var desc = User.ReadLineWithHistory() ?? "";
+                        Program.ui.Write("Description: ");
+                        var desc = Program.ui.ReadLineWithHistory() ?? "";
 
-                        Console.WriteLine("Paste KQL (blank line to finish):");
+                        Program.ui.WriteLine("Paste KQL (blank line to finish):");
                         var kql = ReadMultiline();
 
                         var existing = cfg.Queries.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
@@ -139,7 +139,7 @@ public static class KustoCommands
                             existing.Kql = kql;
                         }
                         Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-                        Console.WriteLine("Saved.");
+                        Program.ui.WriteLine("Saved.");
                         return Command.Result.Success;
                     }
                 },
@@ -152,26 +152,26 @@ public static class KustoCommands
                         var cfg = PickConfig();
                         if (cfg is null) return Command.Result.Failed;
 
-                        Console.WriteLine("Enter KQL (blank line to run):");
+                        Program.ui.WriteLine("Enter KQL (blank line to run):");
                         var kql = ReadMultiline();
 
                         var table = await kusto.QueryAsync(cfg, kql);
-                        Console.WriteLine(table.ToText(Console.WindowWidth));
-                        await ContextManager.AddContent(table.ToText(Console.WindowWidth), $"kusto/{cfg.Name}/results/__adhoc__");
+                        Program.ui.WriteLine(table.ToText(Program.ui.Width));
+                        await ContextManager.AddContent(table.ToText(Program.ui.Width), $"kusto/{cfg.Name}/results/__adhoc__");
 
-                        Console.Write("Save this as a named query? (y/N) ");
-                        var save = (User.ReadLineWithHistory() ?? "").Trim().ToLowerInvariant();
+                        Program.ui.Write("Save this as a named query? (y/N) ");
+                        var save = (Program.ui.ReadLineWithHistory() ?? "").Trim().ToLowerInvariant();
                         if (save == "y" || save == "yes")
                         {
-                            Console.Write("Query name: "); var name = User.ReadLineWithHistory() ?? "";
-                            Console.Write("Description: "); var desc = User.ReadLineWithHistory() ?? "";
+                            Program.ui.Write("Query name: "); var name = Program.ui.ReadLineWithHistory() ?? "";
+                            Program.ui.Write("Description: "); var desc = Program.ui.ReadLineWithHistory() ?? "";
                             if (!string.IsNullOrWhiteSpace(name))
                             {
                                 var existing = cfg.Queries.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
                                 if (existing is null) cfg.Queries.Add(new KustoQuery { Name = name, Description = desc, Kql = kql });
                                 else { existing.Description = desc; existing.Kql = kql; }
                                 Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-                                Console.WriteLine("Saved.");
+                                Program.ui.WriteLine("Saved.");
                             }
                         }
 
@@ -192,7 +192,7 @@ public static class KustoCommands
 
                         cfg.Queries.RemoveAll(x => x.Name.Equals(q.Name, StringComparison.OrdinalIgnoreCase));
                         Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-                        Console.WriteLine("Deleted.");
+                        Program.ui.WriteLine("Deleted.");
                         return Command.Result.Success;
                     }
                 }
@@ -203,12 +203,12 @@ public static class KustoCommands
         static KustoConfig? PickConfig()
         {
             var configs = Program.userManagedData.GetItems<KustoConfig>().OrderBy(c => c.Name).ToList();
-            if (configs.Count == 0) { Console.WriteLine("No KustoConfig found. Add one in Data \u2192 Kusto Config."); return null; }
+            if (configs.Count == 0) { Program.ui.WriteLine("No KustoConfig found. Add one in Data \u2192 Kusto Config."); return null; }
 
             if (configs.Count == 1) return configs[0];
 
             var choices = configs.Select(c => $"{c.Name} @ {c.ClusterUri} | {c.Database}").ToList();
-            var sel = User.RenderMenu("Select config:", choices);
+            var sel = Program.ui.RenderMenu("Select config:", choices);
             if (sel == null) return null;
             var idx = choices.IndexOf(sel);
             if (idx >= 0) return configs[idx];
@@ -220,12 +220,12 @@ public static class KustoCommands
 
         static KustoQuery? PickQuery(KustoConfig cfg)
         {
-            if (cfg.Queries.Count == 0) { Console.WriteLine("(no saved queries)"); return null; }
+            if (cfg.Queries.Count == 0) { Program.ui.WriteLine("(no saved queries)"); return null; }
             var list = cfg.Queries.OrderBy(q => q.Name).ToList();
             if (list.Count == 1) return list[0];
 
             var choices = list.Select(q => $"{q.Name} — {q.Description}").ToList();
-            var sel = User.RenderMenu($"Select query for {cfg.Name}:", choices);
+            var sel = Program.ui.RenderMenu($"Select query for {cfg.Name}:", choices);
             if (sel == null) return null;
             var idx = choices.IndexOf(sel);
             if (idx >= 0) return list[idx];
@@ -240,7 +240,7 @@ public static class KustoCommands
             var lines = new List<string>();
             while (true)
             {
-                var ln = Console.ReadLine();
+                var ln = Program.ui.ReadLine();
                 if (string.IsNullOrEmpty(ln)) break;
                 lines.Add(ln);
             }

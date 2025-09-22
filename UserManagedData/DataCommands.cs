@@ -77,30 +77,30 @@ public static class DataCommands
 
                     if (items == null)
                     {
-                        Console.WriteLine($"No {metadata.Name} items found.");
+                        Program.ui.WriteLine($"No {metadata.Name} items found.");
                         return Task.FromResult(Command.Result.Success);
                     }
 
                     var itemList = items.Cast<object>().ToList();
                     if (itemList.Count == 0)
                     {
-                        Console.WriteLine($"No {metadata.Name} items found.");
+                        Program.ui.WriteLine($"No {metadata.Name} items found.");
                         return Task.FromResult(Command.Result.Success);
                     }
 
-                    Console.WriteLine($"\n{metadata.Name} Items ({itemList.Count}):");
-                    Console.WriteLine(new string('-', 40));
+                    Program.ui.WriteLine($"\n{metadata.Name} Items ({itemList.Count}):");
+                    Program.ui.WriteLine(new string('-', 40));
 
                     for (int i = 0; i < itemList.Count; i++)
                     {
-                        Console.WriteLine($"{i + 1}. {itemList[i]}");
+                        Program.ui.WriteLine($"{i + 1}. {itemList[i]}");
                     }
 
                     return Task.FromResult(Command.Result.Success);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error listing {metadata.Name}: {ex.Message}");
+                    Program.ui.WriteLine($"Error listing {metadata.Name}: {ex.Message}");
                     return Task.FromResult(Command.Result.Failed);
                 }
             }
@@ -120,19 +120,19 @@ public static class DataCommands
                     var instance = Activator.CreateInstance(type)!;
                     if (!await FillObjectInteractively(instance, type, isUpdate: false))
                     {
-                        Console.WriteLine("Add cancelled.");
+                        Program.ui.WriteLine("Add cancelled.");
                         return Command.Result.Cancelled;
                     }
 
                     var (dataSubsystem, addMethod) = GetUserManagedAdd(type);
                     addMethod.Invoke(dataSubsystem, new[] { instance });
                     Config.Save(Program.config, Program.ConfigFilePath);
-                    Console.WriteLine($"Added {metadata.Name}: {instance}");
+                    Program.ui.WriteLine($"Added {metadata.Name}: {instance}");
                     return Command.Result.Success;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error adding {metadata.Name}: {ex.Message}");
+                    Program.ui.WriteLine($"Error adding {metadata.Name}: {ex.Message}");
                     return Command.Result.Failed;
                 }
             }
@@ -154,16 +154,16 @@ public static class DataCommands
                     var items = itemsEnumerable?.Cast<object>().ToList() ?? new List<object>();
                     if (items.Count == 0)
                     {
-                        Console.WriteLine($"No {metadata.Name} items found.");
+                        Program.ui.WriteLine($"No {metadata.Name} items found.");
                         return Command.Result.Success;
                     }
 
                     // Let user choose the item to edit
                     var choices = items.Select((o, i) => $"{i}: {o}").ToList();
-                    var selected = User.RenderMenu($"Select {metadata.Name} to update:", choices);
+                    var selected = Program.ui.RenderMenu($"Select {metadata.Name} to update:", choices);
                     if (selected == null)
                     {
-                        Console.WriteLine("Update cancelled.");
+                        Program.ui.WriteLine("Update cancelled.");
                         return Command.Result.Cancelled;
                     }
                     var selectedIndex = int.Parse(selected.Split(':')[0]);
@@ -175,7 +175,7 @@ public static class DataCommands
 
                     if (!await FillObjectInteractively(editable, type, isUpdate: true))
                     {
-                        Console.WriteLine("Update cancelled.");
+                        Program.ui.WriteLine("Update cancelled.");
                         return Command.Result.Cancelled;
                     }
 
@@ -198,12 +198,12 @@ public static class DataCommands
                     updateMethod.Invoke(subsystemForUpdate, new[] { editable, predicate });
 
                     Config.Save(Program.config, Program.ConfigFilePath);
-                    Console.WriteLine($"Updated {metadata.Name}: {editable}");
+                    Program.ui.WriteLine($"Updated {metadata.Name}: {editable}");
                     return Command.Result.Success;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error updating {metadata.Name}: {ex.Message}");
+                    Program.ui.WriteLine($"Error updating {metadata.Name}: {ex.Message}");
                     return Command.Result.Failed;
                 }
             }
@@ -243,14 +243,14 @@ public static class DataCommands
             }
             else // complex object
             {
-                Console.WriteLine($"\n-- {display} {(required ? "(required)" : "(optional)")} --");
+                Program.ui.WriteLine($"\n-- {display} {(required ? "(required)" : "(optional)")} --");
                 var child = current ?? Activator.CreateInstance(propType)!;
 
                 // allow skipping optional complex properties
                 if (!required)
                 {
-                    Console.Write($"Edit {display}? (y/N): ");
-                    var ans = (Console.ReadLine() ?? "").Trim();
+                    Program.ui.Write($"Edit {display}? (y/N): ");
+                    var ans = (Program.ui.ReadLine() ?? "").Trim();
                     if (!ans.Equals("y", StringComparison.OrdinalIgnoreCase))
                         continue;
                 }
@@ -274,8 +274,8 @@ public static class DataCommands
         {
             var currentText = isUpdate && value != null ? $" [{FormatValue(value)}]" : "";
             var requiredText = required ? " (required)" : " (optional)";
-            if (!string.IsNullOrWhiteSpace(hint)) Console.WriteLine(hint);
-            Console.Write($"{display}{requiredText}:{currentText} ");
+            if (!string.IsNullOrWhiteSpace(hint)) Program.ui.WriteLine(hint);
+            Program.ui.Write($"{display}{requiredText}:{currentText} ");
 
             var input = ReadLineAllowEsc();
             if (input == null)
@@ -288,7 +288,7 @@ public static class DataCommands
                 if (isUpdate && value != null) return true;         // keep existing
                 if (!required) { value = GetDefault(type); return true; }
                 // else required and empty -> re-prompt
-                Console.WriteLine("Value is required.");
+                Program.ui.WriteLine("Value is required.");
                 continue;
             }
 
@@ -297,28 +297,28 @@ public static class DataCommands
                 value = parsed;
                 return true;
             }
-            Console.WriteLine($"Could not parse '{input}' as {PrettyType(type)}. Try again.");
+            Program.ui.WriteLine($"Could not parse '{input}' as {PrettyType(type)}. Try again.");
         }
     }
 
     private static string? ReadLineAllowEsc()
     {
-        // Read first key to detect ESC without consuming input from Console.ReadLine
-        var key = Console.ReadKey(intercept: true);
+        // Read first key to detect ESC without consuming input from Program.ui.ReadLine
+        var key = Program.ui.ReadKey(intercept: true);
         if (key.Key == ConsoleKey.Escape)
         {
-            Console.WriteLine();
+            Program.ui.WriteLine();
             return null;
         }
         if (key.Key == ConsoleKey.Enter)
         {
-            Console.WriteLine();
+            Program.ui.WriteLine();
             return string.Empty;
         }
 
         // Echo the first key and read the remainder of the line
-        Console.Write(key.KeyChar);
-        var rest = Console.ReadLine();
+        Program.ui.Write(key.KeyChar.ToString());
+        var rest = Program.ui.ReadLine();
         return key.KeyChar + (rest ?? "");
     }
 
@@ -335,7 +335,7 @@ public static class DataCommands
                 "done    (finish editing)"
             };
 
-            var choice = User.RenderMenu($"Choose action: {display}", choices);
+            var choice = Program.ui.RenderMenu($"Choose action: {display}", choices);
             if (choice == null || choice.StartsWith("done", StringComparison.OrdinalIgnoreCase))
                 return true;
 
@@ -343,7 +343,7 @@ public static class DataCommands
             {
                 if (list.Count == 0)
                 {
-                    Console.WriteLine("List is empty.");
+                    Program.ui.WriteLine("List is empty.");
                     continue;
                 }
 
@@ -352,7 +352,7 @@ public static class DataCommands
                     itemChoices.Add(FormatValue(list[i]));
 
                 // Use RenderMenu so the items are visible while selecting; ESC (null) goes back
-                var seen = User.RenderMenu($"Items in {display} (press ESC to go back)", itemChoices);
+                var seen = Program.ui.RenderMenu($"Items in {display} (press ESC to go back)", itemChoices);
                 // ignore selection results; null returns to main menu
                 continue;
             }
@@ -363,11 +363,11 @@ public static class DataCommands
                 {
                     // Prompt manually so ESC or blank entry cancels the add (but does not abort the whole edit session)
                     var hint = GetTypeInputHint(elemType);
-                    Console.Write($"Enter value ({hint}) or press ESC to cancel: ");
+                    Program.ui.Write($"Enter value ({hint}) or press ESC to cancel: ");
                     var input = ReadLineAllowEsc();
                     if (input == null || string.IsNullOrWhiteSpace(input))
                     {
-                        Console.WriteLine("Add cancelled.");
+                        Program.ui.WriteLine("Add cancelled.");
                         continue; // do not add, keep editing
                     }
 
@@ -377,7 +377,7 @@ public static class DataCommands
                     }
                     else
                     {
-                        Console.WriteLine($"Could not parse '{input}' as {PrettyType(elemType)}. Add cancelled.");
+                        Program.ui.WriteLine($"Could not parse '{input}' as {PrettyType(elemType)}. Add cancelled.");
                         continue;
                     }
                 }
@@ -386,7 +386,7 @@ public static class DataCommands
                     var child = Activator.CreateInstance(elemType)!;
                     if (!await FillObjectInteractively(child, elemType, isUpdate: false))
                     {
-                        Console.WriteLine("Add cancelled.");
+                        Program.ui.WriteLine("Add cancelled.");
                         continue; // user cancelled adding the complex item
                     }
                     list.Add(child);
@@ -394,31 +394,31 @@ public static class DataCommands
             }
             else if (choice.StartsWith("edit", StringComparison.OrdinalIgnoreCase))
             {
-                if (list.Count == 0) { Console.WriteLine("List is empty."); continue; }
+                if (list.Count == 0) { Program.ui.WriteLine("List is empty."); continue; }
 
                 var itemChoices = new List<string>();
                 for (int i = 0; i < list.Count; i++)
                     itemChoices.Add(FormatValue(list[i]));
 
-                var selected = User.RenderMenu($"Select {display} item to edit (press ESC to cancel):", itemChoices);
+                var selected = Program.ui.RenderMenu($"Select {display} item to edit (press ESC to cancel):", itemChoices);
                 if (selected == null)
                 {
-                    Console.WriteLine("Edit cancelled.");
+                    Program.ui.WriteLine("Edit cancelled.");
                     continue;
                 }
 
                 var selectedIndex = itemChoices.IndexOf(selected);
-                if (selectedIndex < 0) { Console.WriteLine("Invalid selection."); continue; }
+                if (selectedIndex < 0) { Program.ui.WriteLine("Invalid selection."); continue; }
 
                 if (IsSimple(elemType))
                 {
                     object? cur = list[selectedIndex];
                     var hint = GetTypeInputHint(elemType);
-                    Console.Write($"Enter new value for index {selectedIndex} ({hint}) or press ESC to cancel: ");
+                    Program.ui.Write($"Enter new value for index {selectedIndex} ({hint}) or press ESC to cancel: ");
                     var input = ReadLineAllowEsc();
                     if (input == null || string.IsNullOrWhiteSpace(input))
                     {
-                        Console.WriteLine("Edit cancelled.");
+                        Program.ui.WriteLine("Edit cancelled.");
                         continue;
                     }
                     if (TryParse(elemType, input!, out var parsed))
@@ -427,7 +427,7 @@ public static class DataCommands
                     }
                     else
                     {
-                        Console.WriteLine($"Could not parse '{input}' as {PrettyType(elemType)}. Edit cancelled.");
+                        Program.ui.WriteLine($"Could not parse '{input}' as {PrettyType(elemType)}. Edit cancelled.");
                         continue;
                     }
                 }
@@ -436,7 +436,7 @@ public static class DataCommands
                     var child = list[selectedIndex] ?? Activator.CreateInstance(elemType)!;
                     if (!await FillObjectInteractively(child!, elemType, isUpdate: true))
                     {
-                        Console.WriteLine("Edit cancelled.");
+                        Program.ui.WriteLine("Edit cancelled.");
                         continue;
                     }
                     list[selectedIndex] = child!;
@@ -444,27 +444,27 @@ public static class DataCommands
             }
             else if (choice.StartsWith("remove", StringComparison.OrdinalIgnoreCase))
             {
-                if (list.Count == 0) { Console.WriteLine("List is empty."); continue; }
+                if (list.Count == 0) { Program.ui.WriteLine("List is empty."); continue; }
 
                 var itemChoices = new List<string>();
                 for (int i = 0; i < list.Count; i++)
                     itemChoices.Add(FormatValue(list[i]));
 
-                var selected = User.RenderMenu($"Select {display} item to remove (press ESC to cancel):", itemChoices);
+                var selected = Program.ui.RenderMenu($"Select {display} item to remove (press ESC to cancel):", itemChoices);
                 if (selected == null)
                 {
-                    Console.WriteLine("Remove cancelled.");
+                    Program.ui.WriteLine("Remove cancelled.");
                     continue;
                 }
 
                 var removeIndex = itemChoices.IndexOf(selected);
-                if (removeIndex < 0) { Console.WriteLine("Invalid selection."); continue; }
+                if (removeIndex < 0) { Program.ui.WriteLine("Invalid selection."); continue; }
 
-                Console.Write($"Are you sure you want to remove '{list[removeIndex]}'? (y/N): ");
+                Program.ui.Write($"Are you sure you want to remove '{list[removeIndex]}'? (y/N): ");
                 var confirm = ReadLineAllowEsc();
                 if (confirm == null || !string.Equals(confirm, "y", StringComparison.OrdinalIgnoreCase))
                 {
-                    Console.WriteLine("Remove cancelled.");
+                    Program.ui.WriteLine("Remove cancelled.");
                     continue;
                 }
 
@@ -653,38 +653,38 @@ public static class DataCommands
 
                     if (items == null)
                     {
-                        Console.WriteLine($"No {metadata.Name} items found to delete.");
+                        Program.ui.WriteLine($"No {metadata.Name} items found to delete.");
                         return Task.FromResult(Command.Result.Success);
                     }
 
                     var itemList = items.Cast<object>().ToList();
                     if (itemList.Count == 0)
                     {
-                        Console.WriteLine($"No {metadata.Name} items found to delete.");
+                        Program.ui.WriteLine($"No {metadata.Name} items found to delete.");
                         return Task.FromResult(Command.Result.Success);
                     }
 
                     // Use the menu system to select an item to delete
                     var choices = itemList.Select((item, index) => $"{index}: {item}").ToList();
-                    var selected = User.RenderMenu(
+                    var selected = Program.ui.RenderMenu(
                         $"Select {metadata.Name} to delete:",
                         choices
                     );
 
                     if (selected == null)
                     {
-                        Console.WriteLine("Delete cancelled.");
+                        Program.ui.WriteLine("Delete cancelled.");
                         return Task.FromResult(Command.Result.Cancelled);
                     }
 
                     var selectedIndex = int.Parse(selected.Split(':')[0]);
 
                     // Confirm deletion
-                    Console.Write($"Are you sure you want to delete '{itemList[selectedIndex]}'? (y/N): ");
-                    var confirm = Console.ReadLine();
+                    Program.ui.Write($"Are you sure you want to delete '{itemList[selectedIndex]}'? (y/N): ");
+                    var confirm = Program.ui.ReadLine();
                     if (!string.Equals(confirm, "y", StringComparison.OrdinalIgnoreCase))
                     {
-                        Console.WriteLine("Delete cancelled.");
+                        Program.ui.WriteLine("Delete cancelled.");
                         return Task.FromResult(Command.Result.Cancelled);
                     }
 
@@ -709,13 +709,13 @@ public static class DataCommands
                     deleteMi.Invoke(subsystem, new[] { predicate });
 
                     Config.Save(Program.config, Program.ConfigFilePath);
-                    Console.WriteLine($"Deleted: {original}");
+                    Program.ui.WriteLine($"Deleted: {original}");
 
                     return Task.FromResult(Command.Result.Success);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error deleting {metadata.Name}: {ex.Message}");
+                    Program.ui.WriteLine($"Error deleting {metadata.Name}: {ex.Message}");
                     return Task.FromResult(Command.Result.Failed);
                 }
             }

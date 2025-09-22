@@ -8,7 +8,6 @@ using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text;
 
-
 static class Program
 {
     public static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
@@ -21,6 +20,7 @@ static class Program
     public static ServiceProvider serviceProvider = null!;
     public static SubsystemManager SubsystemManager = null!;
     public static UserManagedData userManagedData = null!;
+    public static IUi ui = new Terminal();
 
     static Dictionary<string, Type> DictionaryOfTypesToNamesForInterface<T>(ServiceCollection serviceCollection, IEnumerable<Type> types)
         where T : class
@@ -134,7 +134,7 @@ static class Program
         }
         else
         {
-            Console.WriteLine("No tools registered. Please check your configuration.");
+            Program.ui.WriteLine("No tools registered. Please check your configuration.");
         }
 
         foreach (var tool in ToolRegistry.GetRegisteredTools())
@@ -144,9 +144,10 @@ static class Program
         }
     }
 
+    [STAThread]
     static async Task Main(string[] args)
     {
-        Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
+        Program.ui.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
         Startup();
 
         bool showHelp = false;
@@ -156,6 +157,7 @@ static class Program
             { "s|system=", "System prompt", v => { if (v != null) config.SystemPrompt = v; } },
             { "p|provider=", "Provider name (default: ollama)", v => { if (v != null) config.Provider = v; } },
             { "e|embedding_model=", "Embedding model for RAG (default: nomic-embed-text)", v => { if (v != null) config.RagSettings.EmbeddingModel = v; } },
+            { "u|ui=", "UI mode: terminal|gui", v => { if (!string.IsNullOrWhiteSpace(v)) config.UiMode = Enum.TryParse<UiMode>(v, true, out var mode) ? mode : UiMode.Terminal; } },
             { "?|help", "Show help", v => showHelp = v != null }
         };
         options.Parse(args);
@@ -165,51 +167,75 @@ static class Program
             return;
         }
 
+        // choose UI
+        switch (config.UiMode)
+        {
+            case UiMode.Terminal:
+                Console.WriteLine("Using terminal UI mode.");
+                ui = new Terminal();
+                break;
+            case UiMode.Gui:
+                Console.WriteLine("Using GUI UI mode.");
+                ui = new PhotinoUi();
+                break;
+            default:
+                ui = new Terminal();
+                break;
+        }
+
         try
         {
-            await InitProgramAsync();
-
-            if (string.IsNullOrWhiteSpace(config.Model))
+            // ----- Run the application loop via the UI -----
+            await ui.RunAsync(async () =>
             {
-                var selected = await Engine.SelectModelAsync();
-                if (selected == null) return;
-                config.Model = selected;
-            }
+                await InitProgramAsync();
 
-            Config.Save(config, ConfigFilePath);
+                if (string.IsNullOrWhiteSpace(config.Model))
+                {
+                    var selected = await Engine.SelectModelAsync();
+                    if (selected == null) return;
+                    config.Model = selected;
+                }
 
-            Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-            Console.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
-            Console.WriteLine();
+                Config.Save(config, ConfigFilePath);
 
-            while (true)
-            {
-                Console.Write("> ");
-                var userInput = await User.ReadInputWithFeaturesAsync(commandManager);
-                if (string.IsNullOrWhiteSpace(userInput)) continue;
+                ui.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
+                ui.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
+                ui.WriteLine();
 
-                // Add and render user message with proper formatting
-                Context.AddUserMessage(userInput);
-                var userMessage = Context.Messages().Last(); // Get the message we just added
-                User.RenderChatMessage(userMessage);
+                while (true)
+                {
+                    if (UiMode.Terminal == config.UiMode) ui.Write("> ");
+                    var userInput = await ui.ReadInputWithFeaturesAsync(commandManager);
 
-                var (response, updatedContext) = await Engine.PostChatAsync(Context);
-                var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
-                User.RenderChatMessage(assistantMessage);
-                Context = updatedContext;
-                Context.AddAssistantMessage(response);
-            }
+                    // IMPORTANT: when the Photino window closes, ReadInput... returns null -> exit loop
+                    if (userInput is null) break;
+
+                    if (string.IsNullOrWhiteSpace(userInput)) continue;
+
+                    // Add and render user message with proper formatting
+                    Context.AddUserMessage(userInput);
+                    var userMessage = Context.Messages().Last(); // Get the message we just added
+                    ui.RenderChatMessage(userMessage);
+
+                    var (response, updatedContext) = await Engine.PostChatAsync(Context);
+                    var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
+                    ui.RenderChatMessage(assistantMessage);
+                    Context = updatedContext;
+                    Context.AddAssistantMessage(response);
+                }
+            });
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Exception: {ex.Message}");
-            Console.WriteLine("Log Entries:");
+            ui.WriteLine($"Exception: {ex.Message}");
+            ui.WriteLine("Log Entries:");
             var entries = Log.GetOutput().ToList();
-            Console.WriteLine($"Log Entries [{entries.Count}]:");
-            entries.ToList().ForEach(entry => Console.WriteLine(entry));
-            Console.WriteLine("Chat History:");
-            User.RenderChatHistory(Context.Messages());
-            throw; // unhandled exceptions result in a stack trace in the console.
+            ui.WriteLine($"Log Entries [{entries.Count}]:");
+            entries.ToList().ForEach(entry => ui.WriteLine(entry));
+            ui.WriteLine("Chat History:");
+            ui.RenderChatHistory(Context.Messages());
+            throw; // unhandled exceptions result in a stack trace in the Program.ui.
         }
         finally
         {

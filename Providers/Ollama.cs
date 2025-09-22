@@ -28,7 +28,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
             dynamic? parsed = resp!.FromJson<dynamic>();
             if (parsed == null || parsed!["models"] == null)
             {
-                Console.WriteLine("No models found in response.");
+                Program.ui.WriteLine("No models found in response.");
                 return models;
             }
             foreach (var model in parsed!["models"]!)
@@ -40,7 +40,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         }
         catch
         {
-            Console.WriteLine("Failed to fetch models from host.");
+            Program.ui.WriteLine("Failed to fetch models from host.");
             return new List<string>();
         }
     }
@@ -83,7 +83,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         catch (Exception ex)
         {
             ctx.Failed("Exception during PostChatAsync", ex);
-            Console.WriteLine($"Exception occurred: {ex.Message}");
+            Program.ui.WriteLine($"Exception occurred: {ex.Message}");
             throw;
         }
     });
@@ -106,21 +106,21 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         if (!response.IsSuccessStatusCode)
         {
             ctx.Failed($"Failed to get embedding: {response.StatusCode}", Error.ToolFailed);
-            Console.WriteLine($"Failed to get embedding: {response.StatusCode}");
+            Program.ui.WriteLine($"Failed to get embedding: {response.StatusCode}");
             return Array.Empty<float>();
         }
         var json = await response.Content.ReadAsStringAsync();
         if (string.IsNullOrWhiteSpace(json))
         {
             ctx.Failed("Received empty response from embedding API", Error.EmptyResponse);
-            Console.WriteLine("Received empty response from embedding API.");
+            Program.ui.WriteLine("Received empty response from embedding API.");
             return Array.Empty<float>();
         }
         ctx.Append(Log.Data.Response, json);
         dynamic? parsed = json!.FromJson<dynamic>();
         if (null == parsed || null == parsed!["embedding"])
         {
-            Console.WriteLine("No embedding found in response.");
+            Program.ui.WriteLine("No embedding found in response.");
             ctx.Failed("No embedding found in response", Error.EmptyResponse);
             return Array.Empty<float>();
         }
@@ -128,7 +128,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         if (embedding == null)
         {
             ctx.Failed("Embedding is null in response", Error.EmptyResponse);
-            Console.WriteLine("Embedding is null in response.");
+            Program.ui.WriteLine("Embedding is null in response.");
             return Array.Empty<float>();
         }
         ctx.Append(Log.Data.Count, embedding.Count());

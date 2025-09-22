@@ -46,29 +46,29 @@ public static class Engine
             var countItems = 0;
             var knownFiles = new StringBuilder();
 
-            Console.WriteLine("Started processing files for RAG store...");
+            Program.ui.WriteLine("Started processing files for RAG store...");
 
             foreach (var (name, content) in items)
             {
-                Console.WriteLine($"Processing : {name}\n");
+                Program.ui.WriteLine($"Processing : {name}\n");
                 knownFiles.AppendLine(name);
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write($"Adding file '{name}' to RAG store... ");
+                Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+                Program.ui.Write($"Adding file '{name}' to RAG store... ");
                 await ContextManager.AddGraphContent(content, name);
-                Console.ResetColor();
-                Console.WriteLine("Done.");
+                Program.ui.ResetColor();
+                Program.ui.WriteLine("Done.");
                 countItems++;
             }
 
             await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
 
             stopwatch.Stop();
-            Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
+            Program.ui.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
             ctx.Succeeded();
         }
         finally
         {
-            Console.ResetColor();
+            Program.ui.ResetColor();
         }
     });
 
@@ -83,25 +83,25 @@ public static class Engine
             bool isLastCommand = i == commandList.Count - 1;
             if (showText)
             {
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write($"{indent}{(isLast ? "└── " : "├── ")}");
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write(command.Name);
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write(" - ");
+                Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+                Program.ui.Write($"{indent}{(isLast ? "└── " : "├── ")}");
+                Program.ui.ForegroundColor = ConsoleColor.Green;
+                Program.ui.Write(command.Name);
+                Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+                Program.ui.Write(" - ");
             }
 
             var line = $"{indent}{(isLast ? "└── " : "├── ")}{command.Name} - ";
             var description = command.Description() ?? string.Empty;
-            var maxWidth = Console.WindowWidth - line.Length - 4; // 4 for ellipses
+            var maxWidth = Program.ui.Width - line.Length - 4; // 4 for ellipses
             if (description.Length > maxWidth)
             {
                 description = description.Substring(0, maxWidth) + "...";
             }
             if (showText)
             {
-                Console.WriteLine(description);
-                Console.ResetColor();
+                Program.ui.WriteLine(description);
+                Program.ui.ResetColor();
             }
 
             sb.Append(line);
@@ -161,7 +161,7 @@ public static class Engine
             }).ToList();
 
             try { await Task.WhenAll(tasks); }
-            catch (Exception ex) { failed = true; Console.WriteLine($"Error during content ingestion: {ex.Message}"); }
+            catch (Exception ex) { failed = true; Program.ui.WriteLine($"Error during content ingestion: {ex.Message}"); }
         } // reporter disposed here -> painter stops and prints its summary cleanly
 
         // Now safe to print additional lines
@@ -175,14 +175,14 @@ public static class Engine
         }
 
         stopwatch.Stop();
-        Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms total. Processed: {okCount}, failed: {fail.Count}, canceled: {canceledCount}.");
+        Program.ui.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms total. Processed: {okCount}, failed: {fail.Count}, canceled: {canceledCount}.");
         if (fail.Count > 0)
         {
-            Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.WriteLine("Failures:");
-            foreach (var f in fail.Take(20)) Console.WriteLine($"  - {f.Name}: {f.err}");
-            if (fail.Count > 20) Console.WriteLine($"  ...and {fail.Count - 20} more");
-            Console.ResetColor();
+            Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
+            Program.ui.WriteLine("Failures:");
+            foreach (var f in fail.Take(20)) Program.ui.WriteLine($"  - {f.Name}: {f.err}");
+            if (fail.Count > 20) Program.ui.WriteLine($"  ...and {fail.Count - 20} more");
+            Program.ui.ResetColor();
         }
 
         ctx.Succeeded(!failed);
@@ -283,7 +283,7 @@ public static class Engine
         ctx.OnlyEmitOnFailure();
         if (Provider == null)
         {
-            Console.WriteLine("Provider is not set.");
+            Program.ui.WriteLine("Provider is not set.");
             ctx.Failed("Provider is not set.", Error.ProviderNotConfigured);
             return null;
         }
@@ -291,12 +291,12 @@ public static class Engine
         var models = await Provider.GetAvailableModelsAsync();
         if (models == null || models.Count == 0)
         {
-            Console.WriteLine("No models available.", Error.ModelNotFound);
+            Program.ui.WriteLine($"No models available: {Error.ModelNotFound.ToString()}");
             ctx.Failed("No models available.", Error.ModelNotFound);
             return null;
         }
 
-        var selected = User.RenderMenu("Available models:", models, models.IndexOf(Program.config.Model));
+        var selected = Program.ui.RenderMenu("Available models:", models, models.IndexOf(Program.config.Model));
         ctx.Append(Log.Data.Model, selected ?? "<nothing>");
         ctx.Succeeded();
         return selected;

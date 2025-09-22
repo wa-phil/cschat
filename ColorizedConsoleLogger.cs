@@ -39,18 +39,18 @@ namespace cschat
 			if (data.TryGetValue(Log.Data.Message, out var message))
 			{
 				WriteColoredMessage(message.ToString() ?? string.Empty);
-				Console.Write(" | ");
+				Program.ui.Write(" | ");
 			}
 
 			// Write remaining properties
 			WriteRemainingProperties(data);
-			Console.WriteLine();
+			Program.ui.WriteLine();
 
 			// Write stack trace if present
 			if (data.TryGetValue(Log.Data.Threw, out var stackTrace))
 			{
 				WriteColored(ConsoleColor.Red, $"Stack Trace: {stackTrace}");
-				Console.WriteLine();
+				Program.ui.WriteLine();
 			}
 		}
 
@@ -75,7 +75,7 @@ namespace cschat
 				{
 					WriteColored(style, value.ToString() ?? string.Empty);
 				}
-				Console.Write(" | ");
+				Program.ui.Write(" | ");
 			}
 		}
 
@@ -99,20 +99,20 @@ namespace cschat
 				{
 					WriteColored(GetValueTypeColor(kv.Value?.ToString() ?? "null"), kv.Value?.ToString() ?? "null");
 				}
-				Console.Write(" | ");
+				Program.ui.Write(" | ");
 			}
 		}
 
 		private static void WriteColoredLevel(Log.Level level)
 		{
 			var (color, label) = LevelInfo[level];
-			var originalColors = (Console.ForegroundColor, Console.BackgroundColor);
+			var originalColors = (Program.ui.ForegroundColor, Program.ui.BackgroundColor);
 
-			Console.ForegroundColor = ConsoleColor.Black;
-			Console.BackgroundColor = color;
-			Console.Write($" {label} ");
+			Program.ui.ForegroundColor = ConsoleColor.Black;
+			Program.ui.BackgroundColor = color;
+			Program.ui.Write($" {label} ");
 
-			(Console.ForegroundColor, Console.BackgroundColor) = originalColors;
+			(Program.ui.ForegroundColor, Program.ui.BackgroundColor) = originalColors;
 		}
 
 		private static void WriteColoredMessage(string message)
@@ -140,10 +140,10 @@ namespace cschat
 
 		private static void WriteColored(ConsoleColor color, string text)
 		{
-			var original = Console.ForegroundColor;
-			Console.ForegroundColor = color;
-			Console.Write(text);
-			Console.ForegroundColor = original;
+			var original = Program.ui.ForegroundColor;
+			Program.ui.ForegroundColor = color;
+			Program.ui.Write(text);
+			Program.ui.ForegroundColor = original;
 		}
 	}
 }

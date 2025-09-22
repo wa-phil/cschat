@@ -42,7 +42,7 @@ public sealed class PRsFetchTool : ITool
         });
         table = Table.FromEnumerable(projected);
 
-        var rendered = table.ToText(Console.WindowWidth);
+        var rendered = table.ToText(Program.ui.Width);
         ctx.AddToolMessage(rendered);
         await ContextManager.AddContent(rendered, $"prs/{profile.Name}/results");
 

@@ -87,7 +87,7 @@ public class SubsystemManager
             {
                 if (!IsEnabled(dep))
                 {
-                    Console.WriteLine($"Enabling dependency '{dep}' for subsystem '{key}'.");
+                    Program.ui.WriteLine($"Enabling dependency '{dep}' for subsystem '{key}'.");
                     SetEnabled(dep, true);
                 }
             }
@@ -103,7 +103,7 @@ public class SubsystemManager
             {
                 if (IsEnabled(d))
                 {
-                    Console.WriteLine($"Disabling dependent subsystem '{d}' because '{key}' was disabled.");
+                    Program.ui.WriteLine($"Disabling dependent subsystem '{d}' because '{key}' was disabled.");
                     SetEnabled(d, false);
                 }
             }
@@ -165,14 +165,14 @@ public class SubsystemManager
             ctx.Append(Log.Data.Message, $"Setting subsystem '{kv.Key}' enabled to {kv.Value}.");
             if (kv.Value)
             {
-                Console.Write($"Connecting to subsystem '{kv.Key}'...");
+                Program.ui.Write($"Connecting to subsystem '{kv.Key}'...");
             }
 
             Program.SubsystemManager.SetEnabled(kv.Key, kv.Value);
 
             if (kv.Value)
             {
-                Console.WriteLine("connected.");
+                Program.ui.WriteLine("connected.");
             }
         }
         Config.Save(Program.config, Program.ConfigFilePath); // Save the config

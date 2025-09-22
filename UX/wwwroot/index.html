@@ -1,0 +1,443 @@
+<!doctype html>
+<html>
+<head>
+<meta charset='utf-8'/>
+<title>CSChat</title>
+<style>
+	:root { --bg:#111; --fg:#eee; }
+
+	/* Prevent page/window scrolling; we’ll scroll the console only */
+	html, body {
+		height: 100%;
+		margin: 0;
+		overflow: hidden;
+	}
+
+	/*  grid already splits header / main / composer; keep it */
+	body {
+		display: grid;
+		grid-template-rows: auto 1fr auto;
+	}
+
+	/* Allow the console (child) to actually shrink and become scrollable */
+	#main {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;   /* critical with flex/grid parents */
+	}
+
+	/* Only the console scrolls */
+	#console {
+		display: flex;              /* <-- make children flex items */
+		flex-direction: column;     /* bubbles stack top→bottom */
+		align-items: flex-start;    /* default: left for non-user bubbles */
+		gap: 10px;                  /* spacing between bubbles */
+		flex: 1;
+		min-height: 0;
+		overflow: auto;
+		padding: 12px;
+	}
+
+	/* Make the composer look like a modern message bar: no top border, capsule input */
+	#composer {
+		display: flex;
+		gap: 8px;
+		padding: 8px 12px;
+		border-top: none;            /* remove the horizontal rule */
+		background: transparent;     /* no divider look */
+	}
+
+	#t {
+		flex: 1;
+		font: inherit;
+		padding: 10px 14px;
+		border: 1px solid #d9d9d9;   /* subtle, light grey */
+		border-radius: 9999px;         /* pill */
+		outline: none;
+		background: #fff;
+		/* very light inner depth like a modern message bar */
+		box-shadow: inset 0 1px 2px rgba(0,0,0,.06);
+	}
+	#t:focus {
+		border-color: #b9cdfd;
+		box-shadow:
+			0 0 0 2px rgba(80, 140, 255, .15),
+			inset 0 1px 2px rgba(0,0,0,.06);
+	}
+
+	/* Make the Send button match the modern message bar/pill vibe */
+	#send {
+		padding: 8px 14px;
+		border: 1px solid #d9d9d9;
+		border-radius: 9999px;
+		background: #f6f6f6;
+		font: inherit;
+		cursor: pointer;
+	}
+	#send:hover { background: #f0f0f0; }
+	#send:active { background: #eaeaea; }
+
+	pre { margin:0 0 8px 0; white-space:pre-wrap; }
+	
+	/* Base bubble look for all messages */
+	#console > .bubble {
+		white-space: normal;
+		margin: 0;                 /* rows are controlled by gap */
+		padding: 10px 12px;
+		border-radius: 10px;       /* not too rounded */
+		line-height: 1.35;
+		word-break: break-word;    /* avoid overflow for long tokens */
+		background: #1b1b1b;       /* default bubble bg */
+		border: 1px solid #333;
+		color: var(--fg);
+		max-width: min(70ch, 70%); /* message width cap */
+		align-self: flex-start;    /* default: left side */
+		font-family: system-ui, sans-serif; /* override monospace bubble look */
+	}
+
+	/* trim vertical margins inside the bubble */
+	#console .bubble > :first-child { margin-top: 0; }
+	#console .bubble > :last-child  { margin-bottom: 0; }	
+
+	/* User bubble (right side, “blue-ish” tone) */
+	#console > .bubble.user {
+		align-self: flex-end; /* right side */
+		background: #1d80ea;
+		border-color: #1d80ea;
+		color: #fafafa;
+	}
+
+	/* Assistant bubble (left, neutral dark) */
+	#console > .bubble.assistant {
+		background: #ddd;
+		border-color: #ddd;
+		color: #000;
+	}
+
+	/* Tool message: full-width, centered, visually distinct */
+	#console > .bubble.tool {
+		align-self: stretch;   /* span full row */
+		width: 100%;
+		max-width: none;
+		text-align: center;
+		background: #111;
+		border-color: #666;
+		font-weight: 600;
+	}
+
+	/* Optional: system messages centered, lighter text */
+	#console > .bubble.system {
+		align-self: stretch;
+		max-width: 80%;
+		background: #1a1a1a;
+		border-style: dashed;
+		color: #aaa;
+	}
+
+	#menuOverlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0,0,0,.0); /* transparent so clicks can still close if desired */
+		pointer-events: none;         /* disabled when menu is closed */
+		z-index: 9999;
+	}
+
+	#menuPanel {
+		position: absolute;
+		top: -90%; /* mostly hidden above */
+		left: 50%;
+		transform: translateX(-50%);
+		width: min(760px, 92vw);
+		max-height: min(70vh, 600px);
+		background: #fff;
+		color: #000;
+		border-radius: 0 0 10px 10px;
+		box-shadow: 0 20px 50px rgba(0,0,0,.35);
+		display: grid;
+		grid-template-rows: auto auto 1fr auto;
+		overflow: hidden;
+		transition: top 0.3s ease-in-out;
+	}
+
+	/* active state (pulled down) */
+	#menuOverlay.active { pointer-events: auto; }
+	#menuOverlay.active #menuPanel { top: 0; /* slide down into view */ }
+
+	/* menu item add/remove animation styles */
+	#menuList li {
+		padding: 8px 10px;
+		border-radius: 8px;
+		opacity: 1;
+		transform: translateY(0);
+		transition: opacity 0.2s ease, transform 0.2s ease;
+	}
+
+	#menuList li.fade-out {
+		opacity: 0;
+		transform: translateY(-10px);
+	}
+
+	#menuList li.fade-in {
+		opacity: 0;
+		transform: translateY(10px);
+		animation: fadeInMove 0.2s forwards;
+	}
+
+	@keyframes fadeInMove {
+		to { opacity: 1; transform: translateY(0); }
+	}
+
+	#menuHeader { padding:12px 14px; font-weight:600; background:#111; color:#eee; }
+	#menuFilter { margin:10px; padding:10px; font:inherit; border:1px solid #ccc; border-radius:8px; }
+	#menuList { list-style:none; margin:0; padding:6px 8px 12px 8px; overflow:auto; }
+	#menuList li { padding:8px 10px; border-radius:8px; }
+	#menuList li[data-active="true"] { background:#111; color:#fff; }
+	#menuHint { padding:8px 12px; font-size:.9em; color:#444; border-top:1px solid #eee; background:#fafafa; }
+
+	#menuTab {
+		position: fixed;
+		top: 0;
+		left: 50%;
+		transform: translateX(-50%);
+		background: #111;
+		color: #eee;
+		padding: 4px 10px;
+		font-size: 0.85em;
+		border-radius: 0 0 6px 6px;
+		cursor: pointer;
+		z-index: 9998;
+	}
+
+	#menuOverlay.active ~ #menuTab {
+		display: none;
+	}
+</style>
+<body>
+  <header></header>
+  <div id="menuTab">press ESC key to open</div>
+  <div id='main'>
+	<div id='console'></div> <!-- big scrollable console/log -->
+  </div>
+  <div id='composer'>
+	<input id='t' placeholder='Type and press Enter'/>
+	<button id='send'>Send</button>
+  </div>
+	<!-- MENU OVERLAY -->
+	<div id="menuOverlay" hidden>
+		<div id="menuPanel">
+			<div id="menuHeader"></div>
+			<input id="menuFilter" placeholder="[filter]" autocomplete="off" />
+			<ul id="menuList"></ul>
+			<div id="menuHint">↑/↓ select • Enter choose • Esc back/cancel</div>
+		</div>
+	</div>
+<script src="marked.min.js"></script>
+<script>
+	const consoleEl = document.getElementById('console');
+	const t = document.getElementById('t');
+	const send = document.getElementById('send');
+
+	function post(obj) { try { window.external?.sendMessage?.(JSON.stringify(obj)); } catch {} }
+	function cwrite(s){ consoleEl.textContent += (s ?? ''); consoleEl.scrollTop = consoleEl.scrollHeight; }
+	function cwriteline(s){ cwrite((s ?? '') + '\n'); }
+
+	// --- menu controller ---------------------------------------------------------
+	const menuOverlay = document.getElementById('menuOverlay');
+	const menuHeader  = document.getElementById('menuHeader');
+	const menuFilter  = document.getElementById('menuFilter');
+	const menuList    = document.getElementById('menuList');
+
+	let menuState = null;         // { header, choices, filtered, idx }
+
+	document.getElementById('menuTab').onclick = () => {
+		post({ type:'Key', key:'Escape' }); // mimic ESC keypress to open menu
+	};
+
+	function openMenu(payload) {
+		menuState = {
+			header: payload.header || 'Menu',
+			choices: (payload.choices || []).slice(),
+			filtered: (payload.choices || []).slice(),
+			idx: Math.min(Math.max(0, payload.selected|0), (payload.choices||[]).length-1)
+		};
+
+		menuHeader.textContent = menuState.header;
+		menuFilter.value = '';
+		renderMenu();
+		menuOverlay.hidden = false;
+		menuOverlay.classList.add('active');
+		// Trap focus & keystrokes while menu is open
+		menuOverlay.hidden = false;
+		document.body.style.overflow = 'hidden';
+		t.disabled = true;
+		menuFilter.focus();
+	}
+
+	function closeMenu(sendResult) {
+		menuOverlay.classList.remove('active');
+		menuOverlay.hidden = true;
+
+		if (sendResult !== undefined) {
+			// Post selection/cancel to host so RenderMenu(...) can return synchronously.
+			post({ type:'MenuResult', text: sendResult ?? null });
+		}
+
+		document.body.style.overflow = '';
+		t.disabled = false;
+		t.focus();
+	}
+
+	function renderMenu() {
+		const q = menuFilter.value.trim().toLowerCase();
+		const newItems = q
+			? menuState.choices.filter(c => c.toLowerCase().includes(q))
+			: menuState.choices.slice();
+
+		// Keep filtered in sync for chooseActive()
+		menuState.filtered = newItems;
+
+		// Clamp idx if needed
+		if (menuState.filtered.length === 0) menuState.idx = 0;
+		else if (menuState.idx >= menuState.filtered.length) menuState.idx = menuState.filtered.length - 1;
+
+		const oldLis   = [...menuList.querySelectorAll('li')];
+		const oldTexts = oldLis.map(li => li.dataset.value);
+
+		// Fade-out removes
+		oldLis.forEach(li => {
+			if (!newItems.includes(li.dataset.value)) {
+				li.classList.add('fade-out');
+				setTimeout(() => li.remove(), 200);
+			}
+		});
+
+		// Add missing items (fade-in)
+		newItems.forEach((c, i) => {
+			if (!oldTexts.includes(c)) {
+				const li = document.createElement('li');
+				li.dataset.value = c;  // stable key
+				li.textContent = c;
+				li.classList.add('fade-in');
+				li.onclick = () => { menuState.idx = i; chooseActive(); };
+				menuList.appendChild(li);
+			}
+		});
+
+		// Reindex & active state on all survivors (order matters)
+		const lis = [...menuList.querySelectorAll('li')];
+		lis.sort((a,b) => newItems.indexOf(a.dataset.value) - newItems.indexOf(b.dataset.value))
+			.forEach((li, i) => {
+				// normalize label
+				li.textContent = li.dataset.value;
+				// active row
+				li.dataset.active = (i === menuState.idx ? 'true' : 'false');
+				// click maps to current index
+				li.onclick = () => { menuState.idx = i; chooseActive(); };
+			});
+
+		// keep active visible
+		const active = menuList.querySelector('li[data-active="true"]');
+		if (active) {
+			const r = active.getBoundingClientRect();
+			const pr = menuList.getBoundingClientRect();
+			if (r.top < pr.top) menuList.scrollTop += r.top - pr.top;
+			else if (r.bottom > pr.bottom) menuList.scrollTop += r.bottom - pr.bottom;
+		}
+	}
+
+	function chooseActive() {
+		const items = menuState.filtered;
+		const chosen = (items.length > 0) ? items[menuState.idx] : null;
+		closeMenu(chosen);
+	}
+
+	// Filter typing
+	menuFilter.addEventListener('input', renderMenu);
+
+	// Keyboard in the menu
+	menuOverlay.addEventListener('keydown', (e) => {
+		// Prevent these from leaking to the host while overlay is open
+		if (['ArrowUp','ArrowDown','PageUp','PageDown','Home','End','Escape','Enter'].includes(e.key)) {
+			e.stopPropagation(); e.preventDefault();
+		}
+		const len = menuState.filtered.length;
+		switch (e.key) {
+			case 'ArrowUp':   if (len) menuState.idx = Math.max(0, menuState.idx-1); renderMenu(); break;
+			case 'ArrowDown': if (len) menuState.idx = Math.min(len-1, menuState.idx+1); renderMenu(); break;
+			case 'PageUp':    if (len) menuState.idx = Math.max(0, menuState.idx-10);  renderMenu(); break;
+			case 'PageDown':  if (len) menuState.idx = Math.min(len-1, menuState.idx+10); renderMenu(); break;
+			case 'Home':      if (len) menuState.idx = 0;            renderMenu(); break;
+			case 'End':       if (len) menuState.idx = len-1;        renderMenu(); break;
+			case 'Enter':     chooseActive(); break;
+			case 'Escape':    closeMenu(null); break; // close this menu, let host know it was cancelled
+		}
+	});
+
+	// Close if user clicks outside the panel
+	menuOverlay.addEventListener('click', (e) => {
+		if (e.target === menuOverlay) closeMenu(null);
+	});
+	// --- end menu controller ------------------------------------------------------
+
+	// --- unified handler for ANY host→page message ---
+	function handle(raw) {
+		try {
+			//cwriteline("RX: " + (typeof raw === 'string' ? raw : JSON.stringify(raw)));
+			const msg = (typeof raw === 'string') ? JSON.parse(raw) : raw;
+			if (!msg || !msg.type) return;
+
+			switch (msg.type) {
+				case 'AppendMessage': add((msg.role||'').toLowerCase(), msg.content||''); break;
+				case 'RenderHistory': consoleEl.innerHTML=''; (msg.items||[]).forEach(x=>add((x.role||'').toLowerCase(), x.content||'')); break;
+				case 'ConsoleWrite': cwrite(msg.text||''); break;
+				case 'ConsoleWriteLine': cwriteline(msg.text||''); break;
+				case 'ShowMenu': openMenu(msg); break;
+				case 'PromptLine': post({ type:'UserText', text: prompt('Input:', msg.placeholder||'') || '' }); break;
+				case 'PromptPath': post({ type:'UserText', text: prompt('Path:', '') || '' }); break;
+				case 'FocusInput': t.focus(); break;
+				case 'Clear': consoleEl.innerHTML=''; break;
+			}
+		} catch (e) {
+			cwriteline(`RX error: ${e.message}`);
+		}
+	}
+
+	window.external.receiveMessage(message => handle(message));
+
+	function add(kind, text) {
+		const el = document.createElement('div');
+		el.className = 'bubble ' + (kind || '');
+		el.innerHTML = marked.parse(text ?? '');
+		consoleEl.appendChild(el);
+		consoleEl.scrollTop = consoleEl.scrollHeight;
+	}
+
+	function submit() {
+		const v = t.value.trim();
+		if (!v) return;
+		post({ type:'UserText', text:v });
+		t.value = '';
+	}
+	send.onclick = submit;
+
+	t.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+		else post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
+	});
+
+	document.addEventListener('keydown', (e) => {
+		if (!menuOverlay.hidden) return;           // menu open → ignore
+		if (e.target === t && e.key === 'Enter' && !e.shiftKey) return;
+		post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
+	});
+
+	// Initial ping → enables .NET flush
+	const ping = () => post({ type:'Resize', width: Math.floor(window.innerWidth/8), height: Math.floor(window.innerHeight/18) });
+	new ResizeObserver(ping).observe(document.body);
+	ping();
+
+	cwriteline('UI ready...');
+	t.focus();
+</script>
+</body>
+</html>

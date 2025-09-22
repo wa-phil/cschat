@@ -2,6 +2,12 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 
+public enum UiMode
+{
+    Terminal,
+    Gui
+}
+
 public class ChatThreadSettings
 {
     public string RootDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, ".threads");
@@ -66,6 +72,7 @@ public class MailSettings
 
 public class Config
 {
+    public UiMode UiMode { get; set; } = UiMode.Terminal;
     public string Provider { get; set; } = "Ollama";
     public string Model { get; set; } = string.Empty; // Ensure non-nullable property is initialized
     public string Host { get; set; } = "http://localhost:11434";
@@ -110,9 +117,9 @@ public class Config
     {
         if (File.Exists(configFilePath))
         {
-            Console.WriteLine($"Loading configuration from {configFilePath}");
+            Program.ui.WriteLine($"Loading configuration from {configFilePath}");
             var json = File.ReadAllText(configFilePath);
-            Console.WriteLine($"Configuration loaded: {json}");
+            Program.ui.WriteLine($"Configuration loaded: {json}");
             return json.FromJson<Config>() ?? new Config();
         }
         return new Config();
@@ -120,7 +127,7 @@ public class Config
 
     public static void Save(Config config, string configFilePath)
     {
-        Console.WriteLine($"Saving configuration to {configFilePath}");
+        Program.ui.WriteLine($"Saving configuration to {configFilePath}");
         var json = config.ToJson();
         File.WriteAllText(configFilePath, json);
     }

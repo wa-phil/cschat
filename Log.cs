@@ -2,8 +2,8 @@
 // Example usage:
 //
 // Log.SetOutput(data => {
-//     foreach (var kv in data) Console.Write($" {kv.Key.ToString()}: {kv.Value.ToString()}");
-//     Console.WriteLine();
+//     foreach (var kv in data) Program.ui.Write($" {kv.Key.ToString()}: {kv.Value.ToString()}");
+//     Program.ui.WriteLine();
 // });
 //
 // Log.Method(ctx =>
@@ -258,9 +258,9 @@ public static class Log
 
     public static void PrintColorizedOutput()
     {
-        Console.ForegroundColor = ConsoleColor.Blue;
-        Console.WriteLine($"Log Entries [{_buffer.Count}]:");
-        Console.ResetColor();
+        Program.ui.ForegroundColor = ConsoleColor.Blue;
+        Program.ui.WriteLine($"Log Entries [{_buffer.Count}]:");
+        Program.ui.ResetColor();
 
         _buffer.OfType<Dictionary<string, object>>()
                .Select(dict => dict.Where(kv => Enum.TryParse<Data>(kv.Key, out _))

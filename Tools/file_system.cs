@@ -185,11 +185,11 @@ public class grep_files : ITool
             if (matches.Count > 0)
             {
                 var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-                Console.WriteLine($"Matched: {relativePath}");
+                Program.ui.WriteLine($"Matched: {relativePath}");
                 await ContextManager.AddContent(content, relativePath);
                 stopwatch.Stop();
                 var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
-                Console.WriteLine($"{elapsedTime}ms required to read file '{file}' contents.");
+                Program.ui.WriteLine($"{elapsedTime}ms required to read file '{file}' contents.");
 
                 ctx.Append(Log.Data.FilePath, relativePath);
             }
@@ -257,7 +257,7 @@ public class find_file : ITool
 
             stopwatch.Stop();
             var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
-            Console.WriteLine($"{elapsedTime}ms required to find files that match '{findInput.Pattern}'.");
+            Program.ui.WriteLine($"{elapsedTime}ms required to find files that match '{findInput.Pattern}'.");
 
             if (matching.Count == 0)
             {

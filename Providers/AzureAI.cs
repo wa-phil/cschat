@@ -108,7 +108,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
         catch (Exception ex)
         {
             ctx.Failed($"Azure OpenAI request failed", ex);
-            Console.WriteLine($"Error: {ex.Message}.\n Validate that you have access to the Azure OpenAI service and that the model '{config.Model}' is available.");
+            Program.ui.WriteLine($"Error: {ex.Message}.\n Validate that you have access to the Azure OpenAI service and that the model '{config.Model}' is available.");
             return string.Empty;
         }
     });
@@ -151,7 +151,7 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
         catch (Exception ex)
         {
             ctx.Failed($"Failed to get embedding from Azure OpenAI", ex);
-            Console.WriteLine($"Failed to get embedding from AzureAI: {ex.Message}");
+            Program.ui.WriteLine($"Failed to get embedding from AzureAI: {ex.Message}");
             return Array.Empty<float>();
         }
     });
