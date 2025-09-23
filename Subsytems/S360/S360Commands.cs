@@ -28,7 +28,16 @@ public static class S360Commands
                     Name = "triage", Description = () => "Score & summarize (briefing + action plan)",
                     Action = async () => {
                         var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
-                        Program.ui.Write("Top N (default 15): "); var n = int.TryParse(Program.ui.ReadLineWithHistory(), out var v) ? v : 15;
+
+                        var form = UiForm.Create("Triage options", 15);
+                        form.AddInt("Top N")
+                            .IntBounds(min: 1, max: 100)
+                            .WithHelp("Number of top action items to include in the summary, range is 1 to 100.");
+
+                        if (!await Program.ui.ShowFormAsync(form)){
+                            return Command.Result.Cancelled;
+                        }
+                        var n = (int)form.Model!;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.s360.triage",
                             new TriageS360Input { ProfileName = prof.Name, TopN = n });
                         Program.ui.WriteLine(resp);

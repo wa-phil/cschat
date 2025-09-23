@@ -21,6 +21,7 @@ public sealed class PhotinoUi : IUi
 	private TaskCompletionSource<string?>? _tcsReadLine;
 	private TaskCompletionSource<string?>? _tcsMenu;
 	private TaskCompletionSource<ConsoleKeyInfo>? _tcsKey;
+	private TaskCompletionSource<Dictionary<string,string?>?>? _tcsForm;
 
 	private int _width = 120;
 	private int _height = 40;
@@ -185,18 +186,33 @@ public sealed class PhotinoUi : IUi
 					break;
 
 				case "Key":
-					{
-						var key = S("key", "Key");
-						var chr = S("char", "Char");
-						var cki = MapToConsoleKeyInfo(key, chr, B("shift", "Shift"), B("ctrl", "Ctrl"), B("alt", "Alt"));
-						_tcsKey?.TrySetResult(cki);
-						break;
-					}
+				{
+					var key = S("key", "Key");
+					var chr = S("char", "Char");
+					var cki = MapToConsoleKeyInfo(key, chr, B("shift", "Shift"), B("ctrl", "Ctrl"), B("alt", "Alt"));
+					_tcsKey?.TrySetResult(cki);
+					break;
+				}
 
 				case "Resize":
 					var w = I("width", "Width"); if (w > 0) _width = w;
 					var h = I("height", "Height"); if (h > 0) _height = h;
 					break;
+
+				case "FormResult":
+				{
+					// map: { ok: bool, values?: { "Label": "stringValue", ... } }
+					bool ok = B("ok", "OK");
+					if (!ok) { _tcsForm?.TrySetResult(null); break; }
+
+					var dict = new Dictionary<string,string?>(StringComparer.OrdinalIgnoreCase);
+					if (map.TryGetValue("values", out var v) && v is Dictionary<string, object?> dv)
+					{
+						foreach (var kv in dv) dict[kv.Key] = Convert.ToString(kv.Value);
+					}
+					_tcsForm?.TrySetResult(dict);
+					break;
+				}					
 			}
 
 			ctx.Succeeded();
@@ -207,6 +223,51 @@ public sealed class PhotinoUi : IUi
 			ctx.Failed($"malformed payload: {raw ?? "<null>"}", ex);
 		}
 	});
+
+	// ------------ High-level I/O -------------
+	public Task<bool> ShowFormAsync(UiForm form)
+	{
+		_tcsForm = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		var fields = new List<object>();
+		foreach (var f in form.Fields)
+		{
+			var current = f.Formatter(form.Model);
+			fields.Add(new {
+				label = f.Label,
+				kind = f.Kind.ToString(),
+				required = f.Required,
+				help = f.Help,
+				current = current,
+				min = f.MinInt(),
+				max = f.MaxInt(),
+				choices = f.EnumChoices()
+			});
+		}
+
+		Post(new { type = "ShowForm", title = form.Title, fields });
+
+		// Wait for JS to return either null (cancel) or a dictionary of label→string value
+		return _tcsForm.Task.ContinueWith(t =>
+		{
+			var values = t.Result;
+			if (values is null) return false; // cancelled
+
+			// Apply to the clone via the fields' TrySetFromString
+			foreach (var f in form.Fields)
+			{
+				var key = f.Label; // labels are the stable keys we sent out
+				values.TryGetValue(key, out var raw);
+				if (!f.TrySetFromString(form.Model!, raw, out var err))
+				{
+					// Optional: surface host-side validation issues in your console
+					WriteLine($"Validation failed: {f.Label} — {err}");
+					return false;
+				}
+			}
+			return true;
+		});
+	}
 
 	// ----------------- Input -----------------
 
@@ -294,8 +355,6 @@ public sealed class PhotinoUi : IUi
 	public void Write(string text) => Post(new { type = "ConsoleWrite", text = text ?? "" });
 	public void WriteLine(string? text = null) => Post(new { type = "ConsoleWriteLine", text = text ?? "" });
 	public void Clear() => Post(new { type = "Clear" });
-	public void BeginUpdate() { /* no-op */}
-	public void EndUpdate() => SafeFlush();
 
 	// ----------------- Console-ish props -----------------
 	public int CursorTop => 0;

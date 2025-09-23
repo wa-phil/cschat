@@ -74,17 +74,21 @@ public partial class CommandManager
                 },
                 new Command
                 {
-                    Name = "default new chat name",
-                    Description = () => $"Set default name for new chat threads (current: {Program.config.ChatThreadSettings.DefaultNewThreadName})",
-                    Action = () =>
+                    Name = "new chat name",
+                    Description = () => $"Set default name for new chat threads [current: {Program.config.ChatThreadSettings.DefaultNewThreadName}]",
+                    Action = async () =>
                     {
-                        Program.ui.Write("New default name> ");
-                        var name = Program.ui.ReadLineWithHistory();
-                        if (string.IsNullOrWhiteSpace(name)) return Task.FromResult(Command.Result.Cancelled);
-                        Program.config.ChatThreadSettings.DefaultNewThreadName = name!;
-                        Config.Save(Program.config, Program.ConfigFilePath);
-                        Program.ui.WriteLine($"Default new chat thread name set to '{name}'.");
-                        return Task.FromResult(Command.Result.Success);
+                        var form = UiForm.Create("Set default new chat thread name", Program.config.ChatThreadSettings.DefaultNewThreadName);
+                        form.AddString("Default new thread name")
+                            .WithHelp("This is the name used for new chat threads.");
+
+                        if (await Program.ui.ShowFormAsync(form))
+                        {
+                            Program.config.ChatThreadSettings.DefaultNewThreadName = (string)form.Model!; // the CLONE with changes
+                            Config.Save(Program.config, Program.ConfigFilePath);
+                            return Command.Result.Success;
+                        }
+                        return Command.Result.Cancelled;
                     }
                 }
             }

@@ -180,41 +180,37 @@ public partial class CommandManager
                     new Command
                     {
                         Name = "max menu items", Description = () => $"Configure maximum number of menu items displayed at once [currently: {Program.config.MaxMenuItems}]",
-                        Action = () =>
+                        Action = async () =>
                         {
-                            Program.ui.WriteLine($"Current max menu items: {Program.config.MaxMenuItems}");
-                            Program.ui.Write("Enter new value (minimum 1): ");
-                            var input = Program.ui.ReadLineWithHistory();
-                            if (int.TryParse(input, out int value) && value >= 1)
+                            var form = UiForm.Create("Configure menu items", Program.config);
+                form.AddInt<Config>("Max menu items", c => c.MaxMenuItems, (c,v) => c.MaxMenuItems = v)
+                                    .IntBounds(min: 1, max: 200)
+                                    .WithHelp("Controls how many choices are rendered at once, range is 1 to 200.");
+                            if (await Program.ui.ShowFormAsync(form))
                             {
-                                Program.config.MaxMenuItems = value;
+                                Program.config = (Config)form.Model!;        // commit the edited clone
                                 Config.Save(Program.config, Program.ConfigFilePath);
-                                Program.ui.WriteLine($"Max menu items set to {value}");
+                                return Command.Result.Success;
                             }
-                            else
-                            {
-                                Program.ui.WriteLine("Invalid input. Please enter a number >= 1.");
-                            }
-                            return Task.FromResult(Command.Result.Success);
+                            return Command.Result.Cancelled;
                         }
                     },
                     new Command
                     {
                         Name = "set max steps", Description = () => $"Set maximum steps for planning [currently: {Program.config.MaxSteps}]",
-                        Action = () =>
+                        Action = async () =>
                         {
-                            Program.ui.Write("Enter maximum steps (default 25): ");
-                            var input = Program.ui.ReadLine();
-                            if (int.TryParse(input, out int maxSteps))
+                            var form = UiForm.Create("Configure maximum steps", Program.config);
+                form.AddInt<Config>("Max steps", c => c.MaxSteps, (c,v) => c.MaxSteps = v)
+                                    .IntBounds(min: 1, max: 100)
+                                    .WithHelp("Controls how many steps the planner can take, range is 1 to 100.");
+                            if (await Program.ui.ShowFormAsync(form))
                             {
-                                Program.config.MaxSteps = maxSteps;
-                                Program.ui.WriteLine($"Maximum steps set to {maxSteps}.");
+                                Program.config = (Config)form.Model!;        // commit the edited clone
+                                Config.Save(Program.config, Program.ConfigFilePath);
+                                return Command.Result.Success;
                             }
-                            else
-                            {
-                                Program.ui.WriteLine($"Invalid input. Maximum steps remain at {Program.config.MaxSteps}.");
-                            }
-                            return Task.FromResult(Command.Result.Success);
+                            return Command.Result.Cancelled;
                         }
                     }                    
                 }

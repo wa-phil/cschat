@@ -70,9 +70,10 @@ public static class Log
             return this;
         }
 
-        public void OnlyEmitOnFailure()
+        public Context OnlyEmitOnFailure()
         {
             _items[Data.Level] = Level.Verbose;
+            return this;
         }
 
         public void Succeeded(bool success = true)

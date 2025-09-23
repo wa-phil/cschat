@@ -6,6 +6,47 @@ public class Terminal : IUi
 {
     private string? lastInput = null;
 
+    public async Task<bool> ShowFormAsync(UiForm form)
+    {
+        await Task.CompletedTask;
+        WriteLine(form.Title);
+        WriteLine(new string('-', Math.Min(Width - 1, Math.Max(8, form.Title.Length))));
+
+        foreach (var f in form.Fields)
+        {
+            while (true)
+            {
+                var current = f.Formatter(form.Model);
+                Write($"{(f.Required ? "*" : " ")}{f.Label}: ");
+                if (!string.IsNullOrWhiteSpace(f.Help)) { Write(f.Help); }
+                WriteLine($" [currently: {current}]");
+
+                // read line with ESC cancel (reuse your input loop style)
+                var buffer = new List<char>();
+                while (true)
+                {
+                    var k = ReadKey(intercept: true);
+                    if (k.Key == ConsoleKey.Escape) { WriteLine("\n(cancelled)"); return false; }
+                    if (k.Key == ConsoleKey.Enter) { WriteLine(); break; }
+                    if (k.Key == ConsoleKey.Backspace && buffer.Count > 0) { buffer.RemoveAt(buffer.Count-1); Write("\b \b"); continue; }
+                    if (k.KeyChar != '\0' && !char.IsControl(k.KeyChar)) { buffer.Add(k.KeyChar); Write(k.KeyChar.ToString()); }
+                }
+
+                var raw = new string(buffer.ToArray());
+                if (string.IsNullOrWhiteSpace(raw)) raw = current; // leave as-is if blank
+
+                if (!f.TrySetFromString(form.Model!, raw, out var err))
+                {
+                    WriteLine($"  {err}");
+                    continue;
+                }
+
+                break;
+            }
+        }
+        return true;
+    }
+
     public async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
     {
         await Task.CompletedTask; // Simulate asynchronous behavior
@@ -523,9 +564,6 @@ public class Terminal : IUi
 
         WriteLine(new string('-', 50));
     }
-
-    public void BeginUpdate() { }
-    public void EndUpdate() { }
 
     public int CursorTop { get => Console.CursorTop; }
     public int CursorLeft { get => Console.CursorLeft; }

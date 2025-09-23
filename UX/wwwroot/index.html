@@ -211,17 +211,61 @@
 	#menuOverlay.active ~ #menuTab {
 		display: none;
 	}
+
+	#formOverlay {
+		position:fixed;
+		inset:0;
+		display:none;
+		align-items:center;
+		justify-content:center;
+		background:rgba(0,0,0,.55);
+		z-index:10000;
+	}
+
+	#formPanel {
+		background:#fff;
+		color:#000;
+		width:min(840px,92vw);
+		max-height:min(80vh,720px);
+		display:grid;
+		grid-template-rows:auto 1fr auto;
+		border-radius:12px;
+		overflow:hidden;
+		box-shadow:0 30px 70px rgba(0,0,0,.45);
+	}
+
+	#formTitle {
+		padding:14px 16px;
+		background:#111;
+		color:#eee;
+		font-weight:700;
+	}
+
+	#formBody {
+		overflow:auto;
+		padding:12px 16px;
+	}
+
+	#formFooter {
+		padding:10px 16px;
+		display:flex;
+		gap:8px;
+		justify-content:flex-end;
+		border-top:1px solid #eee;
+		background:#fafafa;
+	}
+
 </style>
 <body>
-  <header></header>
-  <div id="menuTab">press ESC key to open</div>
-  <div id='main'>
+	<header></header>
+	<div id="menuTab">press ESC key to open</div>
+	<div id='main'>
 	<div id='console'></div> <!-- big scrollable console/log -->
-  </div>
-  <div id='composer'>
+	</div>
+	<div id='composer'>
 	<input id='t' placeholder='Type and press Enter'/>
 	<button id='send'>Send</button>
-  </div>
+	</div>
 	<!-- MENU OVERLAY -->
 	<div id="menuOverlay" hidden>
 		<div id="menuPanel">
@@ -231,6 +275,17 @@
 			<div id="menuHint">↑/↓ select • Enter choose • Esc back/cancel</div>
 		</div>
 	</div>
+	<!-- FORM OVERLAY -->
+	<div id="formOverlay" hidden>
+		<div id="formPanel">
+			<div id="formTitle"></div>
+			<div id="formBody"></div>
+			<div id="formFooter">
+				<button id="formCancel">Cancel</button>
+				<button id="formSubmit" disabled>Submit</button>
+			</div>
+		</div>
+	</div>	
 <script src="marked.min.js"></script>
 <script>
 	const consoleEl = document.getElementById('console');
@@ -378,6 +433,118 @@
 		if (e.target === menuOverlay) closeMenu(null);
 	});
 	// --- end menu controller ------------------------------------------------------
+	// --- form controller ---------------------------------------------------------
+	const formOverlay = document.getElementById('formOverlay');
+	const formTitle   = document.getElementById('formTitle');
+	const formBody    = document.getElementById('formBody');
+	const formCancel  = document.getElementById('formCancel');
+	const formSubmit  = document.getElementById('formSubmit');
+	let formState = null;
+
+	function openForm(payload) {
+		formTitle.textContent = payload.title || 'Input';
+		formBody.innerHTML = '';
+		formOverlay.style.display = 'flex';
+		document.body.style.overflow = 'hidden';
+
+		const fields = (payload.fields || []).map(f => ({ ...f, id: 'f_' + Math.random().toString(36).slice(2) }));
+		formState = { fields };
+
+		for (const f of fields) {
+			const row = document.createElement('div');
+			row.style.display = 'grid';
+			row.style.gridTemplateColumns = '220px 1fr';
+			row.style.columnGap = '12px';
+			row.style.rowGap = '2px';
+			row.style.marginBottom = '12px';
+			row.style.alignItems = 'center';
+
+			const lab = document.createElement('label');
+			lab.textContent = f.label + (f.required ? ' *' : '');
+			lab.setAttribute('for', f.id);
+			row.appendChild(lab);
+
+			let input;
+			if (f.kind === 'Number') {
+				input = document.createElement('input');
+				input.type = 'number';
+				if (f.min != null) input.min = String(f.min);
+				if (f.max != null) input.max = String(f.max);
+				input.value = f.current ?? '';
+			} else if (f.kind === 'Bool') {
+				input = document.createElement('select');
+				['false','true'].forEach(v => { const o = document.createElement('option'); o.value=v; o.textContent=v; input.appendChild(o); });
+				input.value = String(f.current ?? 'false');
+			} else if (f.kind === 'Enum') {
+				input = document.createElement('select');
+				(f.choices || []).forEach(v => { const o = document.createElement('option'); o.value=v; o.textContent=v; input.appendChild(o); });
+				if (f.current != null) input.value = String(f.current);
+			} else {
+				input = document.createElement('input');
+				input.type = 'text';
+				input.value = f.current ?? '';
+			}
+			input.id = f.id;
+			input.dataset.required = f.required ? '1' : '0';
+			row.appendChild(input);
+
+			const help = document.createElement('div');
+			help.textContent = f.help || '';
+			help.style.gridColumn = '1 / span 2';
+			help.style.color = '#555';
+			help.style.fontSize = '.92em';
+			help.style.padding = '4px 2px 0 2px';
+			row.appendChild(help);
+
+			formBody.appendChild(row);
+
+			input.addEventListener('keydown', e => {
+				if (e.key === 'Enter' && input.tagName === 'INPUT') {
+					e.preventDefault();
+					const next = formBody.querySelectorAll('input,select');
+					const idx = Array.prototype.indexOf.call(next, input);
+					(next[idx + 1] || formSubmit).focus();
+				}
+			});
+			input.addEventListener('input', validateForm);
+			input.addEventListener('change', validateForm);
+		}
+
+		validateForm();
+		(formBody.querySelector('input,select') || formSubmit).focus();
+	}
+
+	function validateForm() {
+		const inputs = [...formBody.querySelectorAll('input,select')];
+		let ok = true;
+		for (const el of inputs) {
+			const required = el.dataset.required === '1';
+			const v = (el.tagName === 'SELECT') ? el.value : el.value.trim();
+			if (required && !v) { ok = false; break; }
+		}
+		formSubmit.disabled = !ok;
+	}
+
+	function closeForm(ok) {
+		if (!ok) {
+			post({ type: 'FormResult', ok: false });
+		} else {
+			const values = {};
+			for (const f of formState.fields) {
+				const el = document.getElementById(f.id);
+				values[f.label] = (el.tagName === 'SELECT') ? el.value : el.value;
+			}
+			post({ type: 'FormResult', ok: true, values });
+		}
+		formOverlay.style.display = 'none';
+		document.body.style.overflow = '';
+		formState = null;
+	}
+
+	formCancel.onclick = () => closeForm(false);
+	formSubmit.onclick = () => closeForm(true);
+	formOverlay.addEventListener('click', e => { if (e.target === formOverlay) closeForm(false); });
+	// --- end form controller ------------------------------------------------------
 
 	// --- unified handler for ANY host→page message ---
 	function handle(raw) {
@@ -392,6 +559,7 @@
 				case 'ConsoleWrite': cwrite(msg.text||''); break;
 				case 'ConsoleWriteLine': cwriteline(msg.text||''); break;
 				case 'ShowMenu': openMenu(msg); break;
+				case 'ShowForm': openForm(msg); break;
 				case 'PromptLine': post({ type:'UserText', text: prompt('Input:', msg.placeholder||'') || '' }); break;
 				case 'PromptPath': post({ type:'UserText', text: prompt('Path:', '') || '' }); break;
 				case 'FocusInput': t.focus(); break;

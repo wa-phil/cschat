@@ -356,76 +356,75 @@ public partial class CommandManager
                 new Command
                 {
                     Name = "use embeddings", Description = () => $"Toggle the use of embeddings for RAG [currently: {(Program.config.RagSettings.UseEmbeddings ? "Enabled" : "Disabled")}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        var selected = Program.ui.RenderMenu("Use embeddings:", new List<string> { "true", "false" }, Program.config.RagSettings.UseEmbeddings ? 0 : 1);
-                        if (selected == null)
+                        var form = UiForm.Create("Use Embeddings", Program.config.RagSettings.UseEmbeddings);
+                        form.AddBool("Enable")
+                            .WithHelp("Enable or disable the use of embeddings.");
+
+                        if (!await Program.ui.ShowFormAsync(form))
                         {
-                            Program.ui.WriteLine("No selection made.");
-                            return Task.FromResult(Command.Result.Cancelled);
+                            return Command.Result.Cancelled;
                         }
-                        if (!bool.TryParse(selected, out var useEmbeddings))
-                        {
-                            Program.ui.WriteLine("Invalid selection. Please select 'true' or 'false'.");
-                            return Task.FromResult(Command.Result.Failed);
-                        }
-                        Program.config.RagSettings.UseEmbeddings = useEmbeddings;
+                        Program.config.RagSettings.UseEmbeddings = (bool)form.Model!;
                         Config.Save(Program.config, Program.ConfigFilePath);
-                        Program.ui.WriteLine($"Use embeddings set to {Program.config.RagSettings.UseEmbeddings}");
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
                 {
                     Name = "embedding model", Description = () => $"Set the embedding model for RAG [currently: {Program.config.RagSettings.EmbeddingModel}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Program.ui.WriteLine($"Current embedding model: {Program.config.RagSettings.EmbeddingModel}");
-                        Program.ui.Write("Enter new embedding model (or press enter to keep current): ");
-                        var modelInput = Program.ui.ReadLineWithHistory();
-                        if (!string.IsNullOrWhiteSpace(modelInput))
+                        var form = UiForm.Create("Embedding Model", Program.config.RagSettings.EmbeddingModel);
+                        form.AddString("Model")
+                            .WithHelp("Enter the embedding model to use.");
+
+                        if (!await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.RagSettings.EmbeddingModel = modelInput.Trim();
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine("Embedding model updated.");
+                            return Command.Result.Cancelled;
                         }
-                        return Task.FromResult(Command.Result.Success);
+                        Program.config.RagSettings.EmbeddingModel = (string)form.Model!;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
                 {
                     Name = "embedding concurrency", Description = () => $"Set the maximum concurrency for embedding generation [currently: {Program.config.RagSettings.MaxEmbeddingConcurrency}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        var maxValue = 100;
-                        Program.ui.Write($"Current MaxEmbeddingConcurrency: {Program.config.RagSettings.MaxEmbeddingConcurrency}. Enter new value (1 to {maxValue}): ");
-                        var concurrencyInput = Program.ui.ReadLineWithHistory();
-                        if (int.TryParse(concurrencyInput, out var concurrency) && concurrency >= 1 && concurrency <= maxValue)
+                        var form = UiForm.Create("Embedding Concurrency", Program.config.RagSettings.MaxEmbeddingConcurrency);
+                        form.AddInt("Max Concurrency")
+                            .IntBounds(min: 1, max: 100)
+                            .WithHelp("Enter the maximum concurrency for embedding generation (1 to 100).");
+
+                        if (!await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.RagSettings.MaxEmbeddingConcurrency = concurrency;
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"MaxEmbeddingConcurrency set to {concurrency}");
-                            return Task.FromResult(Command.Result.Success);
+                            return Command.Result.Cancelled;
                         }
-                        return Task.FromResult(Command.Result.Cancelled);
+                        Program.config.RagSettings.MaxEmbeddingConcurrency = (int)form.Model!;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
                 {
                     Name = "ingest concurrency", Description = () => $"Set the maximum concurrency for RAG ingestion [currently: {Program.config.RagSettings.MaxIngestConcurrency}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        var maxValue = 100;
-                        Program.ui.Write($"Current MaxIngestConcurrency: {Program.config.RagSettings.MaxIngestConcurrency}. Enter new value (1 to {maxValue}): ");
-                        var concurrencyInput = Program.ui.ReadLineWithHistory();
-                        if (int.TryParse(concurrencyInput, out var concurrency) && concurrency >= 1 && concurrency <= maxValue)
+                        var form = UiForm.Create("Ingest Concurrency", Program.config.RagSettings.MaxIngestConcurrency);
+                        form.AddInt("Max Concurrency")       
+                            .IntBounds(min: 1, max: 100)
+                            .WithHelp("Enter the maximum concurrency for RAG ingestion (1 to 100).");
+
+                        if (!await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.RagSettings.MaxIngestConcurrency = concurrency;
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"MaxIngestConcurrency set to {concurrency}");
-                            return Task.FromResult(Command.Result.Success);
+                            return Command.Result.Cancelled;
                         }
-                        return Task.FromResult(Command.Result.Cancelled);
+                        Program.config.RagSettings.MaxIngestConcurrency = (int)form.Model!;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
@@ -439,102 +438,105 @@ public partial class CommandManager
                         {
                             Program.config.RagSettings.ChunkingStrategy = selected;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"Switched to chunker '{Program.config.RagSettings.ChunkingStrategy}'");
+                            return Task.FromResult(Command.Result.Success);
                         }
-                        return Task.FromResult(Command.Result.Success);
+                        return Task.FromResult(Command.Result.Cancelled);
                     }
                 },
                 new Command
                 {
                     Name = "chunk size", Description = () => $"Set the chunk size for RAG [currently: {Program.config.RagSettings.ChunkSize}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Program.ui.Write($"Current chunk size: {Program.config.RagSettings.ChunkSize}. Enter new value (1 to 10000): ");
-                        var sizeInput = Program.ui.ReadLineWithHistory();
-                        if (int.TryParse(sizeInput, out var size) && size >= 1 && size <= 10000)
+                        var form = UiForm.Create("Chunk Size", Program.config.RagSettings.ChunkSize);
+                        form.AddInt("Chunk Size")
+                            .IntBounds(min: 1, max: 10000)
+                            .WithHelp("Enter the chunk size (1 to 10000).");
+
+                        if (!await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.RagSettings.ChunkSize = size;
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"Chunk size set to {size}");
+                            return Command.Result.Cancelled;
                         }
-                        else
-                        {
-                            Program.ui.WriteLine("Invalid chunk size value. Must be between 1 and 10000.");
-                        }
-                        return Task.FromResult(Command.Result.Success);
+                        Program.config.RagSettings.ChunkSize = (int)form.Model!;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
                 {
                     Name = "max tokens per chunk", Description = () => $"Set the maximum tokens per chunk for RAG [currently: {Program.config.RagSettings.MaxTokensPerChunk}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Program.ui.Write($"Current MaxTokensPerChunk: {Program.config.RagSettings.MaxTokensPerChunk}. Enter new value (1 to 32000): ");
-                        var maxTokensInput = Program.ui.ReadLineWithHistory();
-                        if (int.TryParse(maxTokensInput, out var maxTokens) && maxTokens >= 1 && maxTokens <= 32000)
+                        var form = UiForm.Create("Max Tokens Per Chunk", Program.config.RagSettings.MaxTokensPerChunk);
+                        form.AddInt("Max Tokens")
+                            .IntBounds(min: 1, max: 32000)
+                            .WithHelp("Enter the maximum tokens per chunk (1 to 32000).");
+
+                        if (!await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.RagSettings.MaxTokensPerChunk = maxTokens;
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"MaxTokensPerChunk set to {maxTokens}");
+                            return Command.Result.Cancelled;
                         }
-                        return Task.FromResult(Command.Result.Success);
+                        Program.config.RagSettings.MaxTokensPerChunk = (int)form.Model!;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
                 {
                     Name = "max line length", Description = () => $"Set the maximum line length for RAG [currently: {Program.config.RagSettings.MaxLineLength}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Program.ui.Write($"Current MaxLineLength: {Program.config.RagSettings.MaxLineLength}. Enter new value (1 to 32000): ");
-                        var maxLineLengthInput = Program.ui.ReadLineWithHistory();
-                        if (int.TryParse(maxLineLengthInput, out var maxLineLength) && maxLineLength >= 1 && maxLineLength <= 32000)
+                        var form = UiForm.Create("Max Line Length", Program.config.RagSettings.MaxLineLength);
+                        form.AddInt("Max Line Length")
+                            .IntBounds(min: 1, max: 32000)
+                            .WithHelp("Enter the maximum line length (1 to 32000).");
+
+                        if (!await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.RagSettings.MaxLineLength = maxLineLength;
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"MaxLineLength set to {maxLineLength}");
+                            return Command.Result.Cancelled;
                         }
-                        return Task.FromResult(Command.Result.Success);
+                        Program.config.RagSettings.MaxLineLength = (int)form.Model!;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
                 {
                     Name = "overlap", Description = () => $"Set the overlap size for RAG chunks [currently: {Program.config.RagSettings.Overlap}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Program.ui.Write($"Current overlap size: {Program.config.RagSettings.Overlap}. Enter new value (0 to 100): ");
-                        var overlapInput = Program.ui.ReadLineWithHistory();
-                        if (int.TryParse(overlapInput, out var overlap) && overlap >= 0 && overlap <= 100)
+                        var form = UiForm.Create("Overlap Size", Program.config.RagSettings.Overlap);
+                        form.AddInt("Overlap Size")
+                            .IntBounds(min: 0, max: 100)
+                            .WithHelp("Enter the overlap size (0 to 100).");
+                        
+                        if (!await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.RagSettings.Overlap = overlap;
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"Overlap size set to {overlap}");
+                            return Command.Result.Cancelled;
                         }
-                        else
-                        {
-                            Program.ui.WriteLine("Invalid overlap size value. Must be between 0 and 100.");
-                        }
-                        return Task.FromResult(Command.Result.Success);
+                        Program.config.RagSettings.Overlap = (int)form.Model!;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
                 {
                     Name = "TopK", Description = () => $"Set the number of top results to return from RAG queries [currently: {Program.config.RagSettings.TopK}]",
-                    Action = () =>
+                    Action = async () =>
                     {
                         const int maxK = 25;
-                        Program.ui.Write($"Current TopK value: {Program.config.RagSettings.TopK}. Enter new value (1 to {maxK}): ");
-                        var topKInput = Program.ui.ReadLineWithHistory();
-                        if (int.TryParse(topKInput, out var topK) && topK >= 1 && topK <= maxK)
+                        var form = UiForm.Create("TopK", Program.config.RagSettings);
+                        form.AddInt<RagSettings>("TopK", v => v.TopK, (v, i) => v.TopK = i)
+                            .IntBounds(min: 1, max: maxK)
+                            .WithHelp($"Enter the number of top results to return (1 to {maxK}).");
+
+                        if (!await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.RagSettings.TopK = topK;
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"TopK set to {topK}");
+                            return Command.Result.Cancelled;
                         }
-                        else
-                        {
-                            Program.ui.WriteLine("Invalid TopK value. Must be between 1 and {maxK}.");
-                        }
-                        return Task.FromResult(Command.Result.Success);
+                        Program.config.RagSettings.TopK = ((RagSettings)form.Model!).TopK;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
@@ -544,42 +546,45 @@ public partial class CommandManager
                     {
                         Program.config.RagSettings.UseMmr = !Program.config.RagSettings.UseMmr;
                         Config.Save(Program.config, Program.ConfigFilePath);
-                        Program.ui.WriteLine($"UseMmr set to {Program.config.RagSettings.UseMmr}");
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
                 new Command
                 {
                     Name = "MMR Lambda", Description = () => $"Set the MMR lambda value for RAG [currently: {Program.config.RagSettings.MmrLambda}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Program.ui.Write($"Current MMR Lambda: {Program.config.RagSettings.MmrLambda}. Enter new value (0.0 to 1.0): ");
-                        var lambdaInput = Program.ui.ReadLineWithHistory();
-                        if (float.TryParse(lambdaInput, out var lambda) && lambda >= 0.0f && lambda <= 1.0f)
+                        var form = UiForm.Create("MMR Lambda", Program.config.RagSettings.MmrLambda);
+                        form.AddDouble("Lambda (0 to 1)")
+                            .IntBounds(min: 0, max: 1)
+                            .WithHelp("Enter the MMR lambda floating-point value (0 to 1).");
+
+                        if (!await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.RagSettings.MmrLambda = lambda;
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"MMR Lambda set to {lambda}");
-                            return Task.FromResult(Command.Result.Success);
+                            return Command.Result.Cancelled;
                         }
-                        return Task.FromResult(Command.Result.Cancelled);
+                        Program.config.RagSettings.MmrLambda = (double)form.Model!;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
                 {
                     Name = "MMR Pool Multiplier" , Description = () => $"Set the MMR pool multiplier for RAG [currently: {Program.config.RagSettings.MmrPoolMultiplier}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Program.ui.Write($"Current MMR Pool Multiplier: {Program.config.RagSettings.MmrPoolMultiplier}. Enter new value (0.0 to 10.0): ");
-                        var multiplierInput = Program.ui.ReadLineWithHistory();
-                        if (float.TryParse(multiplierInput, out var multiplier) && multiplier >= 0.0f && multiplier <= 10.0f)
+                        var form = UiForm.Create("MMR Pool Multiplier", Program.config.RagSettings.MmrPoolMultiplier);
+                        form.AddFloat("Multiplier (0.0 to 10.0)")
+                            .IntBounds(min: 0, max: 10)
+                            .WithHelp("Enter the MMR pool multiplier (0.0 to 10.0).");
+                        
+                        if (!await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.RagSettings.MmrPoolMultiplier = multiplier;
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"MMR Pool Multiplier set to {multiplier}");
-                            return Task.FromResult(Command.Result.Success);
+                            return Command.Result.Cancelled;
                         }
-                        return Task.FromResult(Command.Result.Cancelled);
+                        Program.config.RagSettings.MmrPoolMultiplier = (float)form.Model!;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        return Command.Result.Success;
                     }
                 }
             }
