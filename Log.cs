@@ -43,7 +43,7 @@ public static class Log
         Provider, Model, Version, GitHash, ProviderSet, Result, FilePath, Query, Name, Scores, Registered, Reason,
         ToolName, ToolInput, ParsedInput, Enabled, Error, Reference, Goal, Step, Input, TypeToParse, PlanningFailed,
         Command, ServerName, Names, Schema, ExampleText, MenuTop, ConsoleHeight, ConsoleWidth, InputTop, Host, Output,
-        Id, Kql,
+        Id, Kql, Type,
     }
 
     public enum Level { Verbose, Information, Warning, Error }

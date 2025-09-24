@@ -5,266 +5,59 @@
 <title>CSChat</title>
 <style>
 	:root { --bg:#111; --fg:#eee; }
+	html, body { height: 100%; margin: 0; overflow: hidden; }
+	body { display: grid; grid-template-rows: auto 1fr auto; }
+	#main { display:flex; flex-direction:column; min-height:0; }
+	#console { display:flex; flex-direction:column; align-items:flex-start; gap:10px; flex:1; min-height:0; overflow:auto; padding:12px; }
+	#composer { display:flex; gap:8px; padding:8px 12px; border-top:none; background:transparent; }
+	#t{ flex:1; font:inherit; padding:10px 14px; border:1px solid #d9d9d9; border-radius:9999px; outline:none; background:#fff; box-shadow: inset 0 1px 2px rgba(0,0,0,.06); }
+	#t:focus{ border-color:#b9cdfd; box-shadow:0 0 0 2px rgba(80,140,255,.15), inset 0 1px 2px rgba(0,0,0,.06); }
+	#send{ padding:8px 14px; border:1px solid #d9d9d9; border-radius:9999px; background:#f6f6f6; font:inherit; cursor:pointer;}
+	#send:hover{background:#f0f0f0;} #send:active{background:#eaeaea;}
+	pre{margin:0 0 8px 0; white-space:pre-wrap;}
+	#console>.bubble{ white-space:normal; margin:0; padding:10px 12px; border-radius:10px; line-height:1.35; word-break:break-word; background:#1b1b1b; border:1px solid #333; color:var(--fg); max-width:min(70ch,70%); align-self:flex-start; font-family:system-ui,sans-serif; }
+	#console .bubble>:first-child{margin-top:0;} #console .bubble>:last-child{margin-bottom:0;}
+	#console>.bubble.user{ align-self:flex-end; background:#1d80ea; border-color:#1d80ea; color:#fafafa;}
+	#console>.bubble.assistant{ background:#ddd; border-color:#ddd; color:#000;}
+	#console>.bubble.tool{ align-self:stretch; width:100%; max-width:none; text-align:center; background:#111; border-color:#666; font-weight:600;}
+	#console>.bubble.system{ align-self:stretch; max-width:80%; background:#1a1a1a; border-style:dashed; color:#aaa;}
 
-	/* Prevent page/window scrolling; we’ll scroll the console only */
-	html, body {
-		height: 100%;
-		margin: 0;
-		overflow: hidden;
-	}
+	#menuOverlay{ position:fixed; inset:0; background:rgba(0,0,0,.0); pointer-events:none; z-index:9999; }
+	#menuPanel{ position:absolute; top:-90%; left:50%; transform:translateX(-50%); width:min(760px,92vw); max-height:min(70vh,600px); background:#fff; color:#000; border-radius:0 0 10px 10px; box-shadow:0 20px 50px rgba(0,0,0,.35); display:grid; grid-template-rows:auto auto 1fr auto; overflow:hidden; transition:top .3s ease-in-out; }
+	#menuOverlay.active{ pointer-events:auto; } #menuOverlay.active #menuPanel{ top:0; }
+	#menuList{ list-style:none; margin:0; padding:6px 8px 12px 8px; overflow:auto; }
+	#menuHeader{ padding:12px 14px; font-weight:600; background:#111; color:#eee; }
+	#menuFilter{ margin:10px; padding:10px; font:inherit; border:1px solid #ccc; border-radius:8px; }
+	#menuList li{ padding:8px 10px; border-radius:8px; opacity:1; transform:translateY(0); transition:opacity .2s ease, transform .2s ease; }
+	#menuList li.fade-out{ opacity:0; transform:translateY(-10px); } #menuList li.fade-in{ opacity:0; transform:translateY(10px); animation:fadeInMove .2s forwards; }
+	@keyframes fadeInMove{ to{ opacity:1; transform:translateY(0);} }
+	#menuList li[data-active="true"]{ background:#111; color:#fff; }
+	#menuHint{ padding:8px 12px; font-size:.9em; color:#444; border-top:1px solid #eee; background:#fafafa; }
+	#menuTab{ position:fixed; top:0; left:50%; transform:translateX(-50%); background:#111; color:#eee; padding:4px 10px; font-size:.85em; border-radius:0 0 6px 6px; cursor:pointer; z-index:9998; }
+	#menuOverlay.active ~ #menuTab { display:none; }
 
-	/*  grid already splits header / main / composer; keep it */
-	body {
-		display: grid;
-		grid-template-rows: auto 1fr auto;
-	}
-
-	/* Allow the console (child) to actually shrink and become scrollable */
-	#main {
-		display: flex;
-		flex-direction: column;
-		min-height: 0;   /* critical with flex/grid parents */
-	}
-
-	/* Only the console scrolls */
-	#console {
-		display: flex;              /* <-- make children flex items */
-		flex-direction: column;     /* bubbles stack top→bottom */
-		align-items: flex-start;    /* default: left for non-user bubbles */
-		gap: 10px;                  /* spacing between bubbles */
-		flex: 1;
-		min-height: 0;
-		overflow: auto;
-		padding: 12px;
-	}
-
-	/* Make the composer look like a modern message bar: no top border, capsule input */
-	#composer {
-		display: flex;
-		gap: 8px;
-		padding: 8px 12px;
-		border-top: none;            /* remove the horizontal rule */
-		background: transparent;     /* no divider look */
-	}
-
-	#t {
-		flex: 1;
-		font: inherit;
-		padding: 10px 14px;
-		border: 1px solid #d9d9d9;   /* subtle, light grey */
-		border-radius: 9999px;         /* pill */
-		outline: none;
-		background: #fff;
-		/* very light inner depth like a modern message bar */
-		box-shadow: inset 0 1px 2px rgba(0,0,0,.06);
-	}
-	#t:focus {
-		border-color: #b9cdfd;
-		box-shadow:
-			0 0 0 2px rgba(80, 140, 255, .15),
-			inset 0 1px 2px rgba(0,0,0,.06);
-	}
-
-	/* Make the Send button match the modern message bar/pill vibe */
-	#send {
-		padding: 8px 14px;
-		border: 1px solid #d9d9d9;
-		border-radius: 9999px;
-		background: #f6f6f6;
-		font: inherit;
-		cursor: pointer;
-	}
-	#send:hover { background: #f0f0f0; }
-	#send:active { background: #eaeaea; }
-
-	pre { margin:0 0 8px 0; white-space:pre-wrap; }
-	
-	/* Base bubble look for all messages */
-	#console > .bubble {
-		white-space: normal;
-		margin: 0;                 /* rows are controlled by gap */
-		padding: 10px 12px;
-		border-radius: 10px;       /* not too rounded */
-		line-height: 1.35;
-		word-break: break-word;    /* avoid overflow for long tokens */
-		background: #1b1b1b;       /* default bubble bg */
-		border: 1px solid #333;
-		color: var(--fg);
-		max-width: min(70ch, 70%); /* message width cap */
-		align-self: flex-start;    /* default: left side */
-		font-family: system-ui, sans-serif; /* override monospace bubble look */
-	}
-
-	/* trim vertical margins inside the bubble */
-	#console .bubble > :first-child { margin-top: 0; }
-	#console .bubble > :last-child  { margin-bottom: 0; }	
-
-	/* User bubble (right side, “blue-ish” tone) */
-	#console > .bubble.user {
-		align-self: flex-end; /* right side */
-		background: #1d80ea;
-		border-color: #1d80ea;
-		color: #fafafa;
-	}
-
-	/* Assistant bubble (left, neutral dark) */
-	#console > .bubble.assistant {
-		background: #ddd;
-		border-color: #ddd;
-		color: #000;
-	}
-
-	/* Tool message: full-width, centered, visually distinct */
-	#console > .bubble.tool {
-		align-self: stretch;   /* span full row */
-		width: 100%;
-		max-width: none;
-		text-align: center;
-		background: #111;
-		border-color: #666;
-		font-weight: 600;
-	}
-
-	/* Optional: system messages centered, lighter text */
-	#console > .bubble.system {
-		align-self: stretch;
-		max-width: 80%;
-		background: #1a1a1a;
-		border-style: dashed;
-		color: #aaa;
-	}
-
-	#menuOverlay {
-		position: fixed;
-		inset: 0;
-		background: rgba(0,0,0,.0); /* transparent so clicks can still close if desired */
-		pointer-events: none;         /* disabled when menu is closed */
-		z-index: 9999;
-	}
-
-	#menuPanel {
-		position: absolute;
-		top: -90%; /* mostly hidden above */
-		left: 50%;
-		transform: translateX(-50%);
-		width: min(760px, 92vw);
-		max-height: min(70vh, 600px);
-		background: #fff;
-		color: #000;
-		border-radius: 0 0 10px 10px;
-		box-shadow: 0 20px 50px rgba(0,0,0,.35);
-		display: grid;
-		grid-template-rows: auto auto 1fr auto;
-		overflow: hidden;
-		transition: top 0.3s ease-in-out;
-	}
-
-	/* active state (pulled down) */
-	#menuOverlay.active { pointer-events: auto; }
-	#menuOverlay.active #menuPanel { top: 0; /* slide down into view */ }
-
-	/* menu item add/remove animation styles */
-	#menuList li {
-		padding: 8px 10px;
-		border-radius: 8px;
-		opacity: 1;
-		transform: translateY(0);
-		transition: opacity 0.2s ease, transform 0.2s ease;
-	}
-
-	#menuList li.fade-out {
-		opacity: 0;
-		transform: translateY(-10px);
-	}
-
-	#menuList li.fade-in {
-		opacity: 0;
-		transform: translateY(10px);
-		animation: fadeInMove 0.2s forwards;
-	}
-
-	@keyframes fadeInMove {
-		to { opacity: 1; transform: translateY(0); }
-	}
-
-	#menuHeader { padding:12px 14px; font-weight:600; background:#111; color:#eee; }
-	#menuFilter { margin:10px; padding:10px; font:inherit; border:1px solid #ccc; border-radius:8px; }
-	#menuList { list-style:none; margin:0; padding:6px 8px 12px 8px; overflow:auto; }
-	#menuList li { padding:8px 10px; border-radius:8px; }
-	#menuList li[data-active="true"] { background:#111; color:#fff; }
-	#menuHint { padding:8px 12px; font-size:.9em; color:#444; border-top:1px solid #eee; background:#fafafa; }
-
-	#menuTab {
-		position: fixed;
-		top: 0;
-		left: 50%;
-		transform: translateX(-50%);
-		background: #111;
-		color: #eee;
-		padding: 4px 10px;
-		font-size: 0.85em;
-		border-radius: 0 0 6px 6px;
-		cursor: pointer;
-		z-index: 9998;
-	}
-
-	#menuOverlay.active ~ #menuTab {
-		display: none;
-	}
-
-	#formOverlay {
-		position:fixed;
-		inset:0;
-		display:none;
-		align-items:center;
-		justify-content:center;
-		background:rgba(0,0,0,.55);
-		z-index:10000;
-	}
-
-	#formPanel {
-		background:#fff;
-		color:#000;
-		width:min(840px,92vw);
-		max-height:min(80vh,720px);
-		display:grid;
-		grid-template-rows:auto 1fr auto;
-		border-radius:12px;
-		overflow:hidden;
-		box-shadow:0 30px 70px rgba(0,0,0,.45);
-	}
-
-	#formTitle {
-		padding:14px 16px;
-		background:#111;
-		color:#eee;
-		font-weight:700;
-	}
-
-	#formBody {
-		overflow:auto;
-		padding:12px 16px;
-	}
-
-	#formFooter {
-		padding:10px 16px;
-		display:flex;
-		gap:8px;
-		justify-content:flex-end;
-		border-top:1px solid #eee;
-		background:#fafafa;
-	}
-
+	#formOverlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.55); z-index:10000; }
+	#formPanel{ background:#fff; color:#000; width:min(840px,92vw); max-height:min(80vh,720px); display:grid; grid-template-rows:auto 1fr auto; border-radius:12px; overflow:hidden; box-shadow:0 30px 70px rgba(0,0,0,.45);}
+	#formTitle{ padding:14px 16px; background:#111; color:#eee; font-weight:700; }
+	#formBody{ overflow:auto; padding:12px 16px; }
+	#formFooter{ padding:10px 16px; display:flex; gap:8px; justify-content:flex-end; border-top:1px solid #eee; background:#fafafa; }
+	.field-error{ color:#b00020; font-size:.9em; margin-top:4px; grid-column:2; }
+	input.invalid, select.invalid, textarea.invalid { border-color:#b00020 !important; outline:none; box-shadow:0 0 0 2px rgba(176,0,32,.15); }
+	.array-toolbar { display:flex; gap:6px; }
+	.array-list { list-style:none; margin:6px 0 0 0; padding:0; border:1px solid #eee; max-height:200px; overflow:auto; }
+	.array-list li { display:flex; justify-content:space-between; gap:8px; padding:6px 8px; border-bottom:1px solid #f1f1f1; }
+	.array-actions button { margin-left:6px; }
 </style>
+</head>
 <body>
 	<header></header>
 	<div id="menuTab">press ESC key to open</div>
 	<div id='main'>
-	<div id='console'></div> <!-- big scrollable console/log -->
+		<div id='console'> <!-- big scrollable console/log -->
 	</div>
 	<div id='composer'>
-	<input id='t' placeholder='Type and press Enter'/>
-	<button id='send'>Send</button>
+		<input id='t' placeholder='Type and press Enter'/>
+		<button id='send'>Send</button>
 	</div>
 	<!-- MENU OVERLAY -->
 	<div id="menuOverlay" hidden>
@@ -285,7 +78,7 @@
 				<button id="formSubmit" disabled>Submit</button>
 			</div>
 		</div>
-	</div>	
+	</div>
 <script src="marked.min.js"></script>
 <script>
 	const consoleEl = document.getElementById('console');
@@ -294,7 +87,7 @@
 
 	function post(obj) { try { window.external?.sendMessage?.(JSON.stringify(obj)); } catch {} }
 	function cwrite(s){ consoleEl.textContent += (s ?? ''); consoleEl.scrollTop = consoleEl.scrollHeight; }
-	function cwriteline(s){ cwrite((s ?? '') + '\n'); }
+	function cwriteline(s){ cwrite((s ?? '') + '\\n'); }
 
 	// --- menu controller ---------------------------------------------------------
 	const menuOverlay = document.getElementById('menuOverlay');
@@ -311,8 +104,8 @@
 	function openMenu(payload) {
 		menuState = {
 			header: payload.header || 'Menu',
-			choices: (payload.choices || []).slice(),
-			filtered: (payload.choices || []).slice(),
+			choices:[...(payload.choices || [])],
+			filtered:[...(payload.choices || [])],
 			idx: Math.min(Math.max(0, payload.selected|0), (payload.choices||[]).length-1)
 		};
 
@@ -322,7 +115,6 @@
 		menuOverlay.hidden = false;
 		menuOverlay.classList.add('active');
 		// Trap focus & keystrokes while menu is open
-		menuOverlay.hidden = false;
 		document.body.style.overflow = 'hidden';
 		t.disabled = true;
 		menuFilter.focus();
@@ -331,17 +123,11 @@
 	function closeMenu(sendResult) {
 		menuOverlay.classList.remove('active');
 		menuOverlay.hidden = true;
-
-		if (sendResult !== undefined) {
-			// Post selection/cancel to host so RenderMenu(...) can return synchronously.
-			post({ type:'MenuResult', text: sendResult ?? null });
-		}
-
+		if (sendResult !== undefined) post({ type:'MenuResult', text: sendResult ?? null });
 		document.body.style.overflow = '';
 		t.disabled = false;
 		t.focus();
 	}
-
 	function renderMenu() {
 		const q = menuFilter.value.trim().toLowerCase();
 		const newItems = q
@@ -382,24 +168,15 @@
 		const lis = [...menuList.querySelectorAll('li')];
 		lis.sort((a,b) => newItems.indexOf(a.dataset.value) - newItems.indexOf(b.dataset.value))
 			.forEach((li, i) => {
-				// normalize label
 				li.textContent = li.dataset.value;
-				// active row
-				li.dataset.active = (i === menuState.idx ? 'true' : 'false');
-				// click maps to current index
-				li.onclick = () => { menuState.idx = i; chooseActive(); };
-			});
-
-		// keep active visible
+				li.dataset.active = (i === menuState.idx ? 'true' : 'false'); li.onclick=()=>{ menuState.idx=i; chooseActive(); }; });
 		const active = menuList.querySelector('li[data-active="true"]');
-		if (active) {
-			const r = active.getBoundingClientRect();
-			const pr = menuList.getBoundingClientRect();
-			if (r.top < pr.top) menuList.scrollTop += r.top - pr.top;
-			else if (r.bottom > pr.bottom) menuList.scrollTop += r.bottom - pr.bottom;
+		if (active){
+			const r=active.getBoundingClientRect(), pr=menuList.getBoundingClientRect();
+			if (r.top<pr.top) menuList.scrollTop += r.top-pr.top;
+			else if (r.bottom>pr.bottom) menuList.scrollTop += r.bottom-pr.bottom;
 		}
 	}
-
 	function chooseActive() {
 		const items = menuState.filtered;
 		const chosen = (items.length > 0) ? items[menuState.idx] : null;
@@ -416,15 +193,15 @@
 			e.stopPropagation(); e.preventDefault();
 		}
 		const len = menuState.filtered.length;
-		switch (e.key) {
-			case 'ArrowUp':   if (len) menuState.idx = Math.max(0, menuState.idx-1); renderMenu(); break;
-			case 'ArrowDown': if (len) menuState.idx = Math.min(len-1, menuState.idx+1); renderMenu(); break;
-			case 'PageUp':    if (len) menuState.idx = Math.max(0, menuState.idx-10);  renderMenu(); break;
-			case 'PageDown':  if (len) menuState.idx = Math.min(len-1, menuState.idx+10); renderMenu(); break;
-			case 'Home':      if (len) menuState.idx = 0;            renderMenu(); break;
-			case 'End':       if (len) menuState.idx = len-1;        renderMenu(); break;
-			case 'Enter':     chooseActive(); break;
-			case 'Escape':    closeMenu(null); break; // close this menu, let host know it was cancelled
+		switch (e.key){
+			case 'ArrowUp':	 	if (len) menuState.idx = Math.max(0,menuState.idx-1); renderMenu(); break;
+			case 'ArrowDown': 	if (len) menuState.idx = Math.min(len-1,menuState.idx+1); renderMenu(); break;
+			case 'PageUp':	 	if (len) menuState.idx = Math.max(0,menuState.idx-10); renderMenu(); break;
+			case 'PageDown': 	if (len) menuState.idx = Math.min(len-1,menuState.idx+10); renderMenu(); break;
+			case 'Home':	 	if (len) menuState.idx = 0; renderMenu(); break;
+			case 'End':	 		if (len) menuState.idx = len-1; renderMenu(); break;
+			case 'Enter':	 	chooseActive(); break;
+			case 'Escape':	 	closeMenu(null); break; // close this menu, let host know it was cancelled
 		}
 	});
 
@@ -439,13 +216,18 @@
 	const formBody    = document.getElementById('formBody');
 	const formCancel  = document.getElementById('formCancel');
 	const formSubmit  = document.getElementById('formSubmit');
-	let formState = null;
+
+	let formState = null;              // { fields:[...] }
+	const idByKey = new Map();         // key -> element id
+	const errByKey = new Map();        // key -> error <div>
 
 	function openForm(payload) {
 		formTitle.textContent = payload.title || 'Input';
 		formBody.innerHTML = '';
 		formOverlay.style.display = 'flex';
 		document.body.style.overflow = 'hidden';
+
+		idByKey.clear(); errByKey.clear();
 
 		const fields = (payload.fields || []).map(f => ({ ...f, id: 'f_' + Math.random().toString(36).slice(2) }));
 		formState = { fields };
@@ -459,68 +241,271 @@
 			row.style.marginBottom = '12px';
 			row.style.alignItems = 'center';
 
+			// label
 			const lab = document.createElement('label');
 			lab.textContent = f.label + (f.required ? ' *' : '');
 			lab.setAttribute('for', f.id);
 			row.appendChild(lab);
 
-			let input;
-			if (f.kind === 'Number') {
+			// --- inputs by kind ---
+			let input; const kind = String(f.kind||'').toLowerCase();
+
+			const addHelp = (node) => {
+				const help = document.createElement('div');
+				help.textContent = f.help || '';
+				help.style.gridColumn = '1 / span 2';
+				help.style.color = '#555'; help.style.fontSize = '.92em'; help.style.padding = '4px 2px 0 2px';
+				row.appendChild(help);
+				return help;
+			};
+			const addError = () => {
+				const err = document.createElement('div');
+				err.className = 'field-error';
+				err.style.display = 'none';
+				row.appendChild(err);
+				errByKey.set(f.key, err);
+			};
+
+			if (kind === 'text'){
+				input = document.createElement('textarea');
+				input.rows = 4;
+				input.value = f.current ?? '';
+			} else if (kind === 'number') {
 				input = document.createElement('input');
 				input.type = 'number';
 				if (f.min != null) input.min = String(f.min);
 				if (f.max != null) input.max = String(f.max);
 				input.value = f.current ?? '';
-			} else if (f.kind === 'Bool') {
+			} else if (kind === 'decimal') {
+				input = document.createElement('input');
+				input.type = 'number';
+				input.step = 'any';
+				input.value = f.current ?? '';
+			} else if (kind === 'long') {
+				input = document.createElement('input');
+				input.type = 'number';
+				input.step = '1';
+				input.value = f.current ?? '';
+			} else if (kind === 'bool') {
 				input = document.createElement('select');
-				['false','true'].forEach(v => { const o = document.createElement('option'); o.value=v; o.textContent=v; input.appendChild(o); });
+				['false','true'].forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; input.appendChild(o); });
 				input.value = String(f.current ?? 'false');
-			} else if (f.kind === 'Enum') {
+			} else if (kind === 'enum') {
 				input = document.createElement('select');
-				(f.choices || []).forEach(v => { const o = document.createElement('option'); o.value=v; o.textContent=v; input.appendChild(o); });
+				(f.choices || []).forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; input.appendChild(o); });
 				if (f.current != null) input.value = String(f.current);
-			} else {
+			} else if (kind === 'date') {
+				input = document.createElement('input');
+				input.type = 'date';
+				input.value = f.current ?? '';
+			} else if (kind === 'time') {
+				input = document.createElement('input');
+				input.type = 'time';
+				input.value = f.current ?? '';
+			} else if (kind === 'guid') {
 				input = document.createElement('input');
 				input.type = 'text';
 				input.value = f.current ?? '';
-			}
-			input.id = f.id;
-			input.dataset.required = f.required ? '1' : '0';
-			row.appendChild(input);
+			} else if (kind === 'password') {
+				input = document.createElement('input');
+				input.type = 'password';
+				input.value = f.current ?? ''; 
+			} else if (kind === 'path') {
+				const wrap = document.createElement('div');
+				wrap.style.display = 'grid';
+				wrap.style.gridTemplateColumns = '1fr auto';
+				wrap.style.gap = '8px';
+				input=document.createElement('input');
+				input.type = 'text';
+				input.value = f.current ?? '';
+				const btn = document.createElement('button');
+				btn.type = 'button';
+				btn.textContent = 'Browse…';
+				btn.addEventListener('click', () => {
+					// Ask host; on next UserText, Photino wires it back to ReadPathWithAutocompleteAsync result
+					post({ type:'PromptPath', dir:false });
+					// Small hack: temporarily listen for a one-shot message by focusing and letting host put result back through FormError? Simpler: prompt()
+					// We keep a JS prompt fallback for now; Photino already handles PromptPath messages for host-driven pickers.
+					const p = prompt('Path:', input.value||'') || '';
+					if (p) input.value = p;
+					validateForm();
+				});
+				wrap.appendChild(input);
+				wrap.appendChild(btn);
+				row.appendChild(wrap);
+				addHelp(wrap);
+				addError();
+				gotoFinalize();
+				continue;
+			} else if (kind === 'array')
+			{ 
+				// simple repeater; current is JSON text
+				const container = document.createElement('div');
+				container.style.gridColumn = '2';
 
-			const help = document.createElement('div');
-			help.textContent = f.help || '';
-			help.style.gridColumn = '1 / span 2';
-			help.style.color = '#555';
-			help.style.fontSize = '.92em';
-			help.style.padding = '4px 2px 0 2px';
-			row.appendChild(help);
+				const toolbar = document.createElement('div');
+				toolbar.className='array-toolbar';
 
-			formBody.appendChild(row);
+				const addBtn = document.createElement('button');
+				addBtn.type='button'; addBtn.textContent='Add';
 
-			input.addEventListener('keydown', e => {
-				if (e.key === 'Enter' && input.tagName === 'INPUT') {
-					e.preventDefault();
-					const next = formBody.querySelectorAll('input,select');
-					const idx = Array.prototype.indexOf.call(next, input);
-					(next[idx + 1] || formSubmit).focus();
+				const editBtn = document.createElement('button');
+				editBtn.type='button'; editBtn.textContent='Edit';
+
+				const remBtn = document.createElement('button');
+				remBtn.type='button'; remBtn.textContent='Remove';
+
+				const list = document.createElement('ul');
+				list.className='array-list';
+
+				let items = [];
+				try {
+					items = JSON.parse(f.current||'[]') || [];
+				} catch { 
+					items = []; 
 				}
-			});
-			input.addEventListener('input', validateForm);
-			input.addEventListener('change', validateForm);
+
+				function renderList(){
+					list.innerHTML = '';
+					items.forEach((v,i)=>{
+						const li=document.createElement('li');
+						const span=document.createElement('span'); 
+						span.textContent = String(v);
+
+						const actions=document.createElement('div'); 
+						actions.className='array-actions';
+
+						const e=document.createElement('button'); 
+						e.type='button'; 
+						e.textContent='✎'; 
+						e.title='Edit';
+
+						const r=document.createElement('button'); 
+						r.type='button'; 
+						r.textContent='✕';
+						r.title='Remove';
+
+						e.onclick=()=>editItem(i); 
+						r.onclick=()=>{ 
+							items.splice(i,1); 
+							renderList(); 
+							validateForm();
+						};
+
+						actions.appendChild(e);
+						actions.appendChild(r);
+						li.appendChild(span);
+						li.appendChild(actions);
+						list.appendChild(li);
+					});
+				}
+
+				function editItem(i){
+					const curr = (i>=0)? String(items[i]) : '';
+					const val = prompt('Value:', curr);
+					if (val==null) return;
+					if (i>=0) items[i]=val; else items.push(val);
+					renderList();
+					validateForm();
+				}
+
+				addBtn.onclick=()=>editItem(-1);
+
+				editBtn.onclick=()=>{
+					const idx = Number(prompt('Index to edit (0-based):','0'));
+					if (!Number.isNaN(idx) && idx>=0 && idx<items.length) editItem(idx);
+				};
+
+				remBtn.onclick=()=>{ 
+					const idx = Number(prompt('Index to remove (0-based):','0'));
+					if (!Number.isNaN(idx) && idx>=0 && idx<items.length){
+						items.splice(idx,1);
+						renderList();
+						validateForm();
+					} 
+				};
+
+				renderList();
+
+				toolbar.appendChild(addBtn);
+				toolbar.appendChild(editBtn);
+				toolbar.appendChild(remBtn);
+
+				container.appendChild(toolbar);
+				container.appendChild(list);
+
+				// hidden backing input to carry JSON on submit
+				input = document.createElement('input');
+				input.type='hidden';
+				input.value = JSON.stringify(items);
+
+				container.appendChild(input);
+
+				row.appendChild(container);
+				addHelp(container); 
+				addError();
+				gotoFinalize(false /*no generic placement*/ , input, () => { input.value = JSON.stringify(items); });
+				continue;
+			} else { 
+				input=document.createElement('input');
+				input.type='text';
+				input.value=f.current ?? '';
+			}
+
+			// default placement (non-array)
+			row.appendChild(input);
+			addHelp(input);
+			addError();
+
+			function gotoFinalize(placeInput = true, backingInput = input, onBeforeSubmit = null) {
+				backingInput.id = f.id;
+				backingInput.dataset.key = f.key;
+				backingInput.dataset.required = f.required ? '1' : '0';
+				if (f.placeholder) backingInput.placeholder = f.placeholder;
+				if (f.pattern) backingInput.pattern = f.pattern;
+
+				idByKey.set(f.key, f.id);
+				if (placeInput){
+					backingInput.addEventListener('keydown', e=>{
+						if (e.key === 'Enter' && (backingInput.tagName==='INPUT' || backingInput.tagName==='SELECT')) {
+							e.preventDefault();
+							(formSubmit).focus();
+						}
+					});
+					backingInput.addEventListener('input', validateForm);
+					backingInput.addEventListener('change', validateForm);
+				}
+				// store per-field submit hook if provided
+				if (onBeforeSubmit){
+					if (!formState.beforeSubmit) formState.beforeSubmit = {};
+					formState.beforeSubmit[f.key] = onBeforeSubmit;
+				}
+				formBody.appendChild(row);
+			}
+			gotoFinalize();
 		}
 
 		validateForm();
-		(formBody.querySelector('input,select') || formSubmit).focus();
+		(formBody.querySelector('input,select,textarea') || formSubmit).focus();
 	}
 
 	function validateForm() {
-		const inputs = [...formBody.querySelectorAll('input,select')];
+		const inputs = [...formBody.querySelectorAll('input,select,textarea')].filter(el=>el.type!=='hidden');
 		let ok = true;
 		for (const el of inputs) {
+			el.classList.remove('invalid');
 			const required = el.dataset.required === '1';
 			const v = (el.tagName === 'SELECT') ? el.value : el.value.trim();
-			if (required && !v) { ok = false; break; }
+			if (required && !v) { ok = false; continue; }
+			if (el.pattern) {
+				try{
+					const re = new RegExp(el.pattern);
+					if (v && !re.test(v)) {
+						ok = false;
+						el.classList.add('invalid'); 
+					} 
+				} catch { /* bad pattern from host - ignore */ }
+			}
 		}
 		formSubmit.disabled = !ok;
 	}
@@ -529,30 +514,35 @@
 		if (!ok) {
 			post({ type: 'FormResult', ok: false });
 		} else {
+			// let fields with custom backing state (e.g., Array) push latest value
+			if (formState?.beforeSubmit) {
+				for (const [k,fn] of Object.entries(formState.beforeSubmit)) try{ fn(); }catch{}
+			}
 			const values = {};
 			for (const f of formState.fields) {
 				const el = document.getElementById(f.id);
-				values[f.label] = (el.tagName === 'SELECT') ? el.value : el.value;
+				values[f.key] = (el.tagName === 'SELECT') ? el.value : el.value;
 			}
 			post({ type: 'FormResult', ok: true, values });
 		}
 		formOverlay.style.display = 'none';
 		document.body.style.overflow = '';
 		formState = null;
+		idByKey.clear();
+		errByKey.clear();
 	}
 
 	formCancel.onclick = () => closeForm(false);
 	formSubmit.onclick = () => closeForm(true);
 	formOverlay.addEventListener('click', e => { if (e.target === formOverlay) closeForm(false); });
-	// --- end form controller ------------------------------------------------------
+	// --- end form controller ---------------------------------------------------------
 
-	// --- unified handler for ANY host→page message ---
+	// Unified handler
 	function handle(raw) {
 		try {
 			//cwriteline("RX: " + (typeof raw === 'string' ? raw : JSON.stringify(raw)));
 			const msg = (typeof raw === 'string') ? JSON.parse(raw) : raw;
 			if (!msg || !msg.type) return;
-
 			switch (msg.type) {
 				case 'AppendMessage': add((msg.role||'').toLowerCase(), msg.content||''); break;
 				case 'RenderHistory': consoleEl.innerHTML=''; (msg.items||[]).forEach(x=>add((x.role||'').toLowerCase(), x.content||'')); break;
@@ -561,17 +551,28 @@
 				case 'ShowMenu': openMenu(msg); break;
 				case 'ShowForm': openForm(msg); break;
 				case 'PromptLine': post({ type:'UserText', text: prompt('Input:', msg.placeholder||'') || '' }); break;
-				case 'PromptPath': post({ type:'UserText', text: prompt('Path:', '') || '' }); break;
+				case 'PromptPath': post({ type:'UserText', text: prompt('Path:', '') || '' }); break;  // host can also trigger this
 				case 'FocusInput': t.focus(); break;
 				case 'Clear': consoleEl.innerHTML=''; break;
+				case 'FormError': {
+					// payload: { type:'FormError', key, message }
+					if (!formState) break;
+					const { key, message } = msg;
+					const id = idByKey.get(key);
+					const err = errByKey.get(key);
+					if (id && err) {
+						const el = document.getElementById(id);
+						el?.classList.add('invalid');
+						err.textContent = message || 'Invalid value.';
+						err.style.display = '';
+						el?.focus();
+					}
+					break;
+				}
 			}
-		} catch (e) {
-			cwriteline(`RX error: ${e.message}`);
-		}
+		}catch(e){ cwriteline(`RX error: ${e.message}`); }
 	}
-
 	window.external.receiveMessage(message => handle(message));
-
 	function add(kind, text) {
 		const el = document.createElement('div');
 		el.className = 'bubble ' + (kind || '');

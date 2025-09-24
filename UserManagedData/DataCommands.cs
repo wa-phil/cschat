@@ -113,29 +113,30 @@ public static class DataCommands
         {
             Name = "add",
             Description = () => $"Add a new {metadata.Name} item",
-            Action = async () =>
+            Action = async () => await Log.MethodAsync(async ctx =>
             {
-                try
+                ctx.Append(Log.Data.Name, metadata.Name);
+                var instance = Activator.CreateInstance(type)!;
+                ctx.Append(Log.Data.Type, type.FullName ?? type.Name);
+                ctx.Append(Log.Data.Input, instance.ToJson() ?? "<null>");
+                var form = UiFormBuilder.BuildForm(instance, type, $"Add {metadata.Name}");
+                if (!await Program.ui.ShowFormAsync(form))
                 {
-                    var instance = Activator.CreateInstance(type)!;
-                    if (!await FillObjectInteractively(instance, type, isUpdate: false))
-                    {
-                        Program.ui.WriteLine("Add cancelled.");
-                        return Command.Result.Cancelled;
-                    }
+                    ctx.Append(Log.Data.Message, "User cancelled form");
+                    ctx.Succeeded();
+                    return Command.Result.Cancelled;
+                }
+                // form.Model holds the cloned+edited object — reassign back:
+                instance = (object?)form.Model ?? instance;
+                ctx.Append(Log.Data.Output, instance.ToJson() ?? "<null>");
 
-                    var (dataSubsystem, addMethod) = GetUserManagedAdd(type);
-                    addMethod.Invoke(dataSubsystem, new[] { instance });
-                    Config.Save(Program.config, Program.ConfigFilePath);
-                    Program.ui.WriteLine($"Added {metadata.Name}: {instance}");
-                    return Command.Result.Success;
-                }
-                catch (Exception ex)
-                {
-                    Program.ui.WriteLine($"Error adding {metadata.Name}: {ex.Message}");
-                    return Command.Result.Failed;
-                }
-            }
+                // persist
+                var (dataSubsystem, addMethod) = GetUserManagedAdd(type);
+                addMethod.Invoke(dataSubsystem, new[] { instance });
+                Config.Save(Program.config, Program.ConfigFilePath);
+                ctx.Succeeded();
+                return Command.Result.Success;
+            })
         };
     }
 

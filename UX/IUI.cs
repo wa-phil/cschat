@@ -1,40 +1,51 @@
 using System;
+using System.Linq;
+using System.Reflection;
+using System.Collections;
+using System.Globalization;
 using System.Collections.Generic;
 
-public enum UiFieldKind { String, Number, Guid, Enum, Bool }
+public enum UiFieldKind { String, Text, Number, Decimal, Long, Guid, Enum, Bool, Date, Time, Path, Password, Array }
 
 public interface IUiField
 {
+    string Key { get; } // stable identity for roundtrips
     string Label { get; }
     UiFieldKind Kind { get; }
     bool Required { get; }
     string? Help { get; }
 
-    // formatter: produce a display string for the current field value from a model object
+    string? Placeholder { get; }
+    string? Pattern { get; }
+    string? PatternMessage { get; }
+
     Func<object?, string> Formatter { get; }
 
-    IEnumerable<string>? EnumChoices();           // only for Kind == Enum
-    int? MinInt();                                // only for Kind == Int
-    int? MaxInt();                                // only for Kind == Int
+    IEnumerable<string>? EnumChoices();
+    int? MinInt(); int? MaxInt();
 
-    // Host → apply the user-entered value to the model clone.
-    // 'value' is the raw string coming back from UI; TrySet parses & validates.
-    // Return true when successfully set; else set error with message to display/log.
+    // For Array fields (simple element types), the UI sends JSON text; for others a plain string
     bool TrySetFromString(object model, string? value, out string? error);
 
-    // Fluent setters for constraints & help (return non-generic for ease of chaining when model type isn't required)
     IUiField WithHelp(string? help);
     IUiField IntBounds(int? min = null, int? max = null);
-    IUiField FormatWith(Func<object?, string> format); // custom formatting
-    IUiField MakeOptional(); // Fields are required by default. Call MakeOptional() to mark a field optional.
+    IUiField FormatWith(Func<object?, string> format);
+    IUiField MakeOptional();
+    IUiField WithPlaceholder(string? placeholder);
+    IUiField WithRegex(string pattern, string? message = null);
+    IUiField MakeOptionalIf(bool cond);
 }
 
 public sealed class UiField<TModel, TValue> : IUiField
 {
+    public string Key { get; }     // stable id for roundtrips
     public string Label { get; }
     public UiFieldKind Kind { get; }
-    public bool Required { get; set; } = true; // Fields are required by default
+    public bool Required { get; set; } = true;
     public string? Help { get; set; }
+    public string? Placeholder { get; private set; }
+    public string? Pattern { get; private set; }
+    public string? PatternMessage { get; private set; }
 
     // constraints/choices
     public int? Min { get; set; }
@@ -50,12 +61,14 @@ public sealed class UiField<TModel, TValue> : IUiField
     private Func<TValue?, string> _format;
 
     public UiField(
+        string key,
         string label,
         UiFieldKind kind,
         Func<TModel, TValue> get,
         Action<TModel, TValue> set,
         Func<string?, (bool ok, TValue? value, string? error)> tryParse)
     {
+        Key = key ?? throw new ArgumentNullException(nameof(key));
         Label = label;
         Kind = kind;
         _get = get;
@@ -83,60 +96,38 @@ public sealed class UiField<TModel, TValue> : IUiField
         var (result, err) = Log.Method(ctx =>
         {
             ctx.OnlyEmitOnFailure()
-                .Append(Log.Data.Input, value ?? "<null>")
-                .Append(Log.Data.TypeToParse, Kind.ToString());
+               .Append(Log.Data.Input, value ?? "<null>")
+               .Append(Log.Data.TypeToParse, Kind.ToString());
 
             if (Required && string.IsNullOrWhiteSpace(value))
             {
                 ctx.Append(Log.Data.Message, $"Field [{Label}] is required.");
                 return (false, "This field is required.");
             }
-            var (ok, parsed, err) = _tryParse(value);
+
+            var (ok, parsed, perr) = _tryParse(value);
             if (!ok)
             {
-                ctx.Append(Log.Data.Message, err ?? "Invalid value.");
-                return (false, err ?? "Invalid value.");
+                ctx.Append(Log.Data.Message, perr ?? "Invalid value.");
+                return (false, perr ?? "Invalid value.");
             }
+
             if (Kind == UiFieldKind.Number)
             {
                 if (parsed is int n)
                 {
-                    if (Min is int min && n < min)
-                    {
-                        ctx.Append(Log.Data.Message, $"Int must be ≥ {min}.");
-                        return (false, $"Int must be ≥ {min}.");
-                    }
-                    if (Max is int max && n > max)
-                    {
-                        ctx.Append(Log.Data.Message, $"Int must be ≤ {max}.");
-                        return (false, $"Int must be ≤ {max}.");
-                    }
+                    if (Min is int min && n < min) return (false, $"Int must be ≥ {min}.");
+                    if (Max is int max && n > max) return (false, $"Int must be ≤ {max}.");
                 }
                 else if (parsed is double d)
                 {
-                    if (Min is int min && d < min)
-                    {
-                        ctx.Append(Log.Data.Message, $"Double must be ≥ {min}.");
-                        return (false, $"Double must be ≥ {min}.");
-                    }
-                    if (Max is int max && d > max)
-                    {
-                        ctx.Append(Log.Data.Message, $"Double must be ≤ {max}.");
-                        return (false, $"Double must be ≤ {max}.");
-                    }
+                    if (Min is int min && d < min) return (false, $"Double must be ≥ {min}.");
+                    if (Max is int max && d > max) return (false, $"Double must be ≤ {max}.");
                 }
                 else if (parsed is float f)
                 {
-                    if (Min is int min && f < min)
-                    {
-                        ctx.Append(Log.Data.Message, $"Float must be ≥ {min}.");
-                        return (false, $"Float must be ≥ {min}.");
-                    }
-                    if (Max is int max && f > max)
-                    {
-                        ctx.Append(Log.Data.Message, $"Float must be ≤ {max}.");
-                        return (false, $"Float must be ≤ {max}.");
-                    }
+                    if (Min is int min && f < min) return (false, $"Float must be ≥ {min}.");
+                    if (Max is int max && f > max) return (false, $"Float must be ≤ {max}.");
                 }
             }
 
@@ -144,127 +135,190 @@ public sealed class UiField<TModel, TValue> : IUiField
             ctx.Succeeded();
             return (true, string.Empty);
         });
+
         error = string.IsNullOrEmpty(err) ? null : err;
         return result;
     }
 
-    // non-generic wrapper
     bool IUiField.TrySetFromString(object model, string? value, out string? error)
         => TrySetFromString((TModel)model!, value, out error);
+
+    // type-specific fluent sugar
     public UiField<TModel, TValue> WithHelp(string? help) { Help = help; return this; }
-    public UiField<TModel, TValue> MakeOptional() { Required = false; return this; } // Switches default required behavior; fields are required unless made optional.
+    public UiField<TModel, TValue> MakeOptional() { Required = false; return this; }
     public UiField<TModel, TValue> IntBounds(int? min = null, int? max = null) { Min = min; Max = max; return this; }
     public UiField<TModel, TValue> FormatWith(Func<object?, string> format) { _format = v => format(v); return this; }
+    public UiField<TModel, TValue> WithPlaceholder(string? ph) { Placeholder = ph; return this; }
+    public UiField<TModel, TValue> WithRegex(string pattern, string? msg = null) { Pattern = pattern; PatternMessage = msg; return this; }
+    public UiField<TModel, TValue> MakeOptionalIf(bool cond) => cond ? MakeOptional() : this;
 
-    // non-generic fluent wrappers
-    IUiField IUiField.WithHelp(string? help) { WithHelp(help); return this; }
-    IUiField IUiField.MakeOptional() { MakeOptional(); return this; }
-    IUiField IUiField.IntBounds(int? min, int? max) { IntBounds(min, max); return this; }
-    IUiField IUiField.FormatWith(Func<object?, string> format) { FormatWith(format); return this; }
+    // generic fluent sugar
+    IUiField IUiField.WithHelp(string? help) => WithHelp(help);
+    IUiField IUiField.MakeOptional() => MakeOptional();
+    IUiField IUiField.IntBounds(int? min, int? max) => IntBounds(min, max);
+    IUiField IUiField.FormatWith(Func<object?, string> format) => FormatWith(format);
+    IUiField IUiField.WithPlaceholder(string? ph) => WithPlaceholder(ph);
+    IUiField IUiField.WithRegex(string p, string? m) => WithRegex(p, m);
+    IUiField IUiField.MakeOptionalIf(bool cond) => cond ? MakeOptional() : this;
 }
+
+// Array field for lists of simple element types (string/int/long/decimal/double/bool/guid/date/time)
+public sealed class UiArrayField<TModel, TItem> : IUiField
+{
+    public string Key { get; }
+    public string Label { get; }
+    public UiFieldKind Kind => UiFieldKind.Array;
+    public bool Required { get; private set; } = true;
+    public string? Help { get; private set; }
+    public string? Placeholder { get; private set; }
+    public string? Pattern => null;
+    public string? PatternMessage => null;
+
+    private readonly Func<TModel, IList<TItem>> _get;
+    private readonly Action<TModel, IList<TItem>> _set;
+
+    public UiArrayField(string key, string label, Func<TModel, IList<TItem>> get, Action<TModel, IList<TItem>> set)
+    {
+        Key = key; Label = label; _get = get; _set = set;
+    }
+
+    public Func<object?, string> Formatter => model =>
+    {
+        var list = _get((TModel)model!);
+        try { return (list ?? new List<TItem>()).ToJson(); } catch { return "[]"; }
+    };
+
+    public IEnumerable<string>? EnumChoices() => null;
+    public int? MinInt() => null;
+    public int? MaxInt() => null;
+
+    public bool TrySetFromString(object model, string? value, out string? error)
+    {
+        // value is JSON array text from the page
+        try
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                if (Required) { error = "At least one item is required."; return false; }
+                _set((TModel)model!, new List<TItem>());
+                error = null; return true;
+            }
+            var parsed = (value!).FromJson<List<TItem>>() ?? new List<TItem>();
+            _set((TModel)model!, parsed);
+            error = null; return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"Invalid list: {ex.Message}";
+            return false;
+        }
+    }
+
+    // no-ops for array
+    public IUiField WithHelp(string? help) { Help = help; return this; }
+    public IUiField IntBounds(int? min = null, int? max = null) => this;
+    public IUiField FormatWith(Func<object?, string> format) => this;
+    public IUiField MakeOptional() { Required = false; return this; }
+    public IUiField WithPlaceholder(string? placeholder) { Placeholder = placeholder; return this; }
+    public IUiField WithRegex(string pattern, string? message = null) => this;
+    public IUiField MakeOptionalIf(bool cond) => cond ? MakeOptional() : this;
+}
+
 public sealed class UiForm
 {
     public string Title { get; init; } = "Input";
-    public object? Model { get; set; } // the form holds a cloned model as object; fields' formatters and TrySetFromString use this model
+    public object? Model { get; set; }
     public List<IUiField> Fields { get; } = new();
+
+    // OPTIONAL: submit-time validation hook (emit (key,message) for per-field errors)
+    public Func<object, IEnumerable<(string key, string message)>>? Validate { get; set; }
 
     private UiForm(object? clone) { Model = clone; }
 
-    // Factory: Super important to clone the original value, don't trust the caller to get it right!
     public static UiForm Create<TModel>(string title, TModel original)
-        => new(original!.ToJson()!.FromJson<TModel>()!) { Title = title };
+        => new(original!.ToJson()!.FromJson<TModel>()!) { Title = title };  // :contentReference[oaicite:0]{index=0}
 
     private IUiField Add(IUiField field) { Fields.Add(field); return field; }
-    private IUiField Add<TModel, TValue>(UiField<TModel, TValue> field) { Fields.Add(field); return field; }
+    private IUiField Add<TModel, TValue>(
+        string label, UiFieldKind kind,
+        Func<TModel, TValue> get, Action<TModel, TValue> set,
+        Func<string?, (bool ok, TValue? value, string? error)> tryParse, string? key = null)
+        => Add(new UiField<TModel, TValue>(key ?? Fields.Count.ToString(), label, kind, get, set, tryParse));
 
-    public IUiField AddString<TModel>(string label, Func<TModel, string> get, Action<TModel, string> set)
-        => Add(new UiField<TModel, string>(label, UiFieldKind.String, get, set,
-               s => (true, s ?? "", null)));
+    public IUiField AddString<TModel>(string label, Func<TModel, string> get, Action<TModel, string> set, string? key = null)
+        => Add(new UiField<TModel, string>(key ?? Fields.Count.ToString(), label, UiFieldKind.String, get, set, s => (true, s ?? "", null)));
+    public IUiField AddString(string label, string? key = null)
+        => AddString<string>(label, m => Model is string sv ? sv : (Model as object)?.ToString() ?? string.Empty, (m, v) => Model = v, key);
 
-    // Convenience overload when the form's Model is the same as the field type
-    public IUiField AddString(string label)
-        => AddString<string>(label,
-            m => Model is string sv ? sv : (Model as object)?.ToString() ?? string.Empty,
-            (m, v) => Model = v);
+    public IUiField AddPassword<TModel>(string label, Func<TModel, string> get, Action<TModel, string> set, string? key = null) // NEW
+        => Add(new UiField<TModel, string>(key ?? Fields.Count.ToString(), label, UiFieldKind.Password, get, set, s => (true, s ?? "", null)));
 
-    public IUiField AddInt<TModel>(string label, Func<TModel, int> get, Action<TModel, int> set)
-        => Add(new UiField<TModel, int>(label, UiFieldKind.Number, get, set,
-               s => int.TryParse(s, out var v)
-                        ? (true, v, null)
-                        : (false, default, "Enter a whole number.")));
+    public IUiField AddInt<TModel>(string label, Func<TModel, int> get, Action<TModel, int> set, string? key = null)
+        => Add(new UiField<TModel, int>(key ?? Fields.Count.ToString(), label, UiFieldKind.Number, get, set,
+               s => int.TryParse(s, out var v) ? (true, v, null) : (false, default, "Enter a whole number.")));
+    public IUiField AddInt(string label, string? key = null)
+        => AddInt<int>(label, m => Model is int iv ? iv : throw new InvalidOperationException("UiForm.AddInt requires int Model."), (m, v) => Model = v, key);
 
-    // Convenience overload when the form's Model is int
-    public IUiField AddInt(string label)
-        => AddInt<int>(label,
-            m => Model is int iv ? iv : throw new InvalidOperationException($"UiForm.AddInt() can only be used when Model is int."),
-            (m, v) => Model = v);
+    public IUiField AddFloat<TModel>(string label, Func<TModel, float> get, Action<TModel, float> set, string? key = null)
+        => Add(new UiField<TModel, float>(key ?? Fields.Count.ToString(), label, UiFieldKind.Number, get, set,
+               s => float.TryParse(s, out var v) ? (true, v, null) : (false, default, "Enter a valid floating-point number.")));
+    public IUiField AddFloat(string label, string? key = null)
+        => AddFloat<float>(label, m => Model is float fv ? fv : throw new InvalidOperationException("UiForm.AddFloat requires float Model."), (m, v) => Model = v, key);
 
-    public IUiField AddFloat<TModel>(string label, Func<TModel, float> get, Action<TModel, float> set)
-        => Add(new UiField<TModel, float>(label, UiFieldKind.Number, get, set,
-               s => float.TryParse(s, out var v)
-                        ? (true, v, null)
-                        : (false, default, "Enter a valid floating-point number.")));
+    public IUiField AddDouble<TModel>(string label, Func<TModel, double> get, Action<TModel, double> set, string? key = null)
+        => Add(new UiField<TModel, double>(key ?? Fields.Count.ToString(), label, UiFieldKind.Number, get, set,
+               s => double.TryParse(s, out var v) ? (true, v, null) : (false, default, "Enter a valid double precision number.")));
+    public IUiField AddDouble(string label, string? key = null)
+        => AddDouble<double>(label, m => Model is double dv ? dv : throw new InvalidOperationException("UiForm.AddDouble requires double Model."), (m, v) => Model = v, key);
 
-    // Convenience overload when Model is float
-    public IUiField AddFloat(string label)
-        => AddFloat<float>(label,
-            m => Model is float fv ? fv : throw new InvalidOperationException($"UiForm.AddFloat() can only be used when Model is float."),
-            (m, v) => Model = v);
+    public IUiField AddBool<TModel>(string label, Func<TModel, bool> get, Action<TModel, bool> set, string? key = null)
+        => Add(new UiField<TModel, bool>(key ?? Fields.Count.ToString(), label, UiFieldKind.Bool, get, set,
+               s => bool.TryParse(s, out var v) ? (true, v, null) : (false, default, "Enter true or false.")));
+    public IUiField AddBool(string label, string? key = null)
+        => AddBool<bool>(label, m => Model is bool bv ? bv : throw new InvalidOperationException("UiForm.AddBool requires bool Model."), (m, v) => Model = v, key);
 
-    public IUiField AddDouble<TModel>(string label, Func<TModel, double> get, Action<TModel, double> set)
-        => Add(new UiField<TModel, double>(label, UiFieldKind.Number, get, set,
-               s => double.TryParse(s, out var v)
-                        ? (true, v, null)
-                        : (false, default, "Enter a valid double precision number.")));
+    public IUiField AddGuid<TModel>(string label, Func<TModel, Guid> get, Action<TModel, Guid> set, string? key = null)
+        => Add(new UiField<TModel, Guid>(key ?? Fields.Count.ToString(), label, UiFieldKind.Guid, get, set,
+               s => Guid.TryParse(s, out var v) ? (true, v, null) : (false, default, "Enter a valid GUID.")));
+    public IUiField AddGuid(string label, string? key = null)
+        => AddGuid<Guid>(label, m => Model is Guid gv ? gv : throw new InvalidOperationException("UiForm.AddGuid requires Guid Model."), (m, v) => Model = v, key);
 
-    // Convenience overload when Model is double
-    public IUiField AddDouble(string label)
-        => AddDouble<double>(label,
-            m => Model is double dv ? dv : throw new InvalidOperationException($"UiForm.AddDouble() can only be used when Model is double."),
-            (m, v) => Model = v);
-
-    public IUiField AddBool<TModel>(string label, Func<TModel, bool> get, Action<TModel, bool> set)
-        => Add(new UiField<TModel, bool>(label, UiFieldKind.Bool, get, set,
-               s => bool.TryParse(s, out var v)
-                        ? (true, v, null)
-                        : (false, default, "Enter true or false.")));
-
-    // Convenience overload when Model is bool
-    public IUiField AddBool(string label)
-        => AddBool<bool>(label,
-            m => Model is bool bv ? bv : throw new InvalidOperationException($"UiForm.AddBool() can only be used when Model is bool."),
-            (m, v) => Model = v);
-
-    public IUiField AddGuid<TModel>(string label, Func<TModel, Guid> get, Action<TModel, Guid> set)
-        => Add(new UiField<TModel, Guid>(label, UiFieldKind.Guid, get, set,
-               s => System.Guid.TryParse(s, out var v)
-                        ? (true, v, null)
-                        : (false, default, "Enter a valid GUID.")));
-
-    // Convenience overload when Model is Guid
-    public IUiField AddGuid(string label)
-        => AddGuid<Guid>(label,
-            m => Model is Guid gv ? gv : throw new InvalidOperationException($"UiForm.AddGuid() can only be used when Model is Guid."),
-            (m, v) => Model = v);
-
-    public IUiField AddEnum<TModel>(string label, Type enumType, Func<TModel, string> get, Action<TModel, string> set)
-        => Add(new UiField<TModel, string>(label, UiFieldKind.Enum, get, set,
+    public IUiField AddEnum<TModel>(string label, Type enumType, Func<TModel, string> get, Action<TModel, string> set, string? key = null)
+        => Add(new UiField<TModel, string>(key ?? Fields.Count.ToString(), label, UiFieldKind.Enum, get, set,
                s => (Enum.IsDefined(enumType, s ?? "") ? (true, s, null) : (false, default, $"Must be one of: {string.Join(", ", Enum.GetNames(enumType))}"))));
+    public IUiField AddEnum<TModel, TEnum>(string label, Func<TModel, TEnum> get, Action<TModel, TEnum> set, string? key = null)
+        where TEnum : struct, Enum
+        => Add(label, UiFieldKind.Enum, get, set, s => Enum.TryParse<TEnum>(s, true, out var v) ? (true, v, null) : (false, default, $"Choose one of {string.Join(", ", Enum.GetNames(typeof(TEnum)))}."), key);
 
-    // Convenience overload when Model is the enum type itself or a string to hold the enum name
-    public IUiField AddEnum(string label, Type enumType)
-        => AddEnum<string>(label, enumType,
-            m => Model is string sv ? sv : Model is Enum e ? e.ToString() : throw new InvalidOperationException($"UiForm.AddEnum() requires Model to be either string or an enum type."),
-            (m, v) =>
-            {
-                if (Model is string) Model = v;
-                else if (Model is Enum)
-                {
-                    var enumValue = Enum.Parse(enumType, v ?? "");
-                    Model = enumValue;
-                }
-                else throw new InvalidOperationException($"UiForm.AddEnum() requires Model to be either string or an enum type.");
-            });
+    public IUiField AddText<TModel>(string label, Func<TModel, string> get, Action<TModel, string> set, string? key = null)
+        => Add(label, UiFieldKind.Text, get, set, s => (true, s ?? "", null), key);
+
+    public IUiField AddDecimal<TModel>(string label, Func<TModel, decimal> get, Action<TModel, decimal> set, string? key = null)
+        => Add(label, UiFieldKind.Decimal, get, set, s => decimal.TryParse(s, NumberStyles.Number, CultureInfo.InvariantCulture, out var v) ? (true, v, null) : (false, default, "Enter a decimal number."), key);
+
+    public IUiField AddLong<TModel>(string label, Func<TModel, long> get, Action<TModel, long> set, string? key = null)
+        => Add(label, UiFieldKind.Long, get, set, s => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? (true, v, null) : (false, default, "Enter a whole number."), key);
+
+    public IUiField AddDate<TModel>(string label, Func<TModel, DateTime> get, Action<TModel, DateTime> set, string? key = null)
+        => Add(label, UiFieldKind.Date, get, set, s => DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var dt) ? (true, dt.Date, null) : (false, default, "Enter a date (YYYY-MM-DD)."), key);
+
+    public IUiField AddTime<TModel>(string label, Func<TModel, TimeSpan> get, Action<TModel, TimeSpan> set, string? key = null)
+        => Add(label, UiFieldKind.Time, get, set, s => TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out var ts) ? (true, ts, null) : (false, default, "Enter a time (HH:MM)."), key);
+
+    public IUiField AddPath<TModel>(string label, Func<TModel, string> get, Action<TModel, string> set, string? key = null)
+        => Add(label, UiFieldKind.Path, get, set, s => (true, s ?? "", null), key);
+
+    // simple-list array field
+    public IUiField AddList<TModel, TItem>(string label, Func<TModel, IList<TItem>> get, Action<TModel, IList<TItem>> set, string? key = null)
+        => Add(new UiArrayField<TModel, TItem>(key ?? label, label, get, set));
+
+    // after a successful ShowFormAsync, copy the edited clone back into 'original'
+    public void ApplyEditsToOriginal<TModel>(TModel original)
+    {
+        if (Model is not TModel edited) return;
+        foreach (var p in UiIntrospect.GetEditableProperties(typeof(TModel)))
+            p.SetValue(original, p.GetValue(edited));
+    }
 }
 
 public interface IUi
@@ -303,4 +357,156 @@ public interface IUi
 
     // lets each UI decide how to run/pump itself
     Task RunAsync(Func<Task> appMain);
+}
+
+public static class UiIntrospect
+{
+    public static IEnumerable<PropertyInfo> GetEditableProperties(Type t) =>
+        t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+         .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0);
+
+    public static bool IsSimple(Type t)
+    {
+        t = Nullable.GetUnderlyingType(t) ?? t;
+        return t.IsPrimitive || t.IsEnum ||
+            t == typeof(string) || t == typeof(decimal) ||
+            t == typeof(DateTime) || t == typeof(Guid) ||
+            t == typeof(double) || t == typeof(float) ||
+            t == typeof(int) || t == typeof(long) ||
+            t == typeof(short) || t == typeof(byte) ||
+            t == typeof(bool) || t == typeof(TimeSpan);
+    }
+
+    public static bool IsList(Type t, out Type elemType)
+    {
+        if (t.IsArray) { elemType = t.GetElementType()!; return true; }
+        var listIface = t.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IList<>));
+        if (listIface != null) { elemType = listIface.GetGenericArguments()[0]; return true; }
+        elemType = typeof(object); return false;
+    }
+}
+
+public static class UiFormBuilder
+{
+    public static UiForm BuildForm(object model, Type type, string title)
+    {
+        // Create a typed clone so form.Model is the right type (not Dictionary<,>)
+        var createMi = typeof(UiForm).GetMethod("Create")!.MakeGenericMethod(type);
+        var form = (UiForm)createMi.Invoke(null, new object[] { title, model })!;
+
+        foreach (var p in UiIntrospect.GetEditableProperties(type))
+        {
+            var t = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
+            var key = p.Name;
+            var uf = p.GetCustomAttribute<UserFieldAttribute>();
+            var label = uf?.Display ?? p.Name;
+            var required = uf?.Required ?? false;
+            var hint = uf?.Hint;
+
+            // Lists of simple types → Array repeater
+            if (UiIntrospect.IsList(t, out var elemType) && UiIntrospect.IsSimple(elemType))
+            {
+                var getter = BuildListGetter<object>(p, elemType);
+                var setter = BuildListSetter<object>(p, elemType);
+                var field = form.AddList<object, object>(label,
+                    _ => (IList<object>)getter(_),
+                    (_, v) => setter(_, v), key);
+                if (hint != null) field.WithHelp(hint);
+                if (!required) field.MakeOptional();
+                continue;
+            }
+
+            // Scalars/Enums
+            if (t == typeof(string))
+                form.AddText<object>(label, m => (string)(p.GetValue(m) ?? ""), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(int))
+                form.AddInt<object>(label, m => (int)(p.GetValue(m) ?? default(int)), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(long))
+                form.AddLong<object>(label, m => (long)(p.GetValue(m) ?? default(long)), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(decimal))
+                form.AddDecimal<object>(label, m => (decimal)(p.GetValue(m) ?? default(decimal)), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(double))
+                form.AddDouble<object>(label, m => Convert.ToDouble(p.GetValue(m) ?? 0d), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(float))
+                form.AddFloat<object>(label, m => Convert.ToSingle(p.GetValue(m) ?? 0f), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(bool))
+                form.AddBool<object>(label, m => (bool)(p.GetValue(m) ?? false), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(Guid))
+                form.AddGuid<object>(label, m => (Guid)(p.GetValue(m) ?? Guid.Empty), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(DateTime))
+                form.AddDate<object>(label, m => (DateTime)(p.GetValue(m) ?? default(DateTime)), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(TimeSpan))
+                form.AddTime<object>(label, m => (TimeSpan)(p.GetValue(m) ?? default(TimeSpan)), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t.IsEnum)
+            {
+                var method = typeof(UiForm).GetMethod(nameof(UiForm.AddEnum))!.MakeGenericMethod(typeof(object), t);
+                var getter = BuildGetter<object>(p);
+                var setter = BuildSetter<object>(p);
+                var field = (IUiField)method.Invoke(form, new object[] { label, getter, setter, key })!;
+                if (hint != null) field.WithHelp(hint);
+                if (!required) field.MakeOptional();
+            }
+            // TODO: handle complex objects/lists-of-complex
+        }
+        return form;
+    }
+
+    private static Func<TModel, object> BuildGetter<TModel>(PropertyInfo p) => _ => p.GetValue(_)!;
+    private static Action<TModel, object> BuildSetter<TModel>(PropertyInfo p) => (_, v) => p.SetValue(_, v);
+
+    private static Func<TModel, IList<object>> BuildListGetter<TModel>(PropertyInfo p, Type elemType)
+        => _ =>
+        {
+            var raw = p.GetValue(_) as IEnumerable ?? Array.CreateInstance(elemType, 0);
+            var list = new List<object>();
+            foreach (var it in raw) list.Add(it!);
+            return list;
+        };
+
+    private static Action<TModel, IList<object>> BuildListSetter<TModel>(PropertyInfo p, Type elemType)
+        => (_, v) =>
+        {
+            // Try to preserve existing list instance if possible
+            var cur = p.GetValue(_);
+            if (cur is IList dest && cur.GetType().IsGenericType)
+            {
+                dest.Clear();
+                foreach (var it in v) dest.Add(ConvertItem(it, elemType));
+                return;
+            }
+            // Otherwise build a new List<elemType>
+            var typed = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(elemType))!;
+            foreach (var it in v) typed.Add(ConvertItem(it, elemType));
+            p.SetValue(_, typed);
+        };
+
+    private static object ConvertItem(object value, Type elemType)
+    {
+        if (value is null) return elemType.IsValueType ? Activator.CreateInstance(elemType)! : null!;
+        var t = Nullable.GetUnderlyingType(elemType) ?? elemType;
+        if (t == typeof(string)) return Convert.ToString(value) ?? "";
+        if (t == typeof(int)) return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+        if (t == typeof(long)) return Convert.ToInt64(value, CultureInfo.InvariantCulture);
+        if (t == typeof(decimal)) return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+        if (t == typeof(double)) return Convert.ToDouble(value, CultureInfo.InvariantCulture);
+        if (t == typeof(float)) return Convert.ToSingle(value, CultureInfo.InvariantCulture);
+        if (t == typeof(bool)) return Convert.ToBoolean(value, CultureInfo.InvariantCulture);
+        if (t == typeof(Guid)) return (value is Guid g) ? g : Guid.Parse(Convert.ToString(value)!);
+        if (t == typeof(DateTime)) return (value is DateTime dt) ? dt : DateTime.Parse(Convert.ToString(value)!, CultureInfo.InvariantCulture);
+        if (t == typeof(TimeSpan)) return (value is TimeSpan ts) ? ts : TimeSpan.Parse(Convert.ToString(value)!, CultureInfo.InvariantCulture);
+        return value;
+    }
+
+    private static IUiField MakeOptionalIf(this IUiField field, bool cond)
+        => cond ? field.MakeOptional() : field;
 }

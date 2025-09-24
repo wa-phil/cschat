@@ -2,11 +2,9 @@ using System;
 using System.IO;
 using System.Linq;
 using Photino.NET;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 
 public sealed class PhotinoUi : IUi
 {
@@ -15,8 +13,8 @@ public sealed class PhotinoUi : IUi
 	private readonly Queue<string> _outbox = new();
 	private readonly object _gate = new();
 
-	private volatile bool _ready = false;      // page JS has started and pinged us
-	private volatile bool _uiAlive = false;    // UI thread is up
+	private volatile bool _ready = false;
+	private volatile bool _uiAlive = false;
 
 	private TaskCompletionSource<string?>? _tcsReadLine;
 	private TaskCompletionSource<string?>? _tcsMenu;
@@ -41,12 +39,10 @@ public sealed class PhotinoUi : IUi
 		_tcsKey?.TrySetResult(new ConsoleKeyInfo('\0', ConsoleKey.Escape, false, false, false));
 	}
 
-	// ----------------- IUi.RunAsync: spin up UI thread and pump Photino -----------------
 	public async Task RunAsync(Func<Task> appMain)
 	{
 		if (OperatingSystem.IsWindows())
 		{
-			// --- Windows: run Photino on a dedicated STA UI thread ---
 			var uiReady = new ManualResetEventSlim(false);
 			var uiExited = new ManualResetEventSlim(false);
 
@@ -212,7 +208,7 @@ public sealed class PhotinoUi : IUi
 					}
 					_tcsForm?.TrySetResult(dict);
 					break;
-				}					
+				}
 			}
 
 			ctx.Succeeded();
@@ -225,58 +221,76 @@ public sealed class PhotinoUi : IUi
 	});
 
 	// ------------ High-level I/O -------------
-	public Task<bool> ShowFormAsync(UiForm form)
+	public async Task<bool> ShowFormAsync(UiForm form)
 	{
-		_tcsForm = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-		var fields = new List<object>();
-		foreach (var f in form.Fields)
+		while (true)
 		{
-			var current = f.Formatter(form.Model);
-			fields.Add(new {
-				label = f.Label,
-				kind = f.Kind.ToString(),
-				required = f.Required,
-				help = f.Help,
-				current = current,
-				min = f.MinInt(),
-				max = f.MaxInt(),
-				choices = f.EnumChoices()
-			});
-		}
+			_tcsForm = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-		Post(new { type = "ShowForm", title = form.Title, fields });
-
-		// Wait for JS to return either null (cancel) or a dictionary of label→string value
-		return _tcsForm.Task.ContinueWith(t =>
-		{
-			var values = t.Result;
-			if (values is null) return false; // cancelled
-
-			// Apply to the clone via the fields' TrySetFromString
+			var fields = new List<object>();
 			foreach (var f in form.Fields)
 			{
-				var key = f.Label; // labels are the stable keys we sent out
-				values.TryGetValue(key, out var raw);
+				var current = f.Formatter(form.Model);
+				fields.Add(new {
+					key = f.Key,
+					label = f.Label,
+					kind = f.Kind.ToString(),
+					required = f.Required,
+					help = f.Help,
+					placeholder = f.Placeholder,
+					pattern = f.Pattern,
+					patternMessage = f.PatternMessage,
+					current,
+					min = f.MinInt(),
+					max = f.MaxInt(),
+					choices = f.EnumChoices()
+				});
+			}
+
+			Post(new { type = "ShowForm", title = form.Title, fields });
+
+			var values = await _tcsForm.Task;
+			if (values is null) return false; // cancelled
+
+			bool allOk = true;
+
+			// 1) per-field application
+			foreach (var f in form.Fields)
+			{
+				values.TryGetValue(f.Key, out var raw);
 				if (!f.TrySetFromString(form.Model!, raw, out var err))
 				{
-					// Optional: surface host-side validation issues in your console
-					WriteLine($"Validation failed: {f.Label} — {err}");
-					return false;
+					allOk = false;
+					Post(new { type = "FormError", key = f.Key, message = err });        // keep dialog open
 				}
 			}
-			return true;
-		});
+
+			// 2) optional form-level validation
+			if (allOk && form.Validate is not null)
+			{
+				var errs = form.Validate(form.Model!);
+				foreach (var (key, message) in errs ?? Array.Empty<(string,string)>())
+				{
+					allOk = false;
+					Post(new { type = "FormError", key, message });
+				}
+			}
+
+			if (allOk)
+			{
+				Post(new { type = "FocusInput" }); // return focus to composer after closing form
+				return true;
+			}
+			// else: loop; user fixes inline and re-submits
+		}
 	}
 
-	// ----------------- Input -----------------
-
+	// ---------- Input ----------
 	public async Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager)
 	{
 		_tcsReadLine = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		Post(new { type = "FocusInput" });
 
-		// ESC opens menu (non-blocking)
 		_ = Task.Run(async () =>
 		{
 			var keyWait = ReadKeyInternalAsync(intercept: true);
@@ -293,7 +307,7 @@ public sealed class PhotinoUi : IUi
 			}
 		});
 
-		var text = await _tcsReadLine.Task;  // null when window closes
+		var text = await _tcsReadLine.Task;
 		return string.IsNullOrWhiteSpace(text) ? null : text;
 	}
 
@@ -340,11 +354,9 @@ public sealed class PhotinoUi : IUi
 		return _tcsKey.Task;
 	}
 
-	// ----------------- Output -----------------
-
+	// ---------- Output ----------
 	public void RenderChatMessage(ChatMessage message)
 			=> Post(new { type = "AppendMessage", role = message.Role.ToString(), content = message.Content, timestamp = message.CreatedAt });
-
 	public void RenderChatHistory(IEnumerable<ChatMessage> messages)
 			=> Post(new
 			{
@@ -356,7 +368,7 @@ public sealed class PhotinoUi : IUi
 	public void WriteLine(string? text = null) => Post(new { type = "ConsoleWriteLine", text = text ?? "" });
 	public void Clear() => Post(new { type = "Clear" });
 
-	// ----------------- Console-ish props -----------------
+	// ---------- Console-ish ----------
 	public int CursorTop => 0;
 	public int CursorLeft => 0;
 	public int Width => _width;
@@ -369,8 +381,7 @@ public sealed class PhotinoUi : IUi
 	public ConsoleColor BackgroundColor { get => _bg; set => _bg = value; }
 	public void ResetColor() { _fg = ConsoleColor.Gray; _bg = ConsoleColor.Black; }
 
-	// ----------------- Internals -----------------
-
+	// ---------- Internals ----------
 	private void Post(object payload)
 	{
 		var json = payload.ToJson();
@@ -381,8 +392,6 @@ public sealed class PhotinoUi : IUi
 	private void SafeFlush()
 	{
 		if (!_uiAlive || _win is null || !_ready) return;
-
-		// Always marshal to the UI thread before touching _win.
 		try
 		{
 			_win.Invoke(() =>
@@ -399,7 +408,7 @@ public sealed class PhotinoUi : IUi
 		}
 		catch
 		{
-			// If UI is going down, leave messages in queue; read operations will be nudged to finish.
+			// UI going down
 		}
 	}
 
@@ -410,19 +419,19 @@ public sealed class PhotinoUi : IUi
 
 		var parsed = (key ?? string.Empty) switch
 		{
-			"Enter"                 => ConsoleKey.Enter,
-			"Escape"                => ConsoleKey.Escape,
-			"Backspace"             => ConsoleKey.Backspace,
-			"Tab"                   => ConsoleKey.Tab,
-			"Up" or "ArrowUp"       => ConsoleKey.UpArrow,
-			"Down" or "ArrowDown"   => ConsoleKey.DownArrow,
-			"Left" or "ArrowLeft"   => ConsoleKey.LeftArrow,
+			"Enter"					=> ConsoleKey.Enter,
+			"Escape"				=> ConsoleKey.Escape,
+			"Backspace"				=> ConsoleKey.Backspace,
+			"Tab"					=> ConsoleKey.Tab,
+			"Up" or "ArrowUp" 		=> ConsoleKey.UpArrow,
+			"Down" or "ArrowDown" 	=> ConsoleKey.DownArrow,
+			"Left" or "ArrowLeft" 	=> ConsoleKey.LeftArrow,
 			"Right" or "ArrowRight" => ConsoleKey.RightArrow,
-			"Home"                  => ConsoleKey.Home,
-			"End"                   => ConsoleKey.End,
-			"PageUp"                => ConsoleKey.PageUp,
-			"PageDown"              => ConsoleKey.PageDown,
-			"Delete"                => ConsoleKey.Delete,
+			"Home"					=> ConsoleKey.Home,
+			"End"					=> ConsoleKey.End,
+			"PageUp"				=> ConsoleKey.PageUp,
+			"PageDown"				=> ConsoleKey.PageDown,
+			"Delete"				=> ConsoleKey.Delete,
 			_ when !string.IsNullOrEmpty(key) && key!.Length == 1 &&
 					Enum.TryParse<ConsoleKey>(key.ToUpper(), out var pk) => pk,
 			_ => default
