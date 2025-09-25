@@ -260,13 +260,13 @@ public sealed class UiForm
         => AddInt<int>(label, m => Model is int iv ? iv : throw new InvalidOperationException("UiForm.AddInt requires int Model."), (m, v) => Model = v, key);
 
     public IUiField AddFloat<TModel>(string label, Func<TModel, float> get, Action<TModel, float> set, string? key = null)
-        => Add(new UiField<TModel, float>(key ?? Fields.Count.ToString(), label, UiFieldKind.Number, get, set,
+        => Add(new UiField<TModel, float>(key ?? Fields.Count.ToString(), label, UiFieldKind.Decimal, get, set,
                s => float.TryParse(s, out var v) ? (true, v, null) : (false, default, "Enter a valid floating-point number.")));
     public IUiField AddFloat(string label, string? key = null)
         => AddFloat<float>(label, m => Model is float fv ? fv : throw new InvalidOperationException("UiForm.AddFloat requires float Model."), (m, v) => Model = v, key);
 
     public IUiField AddDouble<TModel>(string label, Func<TModel, double> get, Action<TModel, double> set, string? key = null)
-        => Add(new UiField<TModel, double>(key ?? Fields.Count.ToString(), label, UiFieldKind.Number, get, set,
+        => Add(new UiField<TModel, double>(key ?? Fields.Count.ToString(), label, UiFieldKind.Decimal, get, set,
                s => double.TryParse(s, out var v) ? (true, v, null) : (false, default, "Enter a valid double precision number.")));
     public IUiField AddDouble(string label, string? key = null)
         => AddDouble<double>(label, m => Model is double dv ? dv : throw new InvalidOperationException("UiForm.AddDouble requires double Model."), (m, v) => Model = v, key);

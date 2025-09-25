@@ -339,22 +339,9 @@
 				continue;
 			} else if (kind === 'array')
 			{ 
-				// simple repeater; current is JSON text
+				// list
 				const container = document.createElement('div');
-				container.style.gridColumn = '2';
-
-				const toolbar = document.createElement('div');
-				toolbar.className='array-toolbar';
-
-				const addBtn = document.createElement('button');
-				addBtn.type='button'; addBtn.textContent='Add';
-
-				const editBtn = document.createElement('button');
-				editBtn.type='button'; editBtn.textContent='Edit';
-
-				const remBtn = document.createElement('button');
-				remBtn.type='button'; remBtn.textContent='Remove';
-
+				container.style.display = 'block';
 				const list = document.createElement('ul');
 				list.className='array-list';
 
@@ -409,30 +396,22 @@
 					validateForm();
 				}
 
-				addBtn.onclick=()=>editItem(-1);
-
-				editBtn.onclick=()=>{
-					const idx = Number(prompt('Index to edit (0-based):','0'));
-					if (!Number.isNaN(idx) && idx>=0 && idx<items.length) editItem(idx);
-				};
-
-				remBtn.onclick=()=>{ 
-					const idx = Number(prompt('Index to remove (0-based):','0'));
-					if (!Number.isNaN(idx) && idx>=0 && idx<items.length){
-						items.splice(idx,1);
-						renderList();
-						validateForm();
-					} 
-				};
+				// single add button at the bottom
+				const addRow = document.createElement('div');
+				addRow.style.display = 'flex';
+				addRow.style.justifyContent = 'flex-end';
+				addRow.style.marginTop = '6px';
+				const addBtn = document.createElement('button');
+				addBtn.type = 'button';
+				addBtn.textContent = '+';
+				addBtn.title = 'Add';
+				addBtn.onclick = () => editItem(-1);
+				addRow.appendChild(addBtn);
 
 				renderList();
 
-				toolbar.appendChild(addBtn);
-				toolbar.appendChild(editBtn);
-				toolbar.appendChild(remBtn);
-
-				container.appendChild(toolbar);
 				container.appendChild(list);
+				container.appendChild(addRow);
 
 				// hidden backing input to carry JSON on submit
 				input = document.createElement('input');
@@ -440,8 +419,8 @@
 				input.value = JSON.stringify(items);
 
 				container.appendChild(input);
-
 				row.appendChild(container);
+				
 				addHelp(container); 
 				addError();
 				gotoFinalize(false /*no generic placement*/ , input, () => { input.value = JSON.stringify(items); });
