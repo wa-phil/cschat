@@ -143,23 +143,14 @@ public sealed class UiField<TModel, TValue> : IUiField
     bool IUiField.TrySetFromString(object model, string? value, out string? error)
         => TrySetFromString((TModel)model!, value, out error);
 
-    // type-specific fluent sugar
-    public UiField<TModel, TValue> WithHelp(string? help) { Help = help; return this; }
-    public UiField<TModel, TValue> MakeOptional() { Required = false; return this; }
-    public UiField<TModel, TValue> IntBounds(int? min = null, int? max = null) { Min = min; Max = max; return this; }
-    public UiField<TModel, TValue> FormatWith(Func<object?, string> format) { _format = v => format(v); return this; }
-    public UiField<TModel, TValue> WithPlaceholder(string? ph) { Placeholder = ph; return this; }
-    public UiField<TModel, TValue> WithRegex(string pattern, string? msg = null) { Pattern = pattern; PatternMessage = msg; return this; }
-    public UiField<TModel, TValue> MakeOptionalIf(bool cond) => cond ? MakeOptional() : this;
-
     // generic fluent sugar
-    IUiField IUiField.WithHelp(string? help) => WithHelp(help);
-    IUiField IUiField.MakeOptional() => MakeOptional();
-    IUiField IUiField.IntBounds(int? min, int? max) => IntBounds(min, max);
-    IUiField IUiField.FormatWith(Func<object?, string> format) => FormatWith(format);
-    IUiField IUiField.WithPlaceholder(string? ph) => WithPlaceholder(ph);
-    IUiField IUiField.WithRegex(string p, string? m) => WithRegex(p, m);
-    IUiField IUiField.MakeOptionalIf(bool cond) => cond ? MakeOptional() : this;
+    IUiField IUiField.WithHelp(string? help) { Help = help; return this; }
+    IUiField IUiField.MakeOptional() { Required = false; return this; }
+    IUiField IUiField.IntBounds(int? min, int? max) { Min = min; Max = max; return this; }
+    IUiField IUiField.FormatWith(Func<object?, string> format) { _format = v => format(v); return this; }
+    IUiField IUiField.WithPlaceholder(string? ph) { Placeholder = ph; return this; }
+    IUiField IUiField.WithRegex(string p, string? m) { Pattern = p; PatternMessage = m; return this; }
+    IUiField IUiField.MakeOptionalIf(bool cond) { if (cond) {Required = false;} return this; }
 }
 
 // Array field for lists of simple element types (string/int/long/decimal/double/bool/guid/date/time)
@@ -312,13 +303,6 @@ public sealed class UiForm
     public IUiField AddList<TModel, TItem>(string label, Func<TModel, IList<TItem>> get, Action<TModel, IList<TItem>> set, string? key = null)
         => Add(new UiArrayField<TModel, TItem>(key ?? label, label, get, set));
 
-    // after a successful ShowFormAsync, copy the edited clone back into 'original'
-    public void ApplyEditsToOriginal<TModel>(TModel original)
-    {
-        if (Model is not TModel edited) return;
-        foreach (var p in UiIntrospect.GetEditableProperties(typeof(TModel)))
-            p.SetValue(original, p.GetValue(edited));
-    }
 }
 
 public interface IUi
@@ -357,156 +341,4 @@ public interface IUi
 
     // lets each UI decide how to run/pump itself
     Task RunAsync(Func<Task> appMain);
-}
-
-public static class UiIntrospect
-{
-    public static IEnumerable<PropertyInfo> GetEditableProperties(Type t) =>
-        t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-         .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0);
-
-    public static bool IsSimple(Type t)
-    {
-        t = Nullable.GetUnderlyingType(t) ?? t;
-        return t.IsPrimitive || t.IsEnum ||
-            t == typeof(string) || t == typeof(decimal) ||
-            t == typeof(DateTime) || t == typeof(Guid) ||
-            t == typeof(double) || t == typeof(float) ||
-            t == typeof(int) || t == typeof(long) ||
-            t == typeof(short) || t == typeof(byte) ||
-            t == typeof(bool) || t == typeof(TimeSpan);
-    }
-
-    public static bool IsList(Type t, out Type elemType)
-    {
-        if (t.IsArray) { elemType = t.GetElementType()!; return true; }
-        var listIface = t.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IList<>));
-        if (listIface != null) { elemType = listIface.GetGenericArguments()[0]; return true; }
-        elemType = typeof(object); return false;
-    }
-}
-
-public static class UiFormBuilder
-{
-    public static UiForm BuildForm(object model, Type type, string title)
-    {
-        // Create a typed clone so form.Model is the right type (not Dictionary<,>)
-        var createMi = typeof(UiForm).GetMethod("Create")!.MakeGenericMethod(type);
-        var form = (UiForm)createMi.Invoke(null, new object[] { title, model })!;
-
-        foreach (var p in UiIntrospect.GetEditableProperties(type))
-        {
-            var t = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
-            var key = p.Name;
-            var uf = p.GetCustomAttribute<UserFieldAttribute>();
-            var label = uf?.Display ?? p.Name;
-            var required = uf?.Required ?? false;
-            var hint = uf?.Hint;
-
-            // Lists of simple types → Array repeater
-            if (UiIntrospect.IsList(t, out var elemType) && UiIntrospect.IsSimple(elemType))
-            {
-                var getter = BuildListGetter<object>(p, elemType);
-                var setter = BuildListSetter<object>(p, elemType);
-                var field = form.AddList<object, object>(label,
-                    _ => (IList<object>)getter(_),
-                    (_, v) => setter(_, v), key);
-                if (hint != null) field.WithHelp(hint);
-                if (!required) field.MakeOptional();
-                continue;
-            }
-
-            // Scalars/Enums
-            if (t == typeof(string))
-                form.AddText<object>(label, m => (string)(p.GetValue(m) ?? ""), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
-            else if (t == typeof(int))
-                form.AddInt<object>(label, m => (int)(p.GetValue(m) ?? default(int)), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
-            else if (t == typeof(long))
-                form.AddLong<object>(label, m => (long)(p.GetValue(m) ?? default(long)), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
-            else if (t == typeof(decimal))
-                form.AddDecimal<object>(label, m => (decimal)(p.GetValue(m) ?? default(decimal)), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
-            else if (t == typeof(double))
-                form.AddDouble<object>(label, m => Convert.ToDouble(p.GetValue(m) ?? 0d), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
-            else if (t == typeof(float))
-                form.AddFloat<object>(label, m => Convert.ToSingle(p.GetValue(m) ?? 0f), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
-            else if (t == typeof(bool))
-                form.AddBool<object>(label, m => (bool)(p.GetValue(m) ?? false), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
-            else if (t == typeof(Guid))
-                form.AddGuid<object>(label, m => (Guid)(p.GetValue(m) ?? Guid.Empty), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
-            else if (t == typeof(DateTime))
-                form.AddDate<object>(label, m => (DateTime)(p.GetValue(m) ?? default(DateTime)), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
-            else if (t == typeof(TimeSpan))
-                form.AddTime<object>(label, m => (TimeSpan)(p.GetValue(m) ?? default(TimeSpan)), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
-            else if (t.IsEnum)
-            {
-                var method = typeof(UiForm).GetMethod(nameof(UiForm.AddEnum))!.MakeGenericMethod(typeof(object), t);
-                var getter = BuildGetter<object>(p);
-                var setter = BuildSetter<object>(p);
-                var field = (IUiField)method.Invoke(form, new object[] { label, getter, setter, key })!;
-                if (hint != null) field.WithHelp(hint);
-                if (!required) field.MakeOptional();
-            }
-            // TODO: handle complex objects/lists-of-complex
-        }
-        return form;
-    }
-
-    private static Func<TModel, object> BuildGetter<TModel>(PropertyInfo p) => _ => p.GetValue(_)!;
-    private static Action<TModel, object> BuildSetter<TModel>(PropertyInfo p) => (_, v) => p.SetValue(_, v);
-
-    private static Func<TModel, IList<object>> BuildListGetter<TModel>(PropertyInfo p, Type elemType)
-        => _ =>
-        {
-            var raw = p.GetValue(_) as IEnumerable ?? Array.CreateInstance(elemType, 0);
-            var list = new List<object>();
-            foreach (var it in raw) list.Add(it!);
-            return list;
-        };
-
-    private static Action<TModel, IList<object>> BuildListSetter<TModel>(PropertyInfo p, Type elemType)
-        => (_, v) =>
-        {
-            // Try to preserve existing list instance if possible
-            var cur = p.GetValue(_);
-            if (cur is IList dest && cur.GetType().IsGenericType)
-            {
-                dest.Clear();
-                foreach (var it in v) dest.Add(ConvertItem(it, elemType));
-                return;
-            }
-            // Otherwise build a new List<elemType>
-            var typed = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(elemType))!;
-            foreach (var it in v) typed.Add(ConvertItem(it, elemType));
-            p.SetValue(_, typed);
-        };
-
-    private static object ConvertItem(object value, Type elemType)
-    {
-        if (value is null) return elemType.IsValueType ? Activator.CreateInstance(elemType)! : null!;
-        var t = Nullable.GetUnderlyingType(elemType) ?? elemType;
-        if (t == typeof(string)) return Convert.ToString(value) ?? "";
-        if (t == typeof(int)) return Convert.ToInt32(value, CultureInfo.InvariantCulture);
-        if (t == typeof(long)) return Convert.ToInt64(value, CultureInfo.InvariantCulture);
-        if (t == typeof(decimal)) return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
-        if (t == typeof(double)) return Convert.ToDouble(value, CultureInfo.InvariantCulture);
-        if (t == typeof(float)) return Convert.ToSingle(value, CultureInfo.InvariantCulture);
-        if (t == typeof(bool)) return Convert.ToBoolean(value, CultureInfo.InvariantCulture);
-        if (t == typeof(Guid)) return (value is Guid g) ? g : Guid.Parse(Convert.ToString(value)!);
-        if (t == typeof(DateTime)) return (value is DateTime dt) ? dt : DateTime.Parse(Convert.ToString(value)!, CultureInfo.InvariantCulture);
-        if (t == typeof(TimeSpan)) return (value is TimeSpan ts) ? ts : TimeSpan.Parse(Convert.ToString(value)!, CultureInfo.InvariantCulture);
-        return value;
-    }
-
-    private static IUiField MakeOptionalIf(this IUiField field, bool cond)
-        => cond ? field.MakeOptional() : field;
 }

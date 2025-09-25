@@ -119,7 +119,7 @@ public static class DataCommands
                 var instance = Activator.CreateInstance(type)!;
                 ctx.Append(Log.Data.Type, type.FullName ?? type.Name);
                 ctx.Append(Log.Data.Input, instance.ToJson() ?? "<null>");
-                var form = UiFormBuilder.BuildForm(instance, type, $"Add {metadata.Name}");
+                var form = DataFormBuilder.BuildForm(instance, type, $"Add {metadata.Name}");
                 if (!await Program.ui.ShowFormAsync(form))
                 {
                     ctx.Append(Log.Data.Message, "User cancelled form");
@@ -181,7 +181,7 @@ public static class DataCommands
 
                     // build a form on a clone
                     var editable = CloneViaJson(original, type) ?? Activator.CreateInstance(type)!;
-                    var form = UiFormBuilder.BuildForm(editable, type, $"Edit {metadata.Name}");
+                    var form = DataFormBuilder.BuildForm(editable, type, $"Edit {metadata.Name}");
 
                     // show the form
                     if (!await Program.ui.ShowFormAsync(form))
@@ -194,9 +194,6 @@ public static class DataCommands
                     // GET THE EDITED MODEL (don’t rely on ApplyEditsToOriginal)
                     ctx.Append(Log.Data.Output, form.Model?.ToJson() ?? "<null>");
                     var edited = (object?)form.Model ?? editable;
-
-                    // (optional) keep this if you want in-place copy too, but it’s not required
-                    // form.ApplyEditsToOriginal(original);
 
                     // build predicate using BEFORE state (unchanged)
                     Delegate predicate;
@@ -392,4 +389,153 @@ public static class DataCommands
             }
         };
     }
+}
+
+public static class DataFormBuilder
+{
+    public static IEnumerable<PropertyInfo> GetEditableProperties(Type t) =>
+        t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+         .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0);
+
+    public static bool IsSimple(Type t)
+    {
+        t = Nullable.GetUnderlyingType(t) ?? t;
+        return t.IsPrimitive || t.IsEnum ||
+            t == typeof(string) || t == typeof(decimal) ||
+            t == typeof(DateTime) || t == typeof(Guid) ||
+            t == typeof(double) || t == typeof(float) ||
+            t == typeof(int) || t == typeof(long) ||
+            t == typeof(short) || t == typeof(byte) ||
+            t == typeof(bool) || t == typeof(TimeSpan);
+    }
+
+    public static bool IsList(Type t, out Type elemType)
+    {
+        if (t.IsArray) { elemType = t.GetElementType()!; return true; }
+        var listIface = t.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IList<>));
+        if (listIface != null) { elemType = listIface.GetGenericArguments()[0]; return true; }
+        elemType = typeof(object); return false;
+    }
+
+    public static UiForm BuildForm(object model, Type type, string title)
+    {
+        // Create a typed clone so form.Model is the right type (not Dictionary<,>)
+        var createMi = typeof(UiForm).GetMethod("Create")!.MakeGenericMethod(type);
+        var form = (UiForm)createMi.Invoke(null, new object[] { title, model })!;
+
+        foreach (var p in GetEditableProperties(type))
+        {
+            var t = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
+            var key = p.Name;
+            var uf = p.GetCustomAttribute<UserFieldAttribute>();
+            var label = uf?.Display ?? p.Name;
+            var required = uf?.Required ?? false;
+            var hint = uf?.Hint;
+
+            // Lists of simple types → Array repeater
+            if (IsList(t, out var elemType) && IsSimple(elemType))
+            {
+                var getter = BuildListGetter<object>(p, elemType);
+                var setter = BuildListSetter<object>(p, elemType);
+                var field = form.AddList<object, object>(label,
+                    _ => (IList<object>)getter(_),
+                    (_, v) => setter(_, v), key);
+                if (hint != null) field.WithHelp(hint);
+                if (!required) field.MakeOptional();
+                continue;
+            }
+
+            // Scalars/Enums
+            if (t == typeof(string))
+                form.AddText<object>(label, m => (string)(p.GetValue(m) ?? ""), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(int))
+                form.AddInt<object>(label, m => (int)(p.GetValue(m) ?? default(int)), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(long))
+                form.AddLong<object>(label, m => (long)(p.GetValue(m) ?? default(long)), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(decimal))
+                form.AddDecimal<object>(label, m => (decimal)(p.GetValue(m) ?? default(decimal)), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(double))
+                form.AddDouble<object>(label, m => Convert.ToDouble(p.GetValue(m) ?? 0d), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(float))
+                form.AddFloat<object>(label, m => Convert.ToSingle(p.GetValue(m) ?? 0f), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(bool))
+                form.AddBool<object>(label, m => (bool)(p.GetValue(m) ?? false), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(Guid))
+                form.AddGuid<object>(label, m => (Guid)(p.GetValue(m) ?? Guid.Empty), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(DateTime))
+                form.AddDate<object>(label, m => (DateTime)(p.GetValue(m) ?? default(DateTime)), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t == typeof(TimeSpan))
+                form.AddTime<object>(label, m => (TimeSpan)(p.GetValue(m) ?? default(TimeSpan)), (m, v) => p.SetValue(m, v), key)
+                    .WithHelp(hint).MakeOptionalIf(!required);
+            else if (t.IsEnum)
+            {
+                var method = typeof(UiForm).GetMethod(nameof(UiForm.AddEnum))!.MakeGenericMethod(typeof(object), t);
+                var getter = BuildGetter<object>(p);
+                var setter = BuildSetter<object>(p);
+                var field = (IUiField)method.Invoke(form, new object[] { label, getter, setter, key })!;
+                if (hint != null) field.WithHelp(hint);
+                if (!required) field.MakeOptional();
+            }
+            // TODO: handle complex objects/lists-of-complex
+        }
+        return form;
+    }
+
+    private static Func<TModel, object> BuildGetter<TModel>(PropertyInfo p) => _ => p.GetValue(_)!;
+    private static Action<TModel, object> BuildSetter<TModel>(PropertyInfo p) => (_, v) => p.SetValue(_, v);
+
+    private static Func<TModel, IList<object>> BuildListGetter<TModel>(PropertyInfo p, Type elemType)
+        => _ =>
+        {
+            var raw = p.GetValue(_) as IEnumerable ?? Array.CreateInstance(elemType, 0);
+            var list = new List<object>();
+            foreach (var it in raw) list.Add(it!);
+            return list;
+        };
+
+    private static Action<TModel, IList<object>> BuildListSetter<TModel>(PropertyInfo p, Type elemType)
+        => (_, v) =>
+        {
+            // Try to preserve existing list instance if possible
+            var cur = p.GetValue(_);
+            if (cur is IList dest && cur.GetType().IsGenericType)
+            {
+                dest.Clear();
+                foreach (var it in v) dest.Add(ConvertItem(it, elemType));
+                return;
+            }
+            // Otherwise build a new List<elemType>
+            var typed = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(elemType))!;
+            foreach (var it in v) typed.Add(ConvertItem(it, elemType));
+            p.SetValue(_, typed);
+        };
+
+    private static object ConvertItem(object value, Type elemType)
+    {
+        if (value is null) return elemType.IsValueType ? Activator.CreateInstance(elemType)! : null!;
+        var t = Nullable.GetUnderlyingType(elemType) ?? elemType;
+        if (t == typeof(string)) return Convert.ToString(value) ?? "";
+        if (t == typeof(int)) return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+        if (t == typeof(long)) return Convert.ToInt64(value, CultureInfo.InvariantCulture);
+        if (t == typeof(decimal)) return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+        if (t == typeof(double)) return Convert.ToDouble(value, CultureInfo.InvariantCulture);
+        if (t == typeof(float)) return Convert.ToSingle(value, CultureInfo.InvariantCulture);
+        if (t == typeof(bool)) return Convert.ToBoolean(value, CultureInfo.InvariantCulture);
+        if (t == typeof(Guid)) return (value is Guid g) ? g : Guid.Parse(Convert.ToString(value)!);
+        if (t == typeof(DateTime)) return (value is DateTime dt) ? dt : DateTime.Parse(Convert.ToString(value)!, CultureInfo.InvariantCulture);
+        if (t == typeof(TimeSpan)) return (value is TimeSpan ts) ? ts : TimeSpan.Parse(Convert.ToString(value)!, CultureInfo.InvariantCulture);
+        return value;
+    }
+
+    private static IUiField MakeOptionalIf(this IUiField field, bool cond)
+        => cond ? field.MakeOptional() : field;
 }
