@@ -40,7 +40,8 @@ public class RagSettings
     public int MmrMinExtra { get; set; } = 4;       // at least +4 candidates
     public int TopKForParsing { get; set; } = 2; // how many top results to use for parsing
 
-    public List<string> SupportedFileTypes { get; set; } = new List<string>
+    [Obsolete("Use UserManagedData RagFileType entries instead. This legacy list is only used during migration if no RagFileType entries exist.")]
+    public List<string> SupportedFileTypes { get; set; } = new List<string> // TODO: remove in subsequent change as part of wrapping up migration to RagFileType.
     {
         ".bash", ".bat",
         ".c", ".cpp", ".cs", ".csproj", ".csv",
@@ -55,6 +56,7 @@ public class RagSettings
         ".xml",
         ".yml"
     };
+    [Obsolete("Use Include/Exclude lists on RagFileType (UserManagedData) instead.")]
     public Dictionary<string, FileFilterRules> FileFilters { get; set; } = new();
 }
 
@@ -82,7 +84,7 @@ public class Config
 
     public string DefaultDirectory { get; set; } = Directory.GetCurrentDirectory();
 
-    public RagSettings RagSettings { get; set; } = new RagSettings();
+    public RagSettings RagSettings { get; set; } = new RagSettings(); 
 
     public bool VerboseEventLoggingEnabled { get; set; } = false;
     public int MaxSteps { get; set; } = 25; // Maximum number of steps for planning

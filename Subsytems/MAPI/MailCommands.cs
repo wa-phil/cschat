@@ -8,6 +8,8 @@ using System.Collections.Concurrent;
 
 public static class MailCommands
 {
+    private class ReplyPromptModel { public string? Prompt { get; set; } }
+
     public static Command Commands(MapiMailClient mail)
     {
         return new Command
@@ -346,74 +348,28 @@ If none of the above fits, assign 'Other'.";
                     }
                 },
                 // -------------------------
-                // 4) Max Emails To Process
+                // 4) Settings (combined form for MaxEmailsToProcess, LookbackWindow, LookbackCount)
                 // -------------------------
                 new Command{
-                    Name = "max emails to summarize",
-                    Description = () => $"Set the maximum number of emails to summarize in one go [currently: {Program.config.MailSettings.MaxEmailsToProcess}]",
-                    Action = () =>
+                    Name = "settings",
+                    Description = () => $"Edit mail settings (max summarize: {Program.config.MailSettings.MaxEmailsToProcess}, lookback days: {Program.config.MailSettings.LookbackWindow}, lookback count: {Program.config.MailSettings.LookbackCount})",
+                    Action = async () =>
                     {
-                        Program.ui.Write($"Current max emails to summarize: {Program.config.MailSettings.MaxEmailsToProcess}\n");
-                        int max = 100;
-                        Program.ui.Write($"Enter new maximum (1-{max}): ");
-                        var input = Program.ui.ReadLine();
-                        if (int.TryParse(input, out int newMax) && newMax >= 1 && newMax <= max)
-                        {
-                            Program.config.MailSettings.MaxEmailsToProcess = newMax;
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"Max emails to process updated to {newMax}.");
-                            return Task.FromResult(Command.Result.Success);
-                        }
-                        Program.ui.WriteLine("Cancelled or invalid input.");
-                        return Task.FromResult(Command.Result.Cancelled);
-                    }
-                },
+                        // Clone via UiForm.Create so edits are transactional until submit
+                        var form = UiForm.Create("Mail Settings", Program.config.MailSettings);
+                        form.AddInt<MailSettings>("Max Emails To Summarize", m => m.MaxEmailsToProcess, (m,v)=> m.MaxEmailsToProcess = v)
+                            .IntBounds(1,100).WithHelp("Maximum emails summarized in one operation (1-100).");
+                        form.AddInt<MailSettings>("Lookback Window (Days)", m => m.LookbackWindow, (m,v)=> m.LookbackWindow = v)
+                            .IntBounds(1,365).WithHelp("Days to look back when fetching emails (1-365).");
+                        form.AddInt<MailSettings>("Lookback Count", m => m.LookbackCount, (m,v)=> m.LookbackCount = v)
+                            .IntBounds(1,250).WithHelp("Maximum emails fetched for browsing (1-250).");
 
-                // -------------------------
-                // 5) Lookback window
-                // -------------------------
-                new Command{
-                    Name = "lookback window",
-                    Description = () => $"Set the lookback window (in days) for fetching emails [currently: {Program.config.MailSettings.LookbackWindow}]",
-                    Action = () =>
-                    {
-                        int max = 365;
-                        Program.ui.Write($"Current lookback window (days): {Program.config.MailSettings.LookbackWindow}\n");
-                        Program.ui.Write($"Enter new lookback window (1-{max}): ");
-                        var input = Program.ui.ReadLine();
-                        if (int.TryParse(input, out int newWindow) && newWindow >= 1 && newWindow <= max)
-                        {
-                            Program.config.MailSettings.LookbackWindow = newWindow;
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"Lookback window updated to {newWindow} days.");
-                            return Task.FromResult(Command.Result.Success);
-                        }
-                        Program.ui.WriteLine("Cancelled or invalid input.");
-                        return Task.FromResult(Command.Result.Cancelled);
-                    }
-                },
-                // -------------------------
-                // 6) Lookback count
-                // -------------------------                
-                new Command
-                {
-                    Name="lookback count",
-                    Description = () => $"Set the lookback count for fetching emails [currently: {Program.config.MailSettings.LookbackCount}]",
-                    Action = () =>
-                    {
-                        Program.ui.Write($"Current lookback count: {Program.config.MailSettings.LookbackCount}\n");
-                        int max = 250;
-                        Program.ui.Write($"Enter new lookback count (1-{max}): ");
-                        var input = Program.ui.ReadLine();
-                        if (int.TryParse(input, out int newCount) && newCount >= 1 && newCount <= max)
-                        {
-                            Program.config.MailSettings.LookbackCount = newCount;
-                            Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"Lookback count updated to {newCount}.");
-                            return Task.FromResult(Command.Result.Success);
-                        }
-                        Program.ui.WriteLine("Cancelled or invalid input.");
-                        return Task.FromResult(Command.Result.Cancelled);
+                        if (!await Program.ui.ShowFormAsync(form)) { return Command.Result.Cancelled; }
+
+                        // Persist edited clone
+                        Program.config.MailSettings = (MailSettings)form.Model!;
+                        Config.Save(Program.config, Program.ConfigFilePath);
+                        return Command.Result.Success;
                     }
                 }
             }
@@ -505,8 +461,10 @@ If none of the above fits, assign 'Other'.";
                 }
                 else if (pick.StartsWith("reply-all", StringComparison.OrdinalIgnoreCase) || pick.StartsWith("reply", StringComparison.OrdinalIgnoreCase))
                 {
-                    Program.ui.Write("Prompt to draft the reply: ");
-                    var prompt = Program.ui.ReadLineWithHistory() ?? "";
+                    var replyForm = UiForm.Create("Draft reply", new ReplyPromptModel { Prompt = string.Empty });
+                    replyForm.AddText<ReplyPromptModel>("Prompt", m => m.Prompt ?? "", (m,v)=> m.Prompt = v).MakeOptional();
+                    if (!await Program.ui.ShowFormAsync(replyForm)) return;
+                    var prompt = ((ReplyPromptModel)replyForm.Model!).Prompt ?? string.Empty;
                     var ctx = new Context(@"Draft a professional, concise email reply. Keep it short, specific, and kind. Output plain text only.");
                     ctx.AddUserMessage($"Original message subject: {msg.Subject}\n\nUser prompt for the reply:\n{prompt}");
                     var replyBody = await Engine.Provider!.PostChatAsync(ctx, 0.2f);

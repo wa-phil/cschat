@@ -5,9 +5,9 @@ using System.Collections.Generic;
 public class FavoriteMailFolder
 {
     [UserKey]
-    [UserField(required: true)] public string IdOrName { get; set; } = string.Empty;
+    [UserField(required: true, FieldKind = UiFieldKind.String)] public string IdOrName { get; set; } = string.Empty;
 
-    [UserField(required: true)] public string DisplayName { get; set; } = string.Empty;
+    [UserField(required: true, FieldKind = UiFieldKind.String)] public string DisplayName { get; set; } = string.Empty;
 
     public FavoriteMailFolder() { }
 
@@ -24,12 +24,12 @@ public class FavoriteMailFolder
 public class MailTopic
 {
     [UserKey]
-    [UserField(required: true)] public string Name { get; set; } = string.Empty;
+    [UserField(required: true, FieldKind = UiFieldKind.String)] public string Name { get; set; } = string.Empty;
 
-    [UserField(required: true)] public string Description { get; set; } = string.Empty;
+    [UserField(required: true, FieldKind = UiFieldKind.Text)] public string Description { get; set; } = string.Empty;
 
     // Comma- or newline-separated keywords/phrases used to match emails into this topic
-    [UserField(required: true)] public string Keywords { get; set; } = string.Empty;
+    [UserField(required: true, FieldKind = UiFieldKind.String)] public string Keywords { get; set; } = string.Empty;
 
     public override string ToString() => $"{Name} — {Description}";
 }

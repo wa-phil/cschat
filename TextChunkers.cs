@@ -60,14 +60,48 @@ public class SmartChunk : ITextChunker
     private readonly int maxTokens;
     private readonly int overlap;
     private readonly int maxLineLength;
-    private readonly Dictionary<string, FileFilterRules> filters;
+    // Line-level filtering rules now derived from UserManagedData RagFileType entries (Include/Exclude patterns).
+    // Legacy RagSettings.FileFilters (obsolete) only used as a fallback if no user-managed data available.
+    private readonly Dictionary<string, FileFilterRules> lineFilters;
 
     public SmartChunk(Config config)
     {
         maxTokens = config.RagSettings.MaxTokensPerChunk;
         overlap = config.RagSettings.Overlap;
         maxLineLength = config.RagSettings.MaxLineLength;
-        filters = config.RagSettings.FileFilters;
+
+        lineFilters = new Dictionary<string, FileFilterRules>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            // Build from RagFileType entries (user-managed)
+            var items = Program.userManagedData.GetItems<RagFileType>();
+            foreach (var it in items)
+            {
+                if (it == null || string.IsNullOrWhiteSpace(it.Extension)) continue;
+                // Only add if there are actual line-level patterns defined to reduce overhead
+                var hasInclude = it.Include?.Any(p => !string.IsNullOrWhiteSpace(p)) == true;
+                var hasExclude = it.Exclude?.Any(p => !string.IsNullOrWhiteSpace(p)) == true;
+                if (hasInclude || hasExclude)
+                {
+                    lineFilters[it.Extension.ToLowerInvariant()] = new FileFilterRules
+                    {
+                        Include = it.Include?.Where(p => !string.IsNullOrWhiteSpace(p)).ToList() ?? new List<string>(),
+                        Exclude = it.Exclude?.Where(p => !string.IsNullOrWhiteSpace(p)).ToList() ?? new List<string>()
+                    };
+                }
+            }
+        }
+        catch { /* Swallow – fall back to legacy if needed */ }
+
+#pragma warning disable CS0618 // Using obsolete members deliberately as fallback
+        if (lineFilters.Count == 0 && config.RagSettings.FileFilters != null && config.RagSettings.FileFilters.Count > 0)
+        {
+            foreach (var kvp in config.RagSettings.FileFilters)
+            {
+                lineFilters[kvp.Key.ToLowerInvariant()] = kvp.Value;
+            }
+        }
+#pragma warning restore CS0618
 
         if (overlap >= config.RagSettings.ChunkSize)
         {
@@ -137,7 +171,7 @@ public class SmartChunk : ITextChunker
     private List<string> PreprocessLines(string text, string? extension)
     {
         var rawLines = text.Split('\n').Where(l => l.Length <= maxLineLength);
-        if (string.IsNullOrWhiteSpace(extension) || !filters.TryGetValue(extension, out var rules))
+        if (string.IsNullOrWhiteSpace(extension) || !lineFilters.TryGetValue(extension, out var rules))
         {
             // There are no filters for this extension, return all lines
             return rawLines.ToList();

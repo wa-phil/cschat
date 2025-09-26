@@ -22,9 +22,9 @@ public partial class CommandManager
                         {
                             Engine.SetProvider(selected);
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"Switched to provider '{Program.config.Provider}'");
+                            return Task.FromResult(Command.Result.Success);
                         }
-                        return Task.FromResult(Command.Result.Success);
+                        return Task.FromResult(Command.Result.Cancelled);
                     }
                 },
                 new Command
@@ -32,112 +32,107 @@ public partial class CommandManager
                     Name = "model", Description = () => $"List and select available models [currently: {Program.config.Model}]",
                     Action = async () =>
                     {
-                        Program.ui.WriteLine($"Current model: {Program.config.Model}");
                         var selected = await Engine.SelectModelAsync();
                         if (selected != null)
                         {
                             Program.config.Model = selected;
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"Switched to model '{selected}'");
+                            return Command.Result.Success;
                         }
-                        return Command.Result.Success;
+                        return Command.Result.Cancelled;
                     }
                 },
                 new Command
                 {
-                    Name = "host", Description = () => $"Change Ollama host [currently: {Program.config.Host}]",
-                    Action = () =>
+                    Name = "host", Description = () => $"Change host [currently: {Program.config.Host}]",
+                    Action = async () =>
                     {
-                        Program.ui.Write("Enter new Ollama host: ");
-                        var hostInput = Program.ui.ReadLineWithHistory();
-                        if (!string.IsNullOrWhiteSpace(hostInput))
+                        var form = UiForm.Create("Change host URL", Program.config);
+                        form.AddString<Config>("Host", c => c.Host, (c,v) => c.Host = v)
+                            .WithHelp("The base URL of the LLM provider host.");
+
+                        if (await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.Host = hostInput.Trim();
+                            Program.config = (Config)form.Model!;        // commit the edited clone
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"Switched to host '{Program.config.Host}'");
+                            return Command.Result.Success;
                         }
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Cancelled;
                     }
                 },
                 new Command
                 {
                     Name = "system", Description = () => "Change system prompt",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Program.ui.WriteLine($"Current system prompt: {Program.config.SystemPrompt}");
-                        Program.ui.Write("Enter new system prompt (or press enter to keep current): ");
-                        var promptInput = Program.ui.ReadLineWithHistory();
-                        if (!string.IsNullOrWhiteSpace(promptInput))
+                        var form = UiForm.Create("Change System Prompt", Program.config);
+                        form.AddString<Config>("System Prompt", c => c.SystemPrompt, (c,v) => c.SystemPrompt = v)
+                            .WithHelp("The system prompt sets the behavior of the AI. Be clear and specific.");
+
+                        if (await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.SystemPrompt = promptInput.Trim();
+                            Program.config = (Config)form.Model!;        // commit the edited clone
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine("System prompt updated.");
+                            return Command.Result.Success;
                         }
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Cancelled;
                     }
                 },
                 new Command
                 {
                     Name = "temp", Description = () => $"Set response temperature [currently: {Program.config.Temperature}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Program.ui.Write($"Current temperature: {Program.config.Temperature}. Enter new value (0.0 to 1.0): ");
-                        var tempInput = Program.ui.ReadLineWithHistory();
-                        if (float.TryParse(tempInput, out var temp) && temp >= 0.0f && temp <= 1.0f)
+                        var form = UiForm.Create("Set Temperature", Program.config);
+                        form.AddFloat<Config>("Temperature (0-1)", c => c.Temperature, (c,v) => c.Temperature = v)
+                            .IntBounds(min: 0, max: 1)
+                            .WithHelp("Controls randomness in responses. Use a floating-point value between 0 and 1, where 0 = most deterministic, 1 = very random.");
+
+                        if (await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.Temperature = temp;
+                            Program.config = (Config)form.Model!;        // commit the edited clone
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"Temperature set to {temp}");
+                            return Command.Result.Success;
                         }
-                        else
-                        {
-                            Program.ui.WriteLine("Invalid temperature value. Must be between 0.0 and 1.0.");
-                        }
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Cancelled;
                     }
                 },
                 new Command
                 {
                     Name = "max tokens", Description = () => $"Set maximum tokens for response [currently: {Program.config.MaxTokens}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Program.ui.Write($"Current max tokens: {Program.config.MaxTokens}. Enter new value (1 to 10000): ");
-                        var tokensInput = Program.ui.ReadLineWithHistory();
-                        if (int.TryParse(tokensInput, out var tokens) && tokens >= 1 && tokens <= 32000)
+                        var form = UiForm.Create("Set Max Tokens", Program.config);
+                        form.AddInt<Config>("Max Tokens (1-32000)", c => c.MaxTokens, (c,v) => c.MaxTokens = v)
+                            .IntBounds(min: 1, max: 32000)
+                            .WithHelp("Sets the maximum number of tokens the model can generate in a response, range is 1 to 32000.");
+
+                        if (await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.MaxTokens = tokens;
+                            Program.config = (Config)form.Model!;        // commit the edited clone
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine($"Max tokens set to {tokens}");
+                            return Command.Result.Success;
                         }
-                        else
-                        {
-                            Program.ui.WriteLine("Invalid max tokens value. Must be between 1 and 32000.");
-                        }
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Cancelled;
                     }
                 },
                 new Command
                 {
                     Name = "azure auth logging enabled",
                     Description = () => $"Enable or disable verbose Azure logging [currently: {(Program.config.VerboseEventLoggingEnabled? "Enabled" : "Disabled")}]",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        var options = new List<string> { "true", "false" };
-                        var currentSetting = Program.config.VerboseEventLoggingEnabled ? "true" : "false";
-                        var selected = Program.ui.RenderMenu("Enable Azure Authentication verbose logging:", options, options.IndexOf(currentSetting));
+                        var form = UiForm.Create("Azure Auth Verbose Logging", Program.config);
+                        form.AddBool<Config>("Enable verbose logging", c => c.VerboseEventLoggingEnabled, (c,v) => c.VerboseEventLoggingEnabled = v)
+                            .WithHelp("Enables or disables verbose logging for Azure authentication.");
 
-                        if (!string.IsNullOrWhiteSpace(selected) && bool.TryParse(selected, out var result))
+                        if (await Program.ui.ShowFormAsync(form))
                         {
-                            Program.config.VerboseEventLoggingEnabled = result;
-                            Program.ui.WriteLine($"Azure Auth verbose logging set to {result}.");
+                            Program.config = (Config)form.Model!;        // commit the edited clone
                             Config.Save(Program.config, Program.ConfigFilePath);
+                            return Command.Result.Success;
                         }
-                        else
-                        {
-                            Program.ui.WriteLine("Invalid selection.");
-                        }
-
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Cancelled;
                     }
                 },
                 new Command
@@ -146,25 +141,19 @@ public partial class CommandManager
                     Description = () => "Toggle event sources for verbose logging",
                     Action = () =>
                     {
-                        Program.ui.WriteLine("Select an event source to toggle:");
                         var sources = Program.config.EventSources.Select(kvp => $"{kvp.Key} : {(kvp.Value ? "Enabled" : "Disabled")}").ToList();
-                        var selected = Program.ui.RenderMenu("Event sources:", sources, -1);
+                        var selected = Program.ui.RenderMenu("Select an event source to toggle:", sources, -1);
                         if (selected != null)
                         {
                             selected = selected.Split(':')[0].Trim(); // Get the source name
                             if (Program.config.EventSources.TryGetValue(selected, out var enabled))
                             {
                                 Program.config.EventSources[selected] = !enabled;
-                                Program.ui.WriteLine($"Event source '{selected}' toggled to {(Program.config.EventSources[selected] ? "Enabled" : "Disabled")}");
                                 Config.Save(Program.config, Program.ConfigFilePath);
-                            }
-                            else
-                            {
-                                Program.ui.WriteLine($"Event source '{selected}' not found.");
-                                return Task.FromResult(Command.Result.Failed);
+                                return Task.FromResult(Command.Result.Success);
                             }
                         }
-                        return Task.FromResult(Command.Result.Success);
+                        return Task.FromResult(Command.Result.Cancelled);
                     }
                 }
             }

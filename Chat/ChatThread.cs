@@ -13,7 +13,7 @@ public sealed class ChatThread
 {
     [UserKey] public string Name { get; set; } = "";       // unique user-facing name
 
-    [UserField(required: false)]
+    [UserField(required: false, FieldKind = UiFieldKind.Text)]
     public string Description { get; set; } = ""; // optional description
 
     [UserField(required: false, hidden: true)]

@@ -6,6 +6,10 @@ using System.Threading.Tasks;
 
 public static class KustoCommands
 {
+    private class ExportModel { public string Format { get; set; } = "none"; public string Path { get; set; } = "results.txt"; }
+    private class SaveQueryModel { public string Name { get; set; } = string.Empty; public string Description { get; set; } = string.Empty; }
+    private class KqlInputModel { public string Kql { get; set; } = string.Empty; }
+
     public static Command Commands(KustoClient kusto)
     {
         return new Command
@@ -89,17 +93,23 @@ public static class KustoCommands
                         var table = await kusto.QueryAsync(cfg, q.Kql);
                         Program.ui.WriteLine(table.ToText(Program.ui.Width));
 
-                        Program.ui.Write("Export? (none/csv/json) ");
-                        var how = (Program.ui.ReadLineWithHistory() ?? "").Trim().ToLowerInvariant();
-                        if (how == "csv" || how == "json")
+                        var exportForm = UiForm.Create("Export results", new ExportModel { Format = "none", Path = "results.txt" });
+                        exportForm.AddChoice<ExportModel>("Format", new[]{"none","csv","json"}, m => m.Format, (m,v)=> m.Format = v);
+                        exportForm.AddPath<ExportModel>("Path", m => m.Path, (m,v)=> m.Path = v).MakeOptionalIf(true).WithHelp("File path if exporting.");
+                        if (await Program.ui.ShowFormAsync(exportForm))
                         {
-                            Program.ui.Write("Path: ");
-                            var path = Program.ui.ReadLineWithHistory();
-                            if (!string.IsNullOrWhiteSpace(path))
+                            var em = (ExportModel)exportForm.Model!;
+                            if (em.Format == "csv" || em.Format == "json")
                             {
-                                var content = how == "csv" ? table.ToCsv() : table.ToJson();
-                                File.WriteAllText(path!, content);
-                                Program.ui.WriteLine($"Saved: {path}");
+                                try
+                                {
+                                    var content = em.Format == "csv" ? table.ToCsv() : table.ToJson();
+                                    File.WriteAllText(em.Path, content);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Program.ui.WriteLine($"Export failed: {ex.Message}");
+                                }
                             }
                         }
 
@@ -118,15 +128,19 @@ public static class KustoCommands
                         var cfg = PickConfig();
                         if (cfg is null) return Command.Result.Failed;
 
-                        Program.ui.Write("Query name: ");
-                        var name = Program.ui.ReadLineWithHistory() ?? "";
-                        if (string.IsNullOrWhiteSpace(name)) return Command.Result.Failed;
+                        var saveForm = UiForm.Create("Save query", new SaveQueryModel { Name = "", Description = "" });
+                        saveForm.AddString<SaveQueryModel>("Name", m => m.Name, (m,v)=> m.Name = v);
+                        saveForm.AddText<SaveQueryModel>("Description", m => m.Description, (m,v)=> m.Description = v).MakeOptional();
+                        if (!await Program.ui.ShowFormAsync(saveForm)) { return Command.Result.Cancelled; }
+                        var name = ((SaveQueryModel)saveForm.Model!).Name;
+                        var desc = ((SaveQueryModel)saveForm.Model!).Description;
+                        if (string.IsNullOrWhiteSpace(name)) { return Command.Result.Failed; }
 
-                        Program.ui.Write("Description: ");
-                        var desc = Program.ui.ReadLineWithHistory() ?? "";
-
-                        Program.ui.WriteLine("Paste KQL (blank line to finish):");
-                        var kql = ReadMultiline();
+                        // Collect KQL using a form (single text field) instead of manual multiline capture
+                        var kqlForm = UiForm.Create("Enter KQL", new KqlInputModel { Kql = string.Empty });
+                        kqlForm.AddText<KqlInputModel>("KQL", m => m.Kql, (m,v)=> m.Kql = v).WithHelp("Enter the full KQL query.");
+                        if (!await Program.ui.ShowFormAsync(kqlForm)) { return Command.Result.Cancelled; }
+                        var kql = ((KqlInputModel)kqlForm.Model!).Kql;
 
                         var existing = cfg.Queries.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
                         if (existing is null)
@@ -152,26 +166,32 @@ public static class KustoCommands
                         var cfg = PickConfig();
                         if (cfg is null) return Command.Result.Failed;
 
-                        Program.ui.WriteLine("Enter KQL (blank line to run):");
-                        var kql = ReadMultiline();
+                        // Collect adhoc KQL via a form
+                        var adhocForm = UiForm.Create("Adhoc KQL", new KqlInputModel { Kql = string.Empty });
+                        adhocForm.AddText<KqlInputModel>("KQL", m => m.Kql, (m,v)=> m.Kql = v).WithHelp("Enter the KQL to run.");
+                        if (!await Program.ui.ShowFormAsync(adhocForm)) { return Command.Result.Cancelled; }
+                        var kql = ((KqlInputModel)adhocForm.Model!).Kql;
 
                         var table = await kusto.QueryAsync(cfg, kql);
                         Program.ui.WriteLine(table.ToText(Program.ui.Width));
                         await ContextManager.AddContent(table.ToText(Program.ui.Width), $"kusto/{cfg.Name}/results/__adhoc__");
 
-                        Program.ui.Write("Save this as a named query? (y/N) ");
-                        var save = (Program.ui.ReadLineWithHistory() ?? "").Trim().ToLowerInvariant();
-                        if (save == "y" || save == "yes")
+                        if (await Program.ui.ConfirmAsync("Save this as a named query?", false))
                         {
-                            Program.ui.Write("Query name: "); var name = Program.ui.ReadLineWithHistory() ?? "";
-                            Program.ui.Write("Description: "); var desc = Program.ui.ReadLineWithHistory() ?? "";
-                            if (!string.IsNullOrWhiteSpace(name))
+                            var adhocSaveForm = UiForm.Create("Save adhoc query", new SaveQueryModel { Name = "", Description = "" });
+                            adhocSaveForm.AddString<SaveQueryModel>("Name", m => m.Name, (m,v)=> m.Name = v);
+                            adhocSaveForm.AddText<SaveQueryModel>("Description", m => m.Description, (m,v)=> m.Description = v).MakeOptional();
+                            if (await Program.ui.ShowFormAsync(adhocSaveForm))
                             {
-                                var existing = cfg.Queries.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-                                if (existing is null) cfg.Queries.Add(new KustoQuery { Name = name, Description = desc, Kql = kql });
-                                else { existing.Description = desc; existing.Kql = kql; }
-                                Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-                                Program.ui.WriteLine("Saved.");
+                                var nm = ((SaveQueryModel)adhocSaveForm.Model!).Name;
+                                var ds = ((SaveQueryModel)adhocSaveForm.Model!).Description;
+                                if (!string.IsNullOrWhiteSpace(nm))
+                                {
+                                    var existing = cfg.Queries.FirstOrDefault(x => x.Name.Equals(nm, StringComparison.OrdinalIgnoreCase));
+                                    if (existing is null) cfg.Queries.Add(new KustoQuery { Name = nm, Description = ds, Kql = kql });
+                                    else { existing.Description = ds; existing.Kql = kql; }
+                                    Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
+                                }
                             }
                         }
 
@@ -192,7 +212,6 @@ public static class KustoCommands
 
                         cfg.Queries.RemoveAll(x => x.Name.Equals(q.Name, StringComparison.OrdinalIgnoreCase));
                         Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-                        Program.ui.WriteLine("Deleted.");
                         return Command.Result.Success;
                     }
                 }
@@ -235,16 +254,5 @@ public static class KustoCommands
             return list.FirstOrDefault(q => q.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         }
 
-        static string ReadMultiline()
-        {
-            var lines = new List<string>();
-            while (true)
-            {
-                var ln = Program.ui.ReadLine();
-                if (string.IsNullOrEmpty(ln)) break;
-                lines.Add(ln);
-            }
-            return string.Join("\n", lines);
-        }
     }
 }

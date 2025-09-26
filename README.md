@@ -250,6 +250,39 @@ Key points:
 
 This component is intended for small, developer-maintained collections and not for large data stores or sensitive secrets.
 
+### `UserFieldAttribute` options (UI hints)
+
+`UserFieldAttribute` now supports several optional properties to control how fields are presented in forms:
+
+- `FieldKind` (UiFieldKind): hint for the renderer whether to use a single-line input (`String`), multi-line text area (`Text`), password input (`Password`), path picker (`Path`), or show a dropdown for choices (`Enum`). Defaults to `Text` (preserves legacy behavior).
+- `Placeholder` (string): placeholder text shown in the input when empty.
+- `Min`, `Max` (int?): integer bounds applied to integer/long fields.
+- `Pattern` (string): regex pattern used for client-side validation (UI may show the `PatternMessage` when invalid).
+- `Choices` (string[]): fixed list of allowed string values; when present on a string property the UI renders a dropdown/select.
+
+Examples:
+
+```csharp
+[UserField(required: true, display: "Cluster URI", FieldKind = UiFieldKind.String, Placeholder = "https://example.kusto.windows.net")]
+public string ClusterUri { get; set; } = "";
+
+[UserField(display: "Description", FieldKind = UiFieldKind.Text)]
+public string Description { get; set; } = ""; // multi-line
+
+[UserField(required: true, FieldKind = UiFieldKind.Path)]
+public string Path { get; set; } = ""; // UI may provide path autocomplete
+
+[UserField(display: "Mode", Choices = new[]{ "auto", "manual", "off" })]
+public string Mode { get; set; } = "auto"; // renders as dropdown/select
+
+[UserField(required: true, display: "Retries", Min = 0, Max = 10)]
+public int Retries { get; set; } = 3;
+```
+
+Notes:
+- Enum-typed properties continue to render as dropdowns automatically (no need to set `Choices`).
+- The terminal UI renders dropdowns using the menu system; graphical UIs (Photino) will render a native select control when available.
+
 ## How it works
 - On startup, loads or creates a configuration file (`config.json`) for provider, host, model, and system prompt.
 - Initializes providers, command system, and in-memory chat history.

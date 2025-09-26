@@ -7,13 +7,13 @@ public class UserSelectedQuery
     [UserField(required: true)]
     public Guid Id { get; set; }
     
-    [UserField(required: true)]
+    [UserField(required: true, FieldKind = UiFieldKind.String)]
     public string Name { get; set; } = string.Empty;
     
-    [UserField(required: true)]
+    [UserField(required: true, FieldKind = UiFieldKind.String)]
     public string Project { get; set; } = string.Empty;
     
-    [UserField(required: true)]
+    [UserField(required: true, FieldKind = UiFieldKind.String)]
     public string Path { get; set; } = string.Empty;
 
     public UserSelectedQuery() { }

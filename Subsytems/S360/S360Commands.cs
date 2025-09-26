@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 
 public static class S360Commands
 {
+    private class S360LimitModel { public int Limit { get; set; } = 25; }
     public static Command Commands(S360Client s360)
     {
         return new Command
@@ -28,7 +29,16 @@ public static class S360Commands
                     Name = "triage", Description = () => "Score & summarize (briefing + action plan)",
                     Action = async () => {
                         var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
-                        Program.ui.Write("Top N (default 15): "); var n = int.TryParse(Program.ui.ReadLineWithHistory(), out var v) ? v : 15;
+
+                        var form = UiForm.Create("Triage options", 15);
+                        form.AddInt("Top N")
+                            .IntBounds(min: 1, max: 100)
+                            .WithHelp("Number of top action items to include in the summary, range is 1 to 100.");
+
+                        if (!await Program.ui.ShowFormAsync(form)){
+                            return Command.Result.Cancelled;
+                        }
+                        var n = (int)form.Model!;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.s360.triage",
                             new TriageS360Input { ProfileName = prof.Name, TopN = n });
                         Program.ui.WriteLine(resp);
@@ -42,7 +52,10 @@ public static class S360Commands
                         var sliceNames = new[]{"stale","no-eta","due-soon","needs-owner","at-risk-sla","delegated","churny-eta","off-track-wave","burndown-negative"};
                         var sel = Program.ui.RenderMenu("Pick slice:", sliceNames.ToList());
                         var chosen = sel ?? sliceNames[0];
-                        Program.ui.Write("Limit (default 25): "); var lim = int.TryParse(Program.ui.ReadLineWithHistory(), out var lv) ? lv : 25;
+                        var limitForm = UiForm.Create("Slice options", new S360LimitModel { Limit = 25 });
+                        limitForm.AddInt<S360LimitModel>("Limit", m => m.Limit, (m,v)=> m.Limit = v).IntBounds(1,500).WithHelp("Max items to fetch (1-500).");
+                        if (!await Program.ui.ShowFormAsync(limitForm)) { return Command.Result.Cancelled; }
+                        var lim = ((S360LimitModel)limitForm.Model!).Limit;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.s360.slice",
                             new SliceS360Input { ProfileName = prof.Name, Slice = chosen, Limit = lim });
                         Program.ui.WriteLine(resp);

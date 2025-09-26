@@ -2,6 +2,12 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.IO;
+
+class ExportFilterModel { public string Filter { get; set; } = string.Empty; }
+class RagSearchModel { public string Query { get; set; } = string.Empty; }
+class GraphWalkModel { public string Query { get; set; } = string.Empty; public int Hops { get; set; } = 2; }
+class CommunityInfoModel { public bool All { get; set; } = true; public int CommunityId { get; set; } = 0; }
 
 public partial class CommandManager
 {
@@ -131,21 +137,15 @@ public partial class CommandManager
                 new Command
                 {
                     Name = "Graph Walk", Description = () => "do a n-hop node walk on the Knowledge Graph",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Program.ui.Write("Enter search query: ");
-                        var query = Program.ui.ReadLine();
-                        
-                        Program.ui.WriteLine("Enter the number of hops to walk (default is 2): ");
-                        var hopsInput = Program.ui.ReadLine();
-
-                        int hops = 2;
-                        if (int.TryParse(hopsInput, out int parsedHops))
-                        {
-                            hops = parsedHops;
-                        }
-                        GraphStoreManager.Graph.PrintEntitiesWithinHops(query ?? string.Empty, hops);
-                        return Task.FromResult(Command.Result.Success);
+                        var form = UiForm.Create("Graph Walk", new GraphWalkModel());
+                        form.AddString<GraphWalkModel>("Query", m => m.Query, (m,v)=> m.Query = v).WithHelp("Node search text.");
+                        form.AddInt<GraphWalkModel>("Hops", m => m.Hops, (m,v)=> m.Hops = v).IntBounds(1,10).WithHelp("Number of hops (1-10).");
+                        if (!await Program.ui.ShowFormAsync(form)) { return Command.Result.Cancelled; }
+                        var model = (GraphWalkModel)form.Model!;
+                        GraphStoreManager.Graph.PrintEntitiesWithinHops(model.Query ?? string.Empty, model.Hops);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
@@ -160,32 +160,25 @@ public partial class CommandManager
                 new Command
                 {
                     Name = "Graph Community Info", Description = () => "Show detailed information about graph communities",
-                    Action = () =>
+                    Action = async () =>
                     {
                         if (GraphStoreManager.Graph.IsEmpty)
                         {
                             Program.ui.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
-                            return Task.FromResult(Command.Result.Failed);
+                            return Command.Result.Failed;
                         }
-
-                        Program.ui.Write("Enter community ID (leave blank for all communities): ");
-                        var input = Program.ui.ReadLine();
-                        
-                        if (string.IsNullOrWhiteSpace(input))
+                        var form = UiForm.Create("Community Info", new CommunityInfoModel());
+                        form.AddBool<CommunityInfoModel>("All", m => m.All, (m,v)=> m.All = v).WithHelp("Show all communities?");
+                        form.AddInt<CommunityInfoModel>("CommunityId", m => m.CommunityId, (m,v)=> m.CommunityId = v).MakeOptional();
+                        if (!await Program.ui.ShowFormAsync(form)) { return Command.Result.Cancelled; }
+                        var model = (CommunityInfoModel)form.Model!;
+                        if (model.All)
                         {
                             GraphStoreManager.Graph.PrintDetailedCommunityInfo();
+                        } else {
+                            GraphStoreManager.Graph.PrintDetailedCommunityInfo(model.CommunityId);
                         }
-                        else if (int.TryParse(input, out int communityId))
-                        {
-                            GraphStoreManager.Graph.PrintDetailedCommunityInfo(communityId);
-                        }
-                        else
-                        {
-                            Program.ui.WriteLine("Invalid community ID. Please enter a number or leave blank for all communities.");
-                            return Task.FromResult(Command.Result.Failed);
-                        }
-                        
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
@@ -223,26 +216,28 @@ public partial class CommandManager
                     Description = () => "Filter entries by reference and export a de-duped summary",
                     Action = () =>
                     {
-                        Program.ui.Write("Enter filter (substring or prefix of reference): ");
-                        var filter = Program.ui.ReadLineWithHistory();
-                        if (string.IsNullOrEmpty(filter))
-                        {
-                            Program.ui.WriteLine("No filter provided. Export cancelled.");
-                            return Task.FromResult(Command.Result.Cancelled);
-                        }
+                        var form = UiForm.Create("Export summary", new ExportFilterModel { Filter = string.Empty });
+                        form.AddString<ExportFilterModel>("Filter", m => m.Filter, (m,v)=> m.Filter = v)
+                            .WithHelp("Substring or prefix of reference; required.");
+                        return Program.ui.ShowFormAsync(form).ContinueWith(t => {
+                            if (!t.Result) { return Command.Result.Cancelled; }
+                            var filter = ((ExportFilterModel)form.Model!).Filter;
+                            if (string.IsNullOrWhiteSpace(filter)) { return Command.Result.Cancelled; }
 
-                        var entries = Engine.VectorStore.GetEntries((refStr, content) =>
-                            refStr.Source.Contains(filter, StringComparison.OrdinalIgnoreCase));
+                            var entries = Engine.VectorStore.GetEntries((refStr, content) =>
+                                refStr.Source.Contains(filter, StringComparison.OrdinalIgnoreCase));
 
-                        var merged = ContextManager.Flatten(entries);
+                            var merged = ContextManager.Flatten(entries);
 
-                        var mdPath = $"summary_{filter.Replace(':','_').Replace('\\','_').Replace('/','_').Replace('.','_')}.md";
-                        File.WriteAllText(
-                            Path.Combine(Directory.GetCurrentDirectory(), mdPath),
-                            string.Join("\n\n", merged.Select(e => $"--- start {e.Reference} ---\n{e.MergedContent}\n--- end {e.Reference} ---")));
+                            var safe = filter.Replace(':','_').Replace('/', '_').Replace('.', '_').Replace('\\', '_');
+                            var mdPath = $"summary_{safe}.md";
+                            File.WriteAllText(
+                                Path.Combine(Directory.GetCurrentDirectory(), mdPath),
+                                string.Join("\n\n", merged.Select(e => $"--- start {e.Reference} ---\n{e.MergedContent}\n--- end {e.Reference} ---")));
 
-                        Program.ui.WriteLine($"Wrote de-duped summary to: {mdPath}");
-                        return Task.FromResult(Command.Result.Success);
+                            Program.ui.WriteLine($"Wrote de-duped summary to: {mdPath}");
+                            return Command.Result.Success;
+                        });
                     }
                 },
                 new Command
@@ -256,10 +251,13 @@ public partial class CommandManager
                             return Command.Result.Failed;
                         }
 
-                        Program.ui.Write("Enter search query: ");
-                        var query = Program.ui.ReadLineWithHistory();
-                        if (!string.IsNullOrWhiteSpace(query))
+                        var qform = UiForm.Create("RAG search", new RagSearchModel { Query = string.Empty });
+                        qform.AddString<RagSearchModel>("Query", m => m.Query, (m,v)=> m.Query = v)
+                             .WithHelp("Enter search text; required.");
+                        if (await Program.ui.ShowFormAsync(qform))
                         {
+                            var query = ((RagSearchModel)qform.Model!).Query;
+                            if (string.IsNullOrWhiteSpace(query)) { return Command.Result.Cancelled; }
                             var embeddingProvider = Engine.Provider as IEmbeddingProvider;
                             if (embeddingProvider == null)
                             {

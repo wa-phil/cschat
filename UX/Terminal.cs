@@ -6,6 +6,76 @@ public class Terminal : IUi
 {
     private string? lastInput = null;
 
+    public Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
+    {
+        Write($"{question} {(defaultAnswer ? "[Y/n]" : "[y/N]")} ");
+        while (true)
+        {
+            var input = Console.ReadLine() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(input)) return Task.FromResult(defaultAnswer);
+            input = input.Trim().ToLowerInvariant();
+            if (input == "y" || input == "yes") return Task.FromResult(true);
+            if (input == "n" || input == "no") return Task.FromResult(false);
+            Write("Please enter y or n: ");
+        }
+    }
+
+    public async Task<bool> ShowFormAsync(UiForm form)
+    {
+        await Task.CompletedTask;
+        WriteLine(form.Title);
+        WriteLine(new string('-', Math.Min(Width - 1, Math.Max(8, form.Title.Length))));
+
+        foreach (var f in form.Fields)
+        {
+            while (true)
+            {
+                var current = f.Formatter(form.Model);
+                Write($"{(f.Required ? "*" : " ")}{f.Label}: ");
+                if (!string.IsNullOrWhiteSpace(f.Help)) { Write(f.Help); }
+                WriteLine($" [currently: {current}]");
+
+                // If this is an enum-style field with choices, render a menu selection
+                var choices = f.EnumChoices()?.ToList();
+                string? err = null;
+                if (f.Kind == UiFieldKind.Enum && choices != null && choices.Count > 0)
+                {
+                    var selected = RenderMenu($"Select {f.Label}:", choices, 0);
+                    if (selected == null) { WriteLine("(cancelled)"); return false; }
+                    if (!f.TrySetFromString(form.Model!, selected, out err))
+                    {
+                        WriteLine($"  {err}");
+                        continue;
+                    }
+                    break;
+                }
+
+                // read line with ESC cancel (reuse your input loop style)
+                var buffer = new List<char>();
+                while (true)
+                {
+                    var k = ReadKey(intercept: true);
+                    if (k.Key == ConsoleKey.Escape) { WriteLine("\n(cancelled)"); return false; }
+                    if (k.Key == ConsoleKey.Enter) { WriteLine(); break; }
+                    if (k.Key == ConsoleKey.Backspace && buffer.Count > 0) { buffer.RemoveAt(buffer.Count-1); Write("\b \b"); continue; }
+                    if (k.KeyChar != '\0' && !char.IsControl(k.KeyChar)) { buffer.Add(k.KeyChar); Write(k.KeyChar.ToString()); }
+                }
+
+                var raw = new string(buffer.ToArray());
+                if (string.IsNullOrWhiteSpace(raw)) raw = current; // leave as-is if blank
+
+                if (!f.TrySetFromString(form.Model!, raw, out err))
+                {
+                    WriteLine($"  {err}");
+                    continue;
+                }
+
+                break;
+            }
+        }
+        return true;
+    }
+
     public async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
     {
         await Task.CompletedTask; // Simulate asynchronous behavior
@@ -392,70 +462,6 @@ public class Terminal : IUi
         }
     }
 
-    public string? ReadLineWithHistory()
-    {
-        var buffer = new List<char>();
-        int cursor = 0;
-        ConsoleKeyInfo key;
-
-        while (true)
-        {
-            key = ReadKey(intercept: true);
-
-            if (key.Key == ConsoleKey.Enter)
-            {
-                WriteLine();
-                break;
-            }
-            else if (key.Key == ConsoleKey.Backspace)
-            {
-                if (cursor > 0)
-                {
-                    buffer.RemoveAt(cursor - 1);
-                    cursor--;
-                    Write("\b \b");
-                }
-            }
-            else if (key.Key == ConsoleKey.UpArrow)
-            {
-                if (lastInput != null)
-                {
-                    // Clear current buffer display
-                    for (int i = 0; i < buffer.Count; i++)
-                    {
-                        Write("\b \b");
-                    }
-
-                    // Set buffer to last input
-                    buffer.Clear();
-                    buffer.AddRange(lastInput.ToCharArray());
-                    cursor = buffer.Count;
-
-                    // Display the recalled input
-                    Write(lastInput);
-                }
-            }
-            else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
-            {
-                buffer.Insert(cursor, key.KeyChar);
-                cursor++;
-                Write(key.KeyChar.ToString());
-            }
-        }
-
-        var input = new string(buffer.ToArray()).Trim();
-
-        // Store the input for history if it's not empty
-        if (!string.IsNullOrWhiteSpace(input))
-        {
-            lastInput = input;
-        }
-
-        return string.IsNullOrWhiteSpace(input) ? null : input;
-    }
-
-    public string ReadLine() => Console.ReadLine() ?? string.Empty;
-
     public ConsoleKeyInfo ReadKey(bool intercept) => Console.ReadKey(intercept);
 
     public void RenderChatMessage(ChatMessage message)
@@ -523,9 +529,6 @@ public class Terminal : IUi
 
         WriteLine(new string('-', 50));
     }
-
-    public void BeginUpdate() { }
-    public void EndUpdate() { }
 
     public int CursorTop { get => Console.CursorTop; }
     public int CursorLeft { get => Console.CursorLeft; }

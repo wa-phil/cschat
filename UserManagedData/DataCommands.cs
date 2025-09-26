@@ -25,7 +25,6 @@ public static class DataCommands
 
         try
         {
-
             foreach (var type in Program.userManagedData.GetRegisteredTypes())
             {
                 var metadata = Program.userManagedData.GetTypeMetadata(type);
@@ -35,10 +34,8 @@ public static class DataCommands
         }
         catch (Exception ex)
         {
-            Log.Method(ctx =>
-            {
-                ctx.Append(Log.Data.Message, $"Failed to create data commands: {ex.Message}");
-                ctx.Failed("Command creation error", Error.InvalidInput);
+            Log.Method(ctx => {
+                ctx.Failed("Failed to create data commands", ex);
             });
         }
 
@@ -53,56 +50,9 @@ public static class DataCommands
             Description = () => metadata.Description,
             SubCommands = new List<Command>
             {
-                CreateListCommand(type, metadata),
                 CreateAddCommand(type, metadata),
                 CreateUpdateCommand(type, metadata),
                 CreateDeleteCommand(type, metadata)
-            }
-        };
-    }
-
-    private static Command CreateListCommand(Type type, UserManagedAttribute metadata)
-    {
-        return new Command
-        {
-            Name = "list",
-            Description = () => $"List all {metadata.Name} items",
-            Action = () =>
-            {
-                try
-                {
-                    var subsystem = Program.userManagedData;
-                    var method = typeof(UserManagedData).GetMethod("GetItems")?.MakeGenericMethod(type);
-                    var items = method?.Invoke(subsystem, null) as System.Collections.IEnumerable;
-
-                    if (items == null)
-                    {
-                        Program.ui.WriteLine($"No {metadata.Name} items found.");
-                        return Task.FromResult(Command.Result.Success);
-                    }
-
-                    var itemList = items.Cast<object>().ToList();
-                    if (itemList.Count == 0)
-                    {
-                        Program.ui.WriteLine($"No {metadata.Name} items found.");
-                        return Task.FromResult(Command.Result.Success);
-                    }
-
-                    Program.ui.WriteLine($"\n{metadata.Name} Items ({itemList.Count}):");
-                    Program.ui.WriteLine(new string('-', 40));
-
-                    for (int i = 0; i < itemList.Count; i++)
-                    {
-                        Program.ui.WriteLine($"{i + 1}. {itemList[i]}");
-                    }
-
-                    return Task.FromResult(Command.Result.Success);
-                }
-                catch (Exception ex)
-                {
-                    Program.ui.WriteLine($"Error listing {metadata.Name}: {ex.Message}");
-                    return Task.FromResult(Command.Result.Failed);
-                }
             }
         };
     }
@@ -111,31 +61,32 @@ public static class DataCommands
     {
         return new Command
         {
-            Name = "add",
-            Description = () => $"Add a new {metadata.Name} item",
-            Action = async () =>
+            Name = "CReate",
+            Description = () => $"Create a new {metadata.Name} item",
+            Action = async () => await Log.MethodAsync(async ctx =>
             {
-                try
+                ctx.Append(Log.Data.Name, metadata.Name);
+                var instance = Activator.CreateInstance(type)!;
+                ctx.Append(Log.Data.Type, type.FullName ?? type.Name);
+                ctx.Append(Log.Data.Input, instance.ToJson() ?? "<null>");
+                var form = DataFormBuilder.BuildForm(instance, type, $"Add {metadata.Name}");
+                if (!await Program.ui.ShowFormAsync(form))
                 {
-                    var instance = Activator.CreateInstance(type)!;
-                    if (!await FillObjectInteractively(instance, type, isUpdate: false))
-                    {
-                        Program.ui.WriteLine("Add cancelled.");
-                        return Command.Result.Cancelled;
-                    }
+                    ctx.Append(Log.Data.Message, "User cancelled form");
+                    ctx.Succeeded();
+                    return Command.Result.Cancelled;
+                }
+                // form.Model holds the cloned+edited object — reassign back:
+                instance = (object?)form.Model ?? instance;
+                ctx.Append(Log.Data.Output, instance.ToJson() ?? "<null>");
 
-                    var (dataSubsystem, addMethod) = GetUserManagedAdd(type);
-                    addMethod.Invoke(dataSubsystem, new[] { instance });
-                    Config.Save(Program.config, Program.ConfigFilePath);
-                    Program.ui.WriteLine($"Added {metadata.Name}: {instance}");
-                    return Command.Result.Success;
-                }
-                catch (Exception ex)
-                {
-                    Program.ui.WriteLine($"Error adding {metadata.Name}: {ex.Message}");
-                    return Command.Result.Failed;
-                }
-            }
+                // persist
+                var (dataSubsystem, addMethod) = GetUserManagedAdd(type);
+                addMethod.Invoke(dataSubsystem, new[] { instance });
+                Config.Save(Program.config, Program.ConfigFilePath);
+                ctx.Succeeded();
+                return Command.Result.Success;
+            })
         };
     }
 
@@ -143,382 +94,81 @@ public static class DataCommands
     {
         return new Command
         {
-            Name = "update",
+            Name = "Update",
             Description = () => $"Update an existing {metadata.Name} item",
-            Action = async () =>
+            Action = async () => await Log.MethodAsync(async ctx =>
             {
                 try
                 {
+                    ctx.Append(Log.Data.Name, metadata.Name);
+                    ctx.Append(Log.Data.Type, type.FullName ?? type.Name);
                     var (dataSubsystem, getMethod) = GetUserManagedGet(type);
-                    var itemsEnumerable = getMethod.Invoke(dataSubsystem, null) as IEnumerable;
-                    var items = itemsEnumerable?.Cast<object>().ToList() ?? new List<object>();
+                    var items = (getMethod.Invoke(dataSubsystem, null) as IEnumerable)?.Cast<object>().ToList() ?? new();
                     if (items.Count == 0)
                     {
-                        Program.ui.WriteLine($"No {metadata.Name} items found.");
+                        ctx.Append(Log.Data.Message, "No items found");
+                        ctx.Succeeded();
                         return Command.Result.Success;
                     }
 
-                    // Let user choose the item to edit
-                    var choices = items.Select((o, i) => $"{i}: {o}").ToList();
-                    var selected = Program.ui.RenderMenu($"Select {metadata.Name} to update:", choices);
+                    // pick
+                    var selected = Program.ui.RenderMenu($"Select {metadata.Name} to update:", items.Select((o,i)=>$"{i}: {o}").ToList());
                     if (selected == null)
                     {
-                        Program.ui.WriteLine("Update cancelled.");
-                        return Command.Result.Cancelled;
-                    }
-                    var selectedIndex = int.Parse(selected.Split(':')[0]);
-                    var original = items[selectedIndex];
-
-                    // Clone original (json roundtrip) so we can edit without mutating predicate data
-                    // If ToJson/FromJson exist as extensions (they do elsewhere), use them when available.
-                    var editable = CloneViaJson(original, type) ?? Activator.CreateInstance(type)!;
-
-                    if (!await FillObjectInteractively(editable, type, isUpdate: true))
-                    {
-                        Program.ui.WriteLine("Update cancelled.");
+                        ctx.Append(Log.Data.Message, "User cancelled selection");
+                        ctx.Succeeded();
                         return Command.Result.Cancelled;
                     }
 
-                    // Build a predicate: prefer [UserKey], else property named "Id"
+                    var idx = int.Parse(selected.Split(':')[0]);
+                    var original = items[idx];
+                    ctx.Append(Log.Data.Input, original.ToJson() ?? "<null>");
                     var keyProp = FindKeyProperty(type);
-                    Delegate predicate;
-                    if (keyProp != null)
+                    ctx.Append(Log.Data.Key, keyProp?.Name ?? "<none>");
+
+                    // CAPTURE BEFORE EDITS
+                    object? keyValueBefore = keyProp != null ? keyProp.GetValue(original) : null;
+                    var originalJsonBefore = keyProp == null ? original.ToJson() : null;
+
+                    // build a form on a clone
+                    var editable = CloneViaJson(original, type) ?? Activator.CreateInstance(type)!;
+                    var form = DataFormBuilder.BuildForm(editable, type, $"Edit {metadata.Name}");
+
+                    // show the form
+                    if (!await Program.ui.ShowFormAsync(form))
                     {
-                        var keyValue = keyProp.GetValue(original);
-                        predicate = BuildEqualityPredicate(type, keyProp, keyValue);
-                    }
-                    else
-                    {
-                        // Fallback: match by JSON snapshot (less ideal but works generically)
-                        var originalJson = original.ToJson();
-                        predicate = BuildJsonEqualityPredicate(type, originalJson);
+                        ctx.Append(Log.Data.Message, "User cancelled form");
+                        ctx.Succeeded();
+                        return Command.Result.Cancelled;
                     }
 
+                    // GET THE EDITED MODEL (don’t rely on ApplyEditsToOriginal)
+                    ctx.Append(Log.Data.Output, form.Model?.ToJson() ?? "<null>");
+                    var edited = (object?)form.Model ?? editable;
+
+                    // build predicate using BEFORE state (unchanged)
+                    Delegate predicate = (null != keyProp) ?
+                        BuildEqualityPredicate(type, keyProp, keyValueBefore) :
+                        BuildJsonEqualityPredicate(type, originalJsonBefore!);
+                            
+                    // persist the EDITED instance
                     var (subsystemForUpdate, updateMethod) = GetUserManagedUpdate(type);
-                    updateMethod.Invoke(subsystemForUpdate, new[] { editable, predicate });
+                    updateMethod.Invoke(subsystemForUpdate, new[] { edited, predicate });
 
                     Config.Save(Program.config, Program.ConfigFilePath);
-                    Program.ui.WriteLine($"Updated {metadata.Name}: {editable}");
+                    ctx.Succeeded();
                     return Command.Result.Success;
                 }
                 catch (Exception ex)
                 {
-                    Program.ui.WriteLine($"Error updating {metadata.Name}: {ex.Message}");
+                    ctx.Failed($"Error updating {metadata.Name}", ex);
                     return Command.Result.Failed;
                 }
-            }
+            })
         };
     }
 
-    /* --------------------------- helpers --------------------------- */
-
-    private static async Task<bool> FillObjectInteractively(object obj, Type type, bool isUpdate)
-    {
-        foreach (var prop in GetEditableProperties(type))
-        {
-            var uf = prop.GetCustomAttribute<UserFieldAttribute>();
-            var required = uf?.Required ?? false;
-            var display = uf?.Display ?? prop.Name;
-            var hint = uf?.Hint;
-
-            var propType = prop.PropertyType;
-            var current = prop.GetValue(obj);
-
-            if (IsSimple(propType))
-            {
-                var ok = PromptForSimple(ref current, propType, display, required, isUpdate, hint);
-                if (!ok) return false;
-                prop.SetValue(obj, current);
-            }
-            else if (IsList(propType, out var elemType))
-            {
-                var listInstance = current as IList;
-                if (listInstance == null)
-                {
-                    listInstance = (IList)(Activator.CreateInstance(typeof(List<>).MakeGenericType(elemType))!);
-                }
-                if (!await EditListInteractively(listInstance, elemType, display, isUpdate))
-                    return false;
-                prop.SetValue(obj, listInstance);
-            }
-            else // complex object
-            {
-                Program.ui.WriteLine($"\n-- {display} {(required ? "(required)" : "(optional)")} --");
-                var child = current ?? Activator.CreateInstance(propType)!;
-
-                // allow skipping optional complex properties
-                if (!required)
-                {
-                    Program.ui.Write($"Edit {display}? (y/N): ");
-                    var ans = (Program.ui.ReadLine() ?? "").Trim();
-                    if (!ans.Equals("y", StringComparison.OrdinalIgnoreCase))
-                        continue;
-                }
-
-                if (!await FillObjectInteractively(child, propType, isUpdate))
-                    return false;
-
-                prop.SetValue(obj, child);
-            }
-        }
-        return true;
-    }
-
-    private static IEnumerable<PropertyInfo> GetEditableProperties(Type t) =>
-        t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-        .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0);
-
-    private static bool PromptForSimple(ref object? value, Type type, string display, bool required, bool isUpdate, string? hint)
-    {
-        while (true)
-        {
-            var currentText = isUpdate && value != null ? $" [{FormatValue(value)}]" : "";
-            var requiredText = required ? " (required)" : " (optional)";
-            if (!string.IsNullOrWhiteSpace(hint)) Program.ui.WriteLine(hint);
-            Program.ui.Write($"{display}{requiredText}:{currentText} ");
-
-            var input = ReadLineAllowEsc();
-            if (input == null)
-            {
-                // ESC pressed -> cancel the whole interactive fill
-                return false;
-            }
-            if (string.IsNullOrWhiteSpace(input))
-            {
-                if (isUpdate && value != null) return true;         // keep existing
-                if (!required) { value = GetDefault(type); return true; }
-                // else required and empty -> re-prompt
-                Program.ui.WriteLine("Value is required.");
-                continue;
-            }
-
-            if (TryParse(type, input!, out var parsed))
-            {
-                value = parsed;
-                return true;
-            }
-            Program.ui.WriteLine($"Could not parse '{input}' as {PrettyType(type)}. Try again.");
-        }
-    }
-
-    private static string? ReadLineAllowEsc()
-    {
-        // Read first key to detect ESC without consuming input from Program.ui.ReadLine
-        var key = Program.ui.ReadKey(intercept: true);
-        if (key.Key == ConsoleKey.Escape)
-        {
-            Program.ui.WriteLine();
-            return null;
-        }
-        if (key.Key == ConsoleKey.Enter)
-        {
-            Program.ui.WriteLine();
-            return string.Empty;
-        }
-
-        // Echo the first key and read the remainder of the line
-        Program.ui.Write(key.KeyChar.ToString());
-        var rest = Program.ui.ReadLine();
-        return key.KeyChar + (rest ?? "");
-    }
-
-    private static async Task<bool> EditListInteractively(IList list, Type elemType, string display, bool isUpdate)
-    {
-        while (true)
-        {
-            var choices = new List<string>
-            {
-                "list    (show items)",
-                "add     (insert new item)",
-                "edit    (modify an item)",
-                "remove  (delete an item)",
-                "done    (finish editing)"
-            };
-
-            var choice = Program.ui.RenderMenu($"Choose action: {display}", choices);
-            if (choice == null || choice.StartsWith("done", StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            if (choice.StartsWith("list", StringComparison.OrdinalIgnoreCase))
-            {
-                if (list.Count == 0)
-                {
-                    Program.ui.WriteLine("List is empty.");
-                    continue;
-                }
-
-                var itemChoices = new List<string>();
-                for (int i = 0; i < list.Count; i++)
-                    itemChoices.Add(FormatValue(list[i]));
-
-                // Use RenderMenu so the items are visible while selecting; ESC (null) goes back
-                var seen = Program.ui.RenderMenu($"Items in {display} (press ESC to go back)", itemChoices);
-                // ignore selection results; null returns to main menu
-                continue;
-            }
-
-            if (choice.StartsWith("add", StringComparison.OrdinalIgnoreCase))
-            {
-                if (IsSimple(elemType))
-                {
-                    // Prompt manually so ESC or blank entry cancels the add (but does not abort the whole edit session)
-                    var hint = GetTypeInputHint(elemType);
-                    Program.ui.Write($"Enter value ({hint}) or press ESC to cancel: ");
-                    var input = ReadLineAllowEsc();
-                    if (input == null || string.IsNullOrWhiteSpace(input))
-                    {
-                        Program.ui.WriteLine("Add cancelled.");
-                        continue; // do not add, keep editing
-                    }
-
-                    if (TryParse(elemType, input!, out var parsed))
-                    {
-                        list.Add(parsed!);
-                    }
-                    else
-                    {
-                        Program.ui.WriteLine($"Could not parse '{input}' as {PrettyType(elemType)}. Add cancelled.");
-                        continue;
-                    }
-                }
-                else
-                {
-                    var child = Activator.CreateInstance(elemType)!;
-                    if (!await FillObjectInteractively(child, elemType, isUpdate: false))
-                    {
-                        Program.ui.WriteLine("Add cancelled.");
-                        continue; // user cancelled adding the complex item
-                    }
-                    list.Add(child);
-                }
-            }
-            else if (choice.StartsWith("edit", StringComparison.OrdinalIgnoreCase))
-            {
-                if (list.Count == 0) { Program.ui.WriteLine("List is empty."); continue; }
-
-                var itemChoices = new List<string>();
-                for (int i = 0; i < list.Count; i++)
-                    itemChoices.Add(FormatValue(list[i]));
-
-                var selected = Program.ui.RenderMenu($"Select {display} item to edit (press ESC to cancel):", itemChoices);
-                if (selected == null)
-                {
-                    Program.ui.WriteLine("Edit cancelled.");
-                    continue;
-                }
-
-                var selectedIndex = itemChoices.IndexOf(selected);
-                if (selectedIndex < 0) { Program.ui.WriteLine("Invalid selection."); continue; }
-
-                if (IsSimple(elemType))
-                {
-                    object? cur = list[selectedIndex];
-                    var hint = GetTypeInputHint(elemType);
-                    Program.ui.Write($"Enter new value for index {selectedIndex} ({hint}) or press ESC to cancel: ");
-                    var input = ReadLineAllowEsc();
-                    if (input == null || string.IsNullOrWhiteSpace(input))
-                    {
-                        Program.ui.WriteLine("Edit cancelled.");
-                        continue;
-                    }
-                    if (TryParse(elemType, input!, out var parsed))
-                    {
-                        list[selectedIndex] = parsed!;
-                    }
-                    else
-                    {
-                        Program.ui.WriteLine($"Could not parse '{input}' as {PrettyType(elemType)}. Edit cancelled.");
-                        continue;
-                    }
-                }
-                else
-                {
-                    var child = list[selectedIndex] ?? Activator.CreateInstance(elemType)!;
-                    if (!await FillObjectInteractively(child!, elemType, isUpdate: true))
-                    {
-                        Program.ui.WriteLine("Edit cancelled.");
-                        continue;
-                    }
-                    list[selectedIndex] = child!;
-                }
-            }
-            else if (choice.StartsWith("remove", StringComparison.OrdinalIgnoreCase))
-            {
-                if (list.Count == 0) { Program.ui.WriteLine("List is empty."); continue; }
-
-                var itemChoices = new List<string>();
-                for (int i = 0; i < list.Count; i++)
-                    itemChoices.Add(FormatValue(list[i]));
-
-                var selected = Program.ui.RenderMenu($"Select {display} item to remove (press ESC to cancel):", itemChoices);
-                if (selected == null)
-                {
-                    Program.ui.WriteLine("Remove cancelled.");
-                    continue;
-                }
-
-                var removeIndex = itemChoices.IndexOf(selected);
-                if (removeIndex < 0) { Program.ui.WriteLine("Invalid selection."); continue; }
-
-                Program.ui.Write($"Are you sure you want to remove '{list[removeIndex]}'? (y/N): ");
-                var confirm = ReadLineAllowEsc();
-                if (confirm == null || !string.Equals(confirm, "y", StringComparison.OrdinalIgnoreCase))
-                {
-                    Program.ui.WriteLine("Remove cancelled.");
-                    continue;
-                }
-
-                list.RemoveAt(removeIndex);
-            }
-        }
-    }
-
     /* ---------- parsing & utilities ---------- */
-
-    private static bool IsSimple(Type t)
-    {
-        t = Nullable.GetUnderlyingType(t) ?? t;
-        return t.IsPrimitive || t.IsEnum ||
-            t == typeof(string) || t == typeof(decimal) ||
-            t == typeof(DateTime) || t == typeof(Guid) ||
-            t == typeof(double) || t == typeof(float) ||
-            t == typeof(int) || t == typeof(long) ||
-            t == typeof(short) || t == typeof(byte) ||
-            t == typeof(bool);
-    }
-
-    private static bool IsList(Type t, out Type elemType)
-    {
-        if (t.IsArray)
-        {
-            elemType = t.GetElementType()!;
-            return true;
-        }
-        if (t.IsGenericType && typeof(IList).IsAssignableFrom(t))
-        {
-            elemType = t.GetGenericArguments()[0];
-            return true;
-        }
-        if (t.IsGenericType && t.GetInterfaces().Any(i => i == typeof(IList))) // safety
-        {
-            elemType = t.GetGenericArguments()[0];
-            return true;
-        }
-        // handle List<T> properties typed as IList<T>/ICollection<T>/IEnumerable<T>
-        var listIface = t.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IList<>));
-        if (listIface != null)
-        {
-            elemType = listIface.GetGenericArguments()[0];
-            return true;
-        }
-        elemType = typeof(object);
-        return false;
-    }
-
-    private static object? GetDefault(Type type) =>
-        type.IsValueType ? Activator.CreateInstance(type) : null;
-
-    private static string PrettyType(Type t) => (Nullable.GetUnderlyingType(t) ?? t).Name;
 
     private static string FormatValue(object? v) =>
         v == null ? "null" :
@@ -527,43 +177,6 @@ public static class DataCommands
             ? "[" + string.Join(", ", e.Cast<object>().Select(FormatValue)) + "]"
             : v.ToString() ?? "";
 
-    private static bool TryParse(Type type, string input, out object? value)
-    {
-        var t = Nullable.GetUnderlyingType(type) ?? type;
-
-        if (t == typeof(string)) { value = input; return true; }
-        if (t == typeof(int)) { if (int.TryParse(input, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i)) { value = i; return true; } }
-        if (t == typeof(long)) { if (long.TryParse(input, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l)) { value = l; return true; } }
-        if (t == typeof(short)) { if (short.TryParse(input, NumberStyles.Integer, CultureInfo.InvariantCulture, out var s)) { value = s; return true; } }
-        if (t == typeof(byte)) { if (byte.TryParse(input, NumberStyles.Integer, CultureInfo.InvariantCulture, out var b)) { value = b; return true; } }
-        if (t == typeof(decimal)) { if (decimal.TryParse(input, NumberStyles.Number, CultureInfo.InvariantCulture, out var d)) { value = d; return true; } }
-        if (t == typeof(double)) { if (double.TryParse(input, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var f)) { value = f; return true; } }
-        if (t == typeof(float)) { if (float.TryParse(input, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var fl)) { value = fl; return true; } }
-        if (t == typeof(bool)) { if (bool.TryParse(input, out var bo)) { value = bo; return true; } }
-        if (t == typeof(Guid)) { if (Guid.TryParse(input, out var g)) { value = g; return true; } }
-        if (t == typeof(DateTime)) { if (DateTime.TryParse(input, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt)) { value = dt; return true; } }
-        if (t.IsEnum)
-        {
-            // allow numeric or named values (case-insensitive)
-            if (Enum.TryParse(t, input, ignoreCase: true, out var ev)) { value = ev; return true; }
-        }
-
-        value = null;
-        return false;
-    }
-
-    private static string GetTypeInputHint(Type type)
-    {
-        var t = Nullable.GetUnderlyingType(type) ?? type;
-        if (t == typeof(string)) return "text";
-        if (t == typeof(int) || t == typeof(long) || t == typeof(short) || t == typeof(byte)) return "integer";
-        if (t == typeof(decimal) || t == typeof(double) || t == typeof(float)) return "number";
-        if (t == typeof(bool)) return "true/false";
-        if (t == typeof(Guid)) return "guid (e.g. 01234567-89ab-cdef-0123-456789abcdef)";
-        if (t == typeof(DateTime)) return "datetime (ISO, e.g. 2023-05-01T12:00:00Z)";
-        if (t.IsEnum) return "one of: " + string.Join("|", Enum.GetNames(t));
-        return PrettyType(t);
-    }
 
     /* ---------- subsystem access via reflection (supports both classes present) ---------- */
 
@@ -641,9 +254,9 @@ public static class DataCommands
     {
         return new Command
         {
-            Name = "delete",
+            Name = "Delete",
             Description = () => $"Delete a {metadata.Name} item",
-            Action = () =>
+            Action = async () =>
             {
                 try
                 {
@@ -651,18 +264,10 @@ public static class DataCommands
                     var method = typeof(UserManagedData).GetMethod("GetItems")?.MakeGenericMethod(type);
                     var items = method?.Invoke(subsystem, null) as System.Collections.IEnumerable;
 
-                    if (items == null)
-                    {
-                        Program.ui.WriteLine($"No {metadata.Name} items found to delete.");
-                        return Task.FromResult(Command.Result.Success);
-                    }
+                    if (items == null) { return Command.Result.Success; }
 
                     var itemList = items.Cast<object>().ToList();
-                    if (itemList.Count == 0)
-                    {
-                        Program.ui.WriteLine($"No {metadata.Name} items found to delete.");
-                        return Task.FromResult(Command.Result.Success);
-                    }
+                    if (itemList.Count == 0) { return Command.Result.Success; }
 
                     // Use the menu system to select an item to delete
                     var choices = itemList.Select((item, index) => $"{index}: {item}").ToList();
@@ -670,23 +275,13 @@ public static class DataCommands
                         $"Select {metadata.Name} to delete:",
                         choices
                     );
-
-                    if (selected == null)
-                    {
-                        Program.ui.WriteLine("Delete cancelled.");
-                        return Task.FromResult(Command.Result.Cancelled);
-                    }
+                    if (selected == null) { return Command.Result.Cancelled; }
 
                     var selectedIndex = int.Parse(selected.Split(':')[0]);
 
                     // Confirm deletion
-                    Program.ui.Write($"Are you sure you want to delete '{itemList[selectedIndex]}'? (y/N): ");
-                    var confirm = Program.ui.ReadLine();
-                    if (!string.Equals(confirm, "y", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Program.ui.WriteLine("Delete cancelled.");
-                        return Task.FromResult(Command.Result.Cancelled);
-                    }
+                    var confirm = await Program.ui.ConfirmAsync($"Are you sure you want to delete '{itemList[selectedIndex]}'?");
+                    if (!confirm) { return Command.Result.Cancelled; }
 
                     // Delete the item - build a predicate and invoke DeleteItem<T> via reflection
                     var original = itemList[selectedIndex];
@@ -709,16 +304,236 @@ public static class DataCommands
                     deleteMi.Invoke(subsystem, new[] { predicate });
 
                     Config.Save(Program.config, Program.ConfigFilePath);
-                    Program.ui.WriteLine($"Deleted: {original}");
-
-                    return Task.FromResult(Command.Result.Success);
+                    return Command.Result.Success;
                 }
                 catch (Exception ex)
                 {
                     Program.ui.WriteLine($"Error deleting {metadata.Name}: {ex.Message}");
-                    return Task.FromResult(Command.Result.Failed);
+                    return Command.Result.Failed;
                 }
             }
         };
     }
+}
+
+public static class DataFormBuilder
+{
+    public static IEnumerable<PropertyInfo> GetEditableProperties(Type t) =>
+        t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+         .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0);
+
+    public static bool IsSimple(Type t)
+    {
+        t = Nullable.GetUnderlyingType(t) ?? t;
+        return t.IsPrimitive || t.IsEnum ||
+            t == typeof(string) || t == typeof(decimal) ||
+            t == typeof(DateTime) || t == typeof(Guid) ||
+            t == typeof(double) || t == typeof(float) ||
+            t == typeof(int) || t == typeof(long) ||
+            t == typeof(short) || t == typeof(byte) ||
+            t == typeof(bool) || t == typeof(TimeSpan);
+    }
+
+    public static bool IsList(Type t, out Type elemType)
+    {
+        if (t.IsArray) { elemType = t.GetElementType()!; return true; }
+        var listIface = t.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IList<>));
+        if (listIface != null) { elemType = listIface.GetGenericArguments()[0]; return true; }
+        elemType = typeof(object); return false;
+    }
+
+    public static UiForm BuildForm(object model, Type type, string title)
+    {
+        // Create a typed clone so form.Model is the right type (not Dictionary<,>)
+        var createMi = typeof(UiForm).GetMethod("Create")!.MakeGenericMethod(type);
+        var form = (UiForm)createMi.Invoke(null, new object[] { title, model })!;
+
+        foreach (var p in GetEditableProperties(type))
+        {
+            var t = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
+            var key = p.Name;
+            var uf = p.GetCustomAttribute<UserFieldAttribute>();
+            var label = uf?.Display ?? p.Name;
+            var required = uf?.Required ?? false;
+            var hint = uf?.Hint;
+            var fieldKind = uf?.FieldKind ?? UiFieldKind.Text;
+            var placeholder = uf?.Placeholder;
+            var min = uf?.Min;
+            var max = uf?.Max;
+            var pattern = uf?.Pattern;
+            var choices = uf?.Choices;
+
+            // Lists of simple types → Array repeater
+            if (IsList(t, out var elemType) && IsSimple(elemType))
+            {
+                var getter = BuildListGetter<object>(p, elemType);
+                var setter = BuildListSetter<object>(p, elemType);
+                var field = form.AddList<object, object>(label,
+                    _ => (IList<object>)getter(_),
+                    (_, v) => setter(_, v), key);
+                if (hint != null) field.WithHelp(hint);
+                if (!required) field.MakeOptional();
+                continue;
+            }
+
+            // Scalars/Enums
+            if (t == typeof(string))
+            {
+                // If explicit choices provided, render as a dropdown/select
+                if (choices != null && choices.Length > 0)
+                {
+                    var f = form.AddChoice<object>(label, choices, m => (string)(p.GetValue(m) ?? ""), (m, v) => p.SetValue(m, v), key);
+                    if (hint != null) f.WithHelp(hint);
+                    if (!required) f.MakeOptional();
+                    continue;
+                }
+
+                // Choose between single-line string and multi-line text based on attribute
+                if (fieldKind == UiFieldKind.String)
+                {
+                    var f = form.AddString<object>(label, m => (string)(p.GetValue(m) ?? ""), (m, v) => p.SetValue(m, v), key);
+                    if (placeholder != null) f.WithPlaceholder(placeholder);
+                    if (pattern != null) f.WithRegex(pattern);
+                    if (hint != null) f.WithHelp(hint);
+                    if (!required) f.MakeOptional();
+                }
+                else if (fieldKind == UiFieldKind.Password)
+                {
+                    var f = form.AddPassword<object>(label, m => (string)(p.GetValue(m) ?? ""), (m, v) => p.SetValue(m, v), key);
+                    if (placeholder != null) f.WithPlaceholder(placeholder);
+                    if (hint != null) f.WithHelp(hint);
+                    if (!required) f.MakeOptional();
+                }
+                else // default to multi-line text
+                {
+                    var f = form.AddText<object>(label, m => (string)(p.GetValue(m) ?? ""), (m, v) => p.SetValue(m, v), key);
+                    if (placeholder != null) f.WithPlaceholder(placeholder);
+                    if (hint != null) f.WithHelp(hint);
+                    if (!required) f.MakeOptional();
+                }
+                continue;
+            }
+            else if (t == typeof(int))
+            {
+                var f = form.AddInt<object>(label, m => (int)(p.GetValue(m) ?? default(int)), (m, v) => p.SetValue(m, v), key);
+                if (min.HasValue || max.HasValue) f.IntBounds(min, max);
+                if (hint != null) f.WithHelp(hint);
+                if (placeholder != null) f.WithPlaceholder(placeholder);
+                f.MakeOptionalIf(!required);
+            }
+            else if (t == typeof(long))
+            {
+                var f = form.AddLong<object>(label, m => (long)(p.GetValue(m) ?? default(long)), (m, v) => p.SetValue(m, v), key);
+                if (min.HasValue || max.HasValue) f.IntBounds(min, max);
+                if (hint != null) f.WithHelp(hint);
+                if (placeholder != null) f.WithPlaceholder(placeholder);
+                f.MakeOptionalIf(!required);
+            }
+            else if (t == typeof(decimal))
+            {
+                var f = form.AddDecimal<object>(label, m => (decimal)(p.GetValue(m) ?? default(decimal)), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                if (placeholder != null) f.WithPlaceholder(placeholder);
+                f.MakeOptionalIf(!required);
+            }
+            else if (t == typeof(double))
+            {
+                var f = form.AddDouble<object>(label, m => Convert.ToDouble(p.GetValue(m) ?? 0d), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                if (placeholder != null) f.WithPlaceholder(placeholder);
+                f.MakeOptionalIf(!required);
+            }
+            else if (t == typeof(float))
+            {
+                var f = form.AddFloat<object>(label, m => Convert.ToSingle(p.GetValue(m) ?? 0f), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                if (placeholder != null) f.WithPlaceholder(placeholder);
+                f.MakeOptionalIf(!required);
+            }
+            else if (t == typeof(bool))
+            {
+                var f = form.AddBool<object>(label, m => (bool)(p.GetValue(m) ?? false), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                f.MakeOptionalIf(!required);
+            }
+            else if (t == typeof(Guid))
+            {
+                var f = form.AddGuid<object>(label, m => (Guid)(p.GetValue(m) ?? Guid.Empty), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                f.MakeOptionalIf(!required);
+            }
+            else if (t == typeof(DateTime))
+            {
+                var f = form.AddDate<object>(label, m => (DateTime)(p.GetValue(m) ?? default(DateTime)), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                f.MakeOptionalIf(!required);
+            }
+            else if (t == typeof(TimeSpan))
+            {
+                var f = form.AddTime<object>(label, m => (TimeSpan)(p.GetValue(m) ?? default(TimeSpan)), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                f.MakeOptionalIf(!required);
+            }
+            else if (t.IsEnum)
+            {
+                var method = typeof(UiForm).GetMethod(nameof(UiForm.AddEnum))!.MakeGenericMethod(typeof(object), t);
+                var getter = BuildGetter<object>(p);
+                var setter = BuildSetter<object>(p);
+                var field = (IUiField)method.Invoke(form, new object[] { label, getter, setter, key })!;
+                if (hint != null) field.WithHelp(hint);
+                if (!required) field.MakeOptional();
+            }
+            // TODO: handle complex objects/lists-of-complex
+        }
+        return form;
+    }
+
+    private static Func<TModel, object> BuildGetter<TModel>(PropertyInfo p) => _ => p.GetValue(_)!;
+    private static Action<TModel, object> BuildSetter<TModel>(PropertyInfo p) => (_, v) => p.SetValue(_, v);
+
+    private static Func<TModel, IList<object>> BuildListGetter<TModel>(PropertyInfo p, Type elemType)
+        => _ =>
+        {
+            var raw = p.GetValue(_) as IEnumerable ?? Array.CreateInstance(elemType, 0);
+            var list = new List<object>();
+            foreach (var it in raw) list.Add(it!);
+            return list;
+        };
+
+    private static Action<TModel, IList<object>> BuildListSetter<TModel>(PropertyInfo p, Type elemType)
+        => (_, v) =>
+        {
+            // Try to preserve existing list instance if possible
+            var cur = p.GetValue(_);
+            if (cur is IList dest && cur.GetType().IsGenericType)
+            {
+                dest.Clear();
+                foreach (var it in v) dest.Add(ConvertItem(it, elemType));
+                return;
+            }
+            // Otherwise build a new List<elemType>
+            var typed = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(elemType))!;
+            foreach (var it in v) typed.Add(ConvertItem(it, elemType));
+            p.SetValue(_, typed);
+        };
+
+    private static object ConvertItem(object value, Type elemType)
+    {
+        if (value is null) return elemType.IsValueType ? Activator.CreateInstance(elemType)! : null!;
+        var t = Nullable.GetUnderlyingType(elemType) ?? elemType;
+        if (t == typeof(string)) return Convert.ToString(value) ?? "";
+        if (t == typeof(int)) return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+        if (t == typeof(long)) return Convert.ToInt64(value, CultureInfo.InvariantCulture);
+        if (t == typeof(decimal)) return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+        if (t == typeof(double)) return Convert.ToDouble(value, CultureInfo.InvariantCulture);
+        if (t == typeof(float)) return Convert.ToSingle(value, CultureInfo.InvariantCulture);
+        if (t == typeof(bool)) return Convert.ToBoolean(value, CultureInfo.InvariantCulture);
+        if (t == typeof(Guid)) return (value is Guid g) ? g : Guid.Parse(Convert.ToString(value)!);
+        if (t == typeof(DateTime)) return (value is DateTime dt) ? dt : DateTime.Parse(Convert.ToString(value)!, CultureInfo.InvariantCulture);
+        if (t == typeof(TimeSpan)) return (value is TimeSpan ts) ? ts : TimeSpan.Parse(Convert.ToString(value)!, CultureInfo.InvariantCulture);
+        return value;
+    }
+
+    private static IUiField MakeOptionalIf(this IUiField field, bool cond)
+        => cond ? field.MakeOptional() : field;
 }

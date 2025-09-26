@@ -1,10 +1,13 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
 public partial class CommandManager
 {
+    private class LogSaveModel { public string Path { get; set; } = string.Empty; }
+
     private static Command CreateSystemCommands()
     {
         var subCommands = new List<Command>
@@ -38,22 +41,25 @@ public partial class CommandManager
                         Name = "save", Description = () => "Save the contents of the log to a file",
                         Action = () =>
                         {
-                            Program.ui.Write("Enter file path to save the log: ");
-                            var filePath = Program.ui.ReadLineWithHistory();
-                            if (!string.IsNullOrWhiteSpace(filePath))
-                            {
-                                try
-                                {
-                                    var logEntries = Log.GetOutput();
-                                    System.IO.File.WriteAllLines(filePath, logEntries);
-                                    Program.ui.WriteLine($"Log saved to '{filePath}'.");
-                                }
-                                catch (Exception ex)
-                                {
-                                    Program.ui.WriteLine($"Failed to save log: {ex.Message}");
-                                }
-                            }
-                            return Task.FromResult(Command.Result.Success);
+                                var form = UiForm.Create("Save log", new LogSaveModel { Path = "log.txt" });
+                                form.AddPath<LogSaveModel>("File path", m => m.Path, (m,v)=> m.Path = v)
+                                    .WithHelp("Destination file to write log lines.");
+                                return Program.ui.ShowFormAsync(form).ContinueWith(t => {
+                                    if (!t.Result) { return Command.Result.Cancelled; }
+                                    var path = ((LogSaveModel)form.Model!).Path;
+                                    if (string.IsNullOrWhiteSpace(path)) { return Command.Result.Cancelled; }
+                                    try
+                                    {
+                                        var logEntries = Log.GetOutput();
+                                        File.WriteAllLines(path, logEntries);
+                                        return Command.Result.Success;
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Program.ui.WriteLine($"Failed: {ex.Message}");
+                                        return Command.Result.Failed;
+                                    }
+                                });
                         }
                     }
                 }
@@ -180,43 +186,39 @@ public partial class CommandManager
                     new Command
                     {
                         Name = "max menu items", Description = () => $"Configure maximum number of menu items displayed at once [currently: {Program.config.MaxMenuItems}]",
-                        Action = () =>
+                        Action = async () =>
                         {
-                            Program.ui.WriteLine($"Current max menu items: {Program.config.MaxMenuItems}");
-                            Program.ui.Write("Enter new value (minimum 1): ");
-                            var input = Program.ui.ReadLineWithHistory();
-                            if (int.TryParse(input, out int value) && value >= 1)
+                            var form = UiForm.Create("Configure menu items", Program.config);
+                form.AddInt<Config>("Max menu items", c => c.MaxMenuItems, (c,v) => c.MaxMenuItems = v)
+                                    .IntBounds(min: 1, max: 200)
+                                    .WithHelp("Controls how many choices are rendered at once, range is 1 to 200.");
+                            if (await Program.ui.ShowFormAsync(form))
                             {
-                                Program.config.MaxMenuItems = value;
+                                Program.config = (Config)form.Model!;        // commit the edited clone
                                 Config.Save(Program.config, Program.ConfigFilePath);
-                                Program.ui.WriteLine($"Max menu items set to {value}");
+                                return Command.Result.Success;
                             }
-                            else
-                            {
-                                Program.ui.WriteLine("Invalid input. Please enter a number >= 1.");
-                            }
-                            return Task.FromResult(Command.Result.Success);
+                            return Command.Result.Cancelled;
                         }
                     },
                     new Command
                     {
                         Name = "set max steps", Description = () => $"Set maximum steps for planning [currently: {Program.config.MaxSteps}]",
-                        Action = () =>
+                        Action = async () =>
                         {
-                            Program.ui.Write("Enter maximum steps (default 25): ");
-                            var input = Program.ui.ReadLine();
-                            if (int.TryParse(input, out int maxSteps))
+                            var form = UiForm.Create("Configure maximum steps", Program.config);
+                form.AddInt<Config>("Max steps", c => c.MaxSteps, (c,v) => c.MaxSteps = v)
+                                    .IntBounds(min: 1, max: 100)
+                                    .WithHelp("Controls how many steps the planner can take, range is 1 to 100.");
+                            if (await Program.ui.ShowFormAsync(form))
                             {
-                                Program.config.MaxSteps = maxSteps;
-                                Program.ui.WriteLine($"Maximum steps set to {maxSteps}.");
+                                Program.config = (Config)form.Model!;        // commit the edited clone
+                                Config.Save(Program.config, Program.ConfigFilePath);
+                                return Command.Result.Success;
                             }
-                            else
-                            {
-                                Program.ui.WriteLine($"Invalid input. Maximum steps remain at {Program.config.MaxSteps}.");
-                            }
-                            return Task.FromResult(Command.Result.Success);
+                            return Command.Result.Cancelled;
                         }
-                    }                    
+                    }
                 }
             }
         };
@@ -224,7 +226,6 @@ public partial class CommandManager
         // Add provider/rag/tool/subsystem commands
         subCommands.Add(CreateProviderCommands());
         subCommands.Add(CreateRagConfigCommands());
-        subCommands.Add(CreateRagFileTypeCommands());
         subCommands.Add(CreateADOConfigCommands());
         subCommands.Add(CreateSubsystemCommands());
 
