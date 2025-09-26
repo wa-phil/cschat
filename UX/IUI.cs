@@ -5,37 +5,6 @@ using System.Collections;
 using System.Globalization;
 using System.Collections.Generic;
 
-public enum UiFieldKind { String, Text, Number, Decimal, Long, Guid, Enum, Bool, Date, Time, Path, Password, Array }
-
-public interface IUiField
-{
-    string Key { get; } // stable identity for roundtrips
-    string Label { get; }
-    UiFieldKind Kind { get; }
-    bool Required { get; }
-    string? Help { get; }
-
-    string? Placeholder { get; }
-    string? Pattern { get; }
-    string? PatternMessage { get; }
-
-    Func<object?, string> Formatter { get; }
-
-    IEnumerable<string>? EnumChoices();
-    int? MinInt(); int? MaxInt();
-
-    // For Array fields (simple element types), the UI sends JSON text; for others a plain string
-    bool TrySetFromString(object model, string? value, out string? error);
-
-    IUiField WithHelp(string? help);
-    IUiField IntBounds(int? min = null, int? max = null);
-    IUiField FormatWith(Func<object?, string> format);
-    IUiField MakeOptional();
-    IUiField WithPlaceholder(string? placeholder);
-    IUiField WithRegex(string pattern, string? message = null);
-    IUiField MakeOptionalIf(bool cond);
-}
-
 public sealed class UiField<TModel, TValue> : IUiField
 {
     public string Key { get; }     // stable id for roundtrips
@@ -283,6 +252,14 @@ public sealed class UiForm
 
     public IUiField AddText<TModel>(string label, Func<TModel, string> get, Action<TModel, string> set, string? key = null)
         => Add(label, UiFieldKind.Text, get, set, s => (true, s ?? "", null), key);
+
+    // Add a dropdown/choice field for string values
+    public IUiField AddChoice<TModel>(string label, IReadOnlyList<string> choices, Func<TModel, string> get, Action<TModel, string> set, string? key = null)
+        => Add(new UiField<TModel, string>(key ?? Fields.Count.ToString(), label, UiFieldKind.Enum, get, set,
+               s => (choices.Contains(s ?? "") ? (true, s ?? "", null) : (false, default, $"Choose one of: {string.Join(", ", choices)}"))));
+
+    public IUiField AddChoice(string label, IReadOnlyList<string> choices, string? key = null)
+        => AddChoice<string>(label, choices, m => Model is string sv ? sv : (Model as object)?.ToString() ?? string.Empty, (m, v) => Model = v, key);
 
     public IUiField AddDecimal<TModel>(string label, Func<TModel, decimal> get, Action<TModel, decimal> set, string? key = null)
         => Add(label, UiFieldKind.Decimal, get, set, s => decimal.TryParse(s, NumberStyles.Number, CultureInfo.InvariantCulture, out var v) ? (true, v, null) : (false, default, "Enter a decimal number."), key);

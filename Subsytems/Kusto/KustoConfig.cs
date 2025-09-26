@@ -16,15 +16,16 @@ public sealed class KustoConfig
     [UserKey]
     public string Name { get; set; } = "";
 
-    [UserField(required: true, display: "Cluster URI")]
+    [UserField(required: true, display: "Cluster URI", FieldKind = UiFieldKind.String, Placeholder = "https://cluster.region.kusto.windows.net")]
     public string ClusterUri { get; set; } = "";
 
-    [UserField(required: true, display: "Database Name")]
+    [UserField(required: true, display: "Database Name", FieldKind = UiFieldKind.String, Placeholder = "<database>")]
     public string Database { get; set; } = "";
 
-    [UserField(required: true, display: "Authentication method", hint: "devicecode|prompt|azcli|managedIdentity")]
+    [UserField(required: true, display: "Authentication method")]
     public KustoAuthMode AuthMode { get; set; } = KustoAuthMode.devicecode;
 
+    [UserField(required: true, display: "Default Query Timeout (seconds)", FieldKind = UiFieldKind.Number, Placeholder = "30", Hint = "Timeout in seconds for Kusto queries")]
     public int DefaultTimeoutSeconds { get; set; } = 60;
 
     public List<KustoQuery> Queries { get; set; } = new();        // child items

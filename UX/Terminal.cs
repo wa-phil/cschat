@@ -21,6 +21,21 @@ public class Terminal : IUi
                 if (!string.IsNullOrWhiteSpace(f.Help)) { Write(f.Help); }
                 WriteLine($" [currently: {current}]");
 
+                // If this is an enum-style field with choices, render a menu selection
+                var choices = f.EnumChoices()?.ToList();
+                string? err = null;
+                if (f.Kind == UiFieldKind.Enum && choices != null && choices.Count > 0)
+                {
+                    var selected = RenderMenu($"Select {f.Label}:", choices, 0);
+                    if (selected == null) { WriteLine("(cancelled)"); return false; }
+                    if (!f.TrySetFromString(form.Model!, selected, out err))
+                    {
+                        WriteLine($"  {err}");
+                        continue;
+                    }
+                    break;
+                }
+
                 // read line with ESC cancel (reuse your input loop style)
                 var buffer = new List<char>();
                 while (true)
@@ -35,7 +50,7 @@ public class Terminal : IUi
                 var raw = new string(buffer.ToArray());
                 if (string.IsNullOrWhiteSpace(raw)) raw = current; // leave as-is if blank
 
-                if (!f.TrySetFromString(form.Model!, raw, out var err))
+                if (!f.TrySetFromString(form.Model!, raw, out err))
                 {
                     WriteLine($"  {err}");
                     continue;

@@ -25,7 +25,6 @@ public static class DataCommands
 
         try
         {
-
             foreach (var type in Program.userManagedData.GetRegisteredTypes())
             {
                 var metadata = Program.userManagedData.GetTypeMetadata(type);
@@ -35,10 +34,8 @@ public static class DataCommands
         }
         catch (Exception ex)
         {
-            Log.Method(ctx =>
-            {
-                ctx.Append(Log.Data.Message, $"Failed to create data commands: {ex.Message}");
-                ctx.Failed("Command creation error", Error.InvalidInput);
+            Log.Method(ctx => {
+                ctx.Failed("Failed to create data commands", ex);
             });
         }
 
@@ -53,56 +50,9 @@ public static class DataCommands
             Description = () => metadata.Description,
             SubCommands = new List<Command>
             {
-                CreateListCommand(type, metadata),
                 CreateAddCommand(type, metadata),
                 CreateUpdateCommand(type, metadata),
                 CreateDeleteCommand(type, metadata)
-            }
-        };
-    }
-
-    private static Command CreateListCommand(Type type, UserManagedAttribute metadata)
-    {
-        return new Command
-        {
-            Name = "list",
-            Description = () => $"List all {metadata.Name} items",
-            Action = () =>
-            {
-                try
-                {
-                    var subsystem = Program.userManagedData;
-                    var method = typeof(UserManagedData).GetMethod("GetItems")?.MakeGenericMethod(type);
-                    var items = method?.Invoke(subsystem, null) as System.Collections.IEnumerable;
-
-                    if (items == null)
-                    {
-                        Program.ui.WriteLine($"No {metadata.Name} items found.");
-                        return Task.FromResult(Command.Result.Success);
-                    }
-
-                    var itemList = items.Cast<object>().ToList();
-                    if (itemList.Count == 0)
-                    {
-                        Program.ui.WriteLine($"No {metadata.Name} items found.");
-                        return Task.FromResult(Command.Result.Success);
-                    }
-
-                    Program.ui.WriteLine($"\n{metadata.Name} Items ({itemList.Count}):");
-                    Program.ui.WriteLine(new string('-', 40));
-
-                    for (int i = 0; i < itemList.Count; i++)
-                    {
-                        Program.ui.WriteLine($"{i + 1}. {itemList[i]}");
-                    }
-
-                    return Task.FromResult(Command.Result.Success);
-                }
-                catch (Exception ex)
-                {
-                    Program.ui.WriteLine($"Error listing {metadata.Name}: {ex.Message}");
-                    return Task.FromResult(Command.Result.Failed);
-                }
             }
         };
     }
@@ -169,6 +119,7 @@ public static class DataCommands
                         ctx.Succeeded();
                         return Command.Result.Cancelled;
                     }
+
                     var idx = int.Parse(selected.Split(':')[0]);
                     var original = items[idx];
                     ctx.Append(Log.Data.Input, original.ToJson() ?? "<null>");
@@ -196,27 +147,21 @@ public static class DataCommands
                     var edited = (object?)form.Model ?? editable;
 
                     // build predicate using BEFORE state (unchanged)
-                    Delegate predicate;
-                    if (keyProp != null)
-                    {
-                        predicate = BuildEqualityPredicate(type, keyProp, keyValueBefore);
-                    }
-                    else
-                    {
-                        predicate = BuildJsonEqualityPredicate(type, originalJsonBefore!);
-                    }
-
+                    Delegate predicate = (null != keyProp) ?
+                        BuildEqualityPredicate(type, keyProp, keyValueBefore) :
+                        BuildJsonEqualityPredicate(type, originalJsonBefore!);
+                            
                     // persist the EDITED instance
                     var (subsystemForUpdate, updateMethod) = GetUserManagedUpdate(type);
                     updateMethod.Invoke(subsystemForUpdate, new[] { edited, predicate });
 
                     Config.Save(Program.config, Program.ConfigFilePath);
-                    Program.ui.WriteLine($"Updated {metadata.Name}: {edited}");
+                    ctx.Succeeded();
                     return Command.Result.Success;
                 }
                 catch (Exception ex)
                 {
-                    Program.ui.WriteLine($"Error updating {metadata.Name}: {ex.Message}");
+                    ctx.Failed($"Error updating {metadata.Name}", ex);
                     return Command.Result.Failed;
                 }
             })
@@ -431,6 +376,12 @@ public static class DataFormBuilder
             var label = uf?.Display ?? p.Name;
             var required = uf?.Required ?? false;
             var hint = uf?.Hint;
+            var fieldKind = uf?.FieldKind ?? UiFieldKind.Text;
+            var placeholder = uf?.Placeholder;
+            var min = uf?.Min;
+            var max = uf?.Max;
+            var pattern = uf?.Pattern;
+            var choices = uf?.Choices;
 
             // Lists of simple types → Array repeater
             if (IsList(t, out var elemType) && IsSimple(elemType))
@@ -447,35 +398,102 @@ public static class DataFormBuilder
 
             // Scalars/Enums
             if (t == typeof(string))
-                form.AddText<object>(label, m => (string)(p.GetValue(m) ?? ""), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
+            {
+                // If explicit choices provided, render as a dropdown/select
+                if (choices != null && choices.Length > 0)
+                {
+                    var f = form.AddChoice<object>(label, choices, m => (string)(p.GetValue(m) ?? ""), (m, v) => p.SetValue(m, v), key);
+                    if (hint != null) f.WithHelp(hint);
+                    if (!required) f.MakeOptional();
+                    continue;
+                }
+
+                // Choose between single-line string and multi-line text based on attribute
+                if (fieldKind == UiFieldKind.String)
+                {
+                    var f = form.AddString<object>(label, m => (string)(p.GetValue(m) ?? ""), (m, v) => p.SetValue(m, v), key);
+                    if (placeholder != null) f.WithPlaceholder(placeholder);
+                    if (pattern != null) f.WithRegex(pattern);
+                    if (hint != null) f.WithHelp(hint);
+                    if (!required) f.MakeOptional();
+                }
+                else if (fieldKind == UiFieldKind.Password)
+                {
+                    var f = form.AddPassword<object>(label, m => (string)(p.GetValue(m) ?? ""), (m, v) => p.SetValue(m, v), key);
+                    if (placeholder != null) f.WithPlaceholder(placeholder);
+                    if (hint != null) f.WithHelp(hint);
+                    if (!required) f.MakeOptional();
+                }
+                else // default to multi-line text
+                {
+                    var f = form.AddText<object>(label, m => (string)(p.GetValue(m) ?? ""), (m, v) => p.SetValue(m, v), key);
+                    if (placeholder != null) f.WithPlaceholder(placeholder);
+                    if (hint != null) f.WithHelp(hint);
+                    if (!required) f.MakeOptional();
+                }
+                continue;
+            }
             else if (t == typeof(int))
-                form.AddInt<object>(label, m => (int)(p.GetValue(m) ?? default(int)), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
+            {
+                var f = form.AddInt<object>(label, m => (int)(p.GetValue(m) ?? default(int)), (m, v) => p.SetValue(m, v), key);
+                if (min.HasValue || max.HasValue) f.IntBounds(min, max);
+                if (hint != null) f.WithHelp(hint);
+                if (placeholder != null) f.WithPlaceholder(placeholder);
+                f.MakeOptionalIf(!required);
+            }
             else if (t == typeof(long))
-                form.AddLong<object>(label, m => (long)(p.GetValue(m) ?? default(long)), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
+            {
+                var f = form.AddLong<object>(label, m => (long)(p.GetValue(m) ?? default(long)), (m, v) => p.SetValue(m, v), key);
+                if (min.HasValue || max.HasValue) f.IntBounds(min, max);
+                if (hint != null) f.WithHelp(hint);
+                if (placeholder != null) f.WithPlaceholder(placeholder);
+                f.MakeOptionalIf(!required);
+            }
             else if (t == typeof(decimal))
-                form.AddDecimal<object>(label, m => (decimal)(p.GetValue(m) ?? default(decimal)), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
+            {
+                var f = form.AddDecimal<object>(label, m => (decimal)(p.GetValue(m) ?? default(decimal)), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                if (placeholder != null) f.WithPlaceholder(placeholder);
+                f.MakeOptionalIf(!required);
+            }
             else if (t == typeof(double))
-                form.AddDouble<object>(label, m => Convert.ToDouble(p.GetValue(m) ?? 0d), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
+            {
+                var f = form.AddDouble<object>(label, m => Convert.ToDouble(p.GetValue(m) ?? 0d), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                if (placeholder != null) f.WithPlaceholder(placeholder);
+                f.MakeOptionalIf(!required);
+            }
             else if (t == typeof(float))
-                form.AddFloat<object>(label, m => Convert.ToSingle(p.GetValue(m) ?? 0f), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
+            {
+                var f = form.AddFloat<object>(label, m => Convert.ToSingle(p.GetValue(m) ?? 0f), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                if (placeholder != null) f.WithPlaceholder(placeholder);
+                f.MakeOptionalIf(!required);
+            }
             else if (t == typeof(bool))
-                form.AddBool<object>(label, m => (bool)(p.GetValue(m) ?? false), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
+            {
+                var f = form.AddBool<object>(label, m => (bool)(p.GetValue(m) ?? false), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                f.MakeOptionalIf(!required);
+            }
             else if (t == typeof(Guid))
-                form.AddGuid<object>(label, m => (Guid)(p.GetValue(m) ?? Guid.Empty), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
+            {
+                var f = form.AddGuid<object>(label, m => (Guid)(p.GetValue(m) ?? Guid.Empty), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                f.MakeOptionalIf(!required);
+            }
             else if (t == typeof(DateTime))
-                form.AddDate<object>(label, m => (DateTime)(p.GetValue(m) ?? default(DateTime)), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
+            {
+                var f = form.AddDate<object>(label, m => (DateTime)(p.GetValue(m) ?? default(DateTime)), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                f.MakeOptionalIf(!required);
+            }
             else if (t == typeof(TimeSpan))
-                form.AddTime<object>(label, m => (TimeSpan)(p.GetValue(m) ?? default(TimeSpan)), (m, v) => p.SetValue(m, v), key)
-                    .WithHelp(hint).MakeOptionalIf(!required);
+            {
+                var f = form.AddTime<object>(label, m => (TimeSpan)(p.GetValue(m) ?? default(TimeSpan)), (m, v) => p.SetValue(m, v), key);
+                if (hint != null) f.WithHelp(hint);
+                f.MakeOptionalIf(!required);
+            }
             else if (t.IsEnum)
             {
                 var method = typeof(UiForm).GetMethod(nameof(UiForm.AddEnum))!.MakeGenericMethod(typeof(object), t);
