@@ -299,13 +299,13 @@ public interface IUi
 {
     // high-level I/O
     Task<bool> ShowFormAsync(UiForm form);
+    // simple yes/no confirmation (true=yes, false=no). Blank input chooses defaultAnswer.
+    Task<bool> ConfirmAsync(string question, bool defaultAnswer = false);
 
     // input
     Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory);
     Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager);
     string? RenderMenu(string header, List<string> choices, int selected = 0);
-    string? ReadLineWithHistory();
-    string ReadLine();
     ConsoleKeyInfo ReadKey(bool intercept);
 
     // output

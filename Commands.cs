@@ -5,6 +5,8 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
+class ToolInputModel { public string Text { get; set; } = string.Empty; }
+
 public class Command
 {
     public enum Result
@@ -266,15 +268,13 @@ public partial class CommandManager : Command
                             var (guidance, isRequired) = GetInputFormatGuidance(toolInstance);
                             if (isRequired)
                             {
-                                Program.ui.WriteLine(guidance);
-                                Program.ui.WriteLine();
-                                Program.ui.Write("Enter input: ");
-
-                                // Get user input
-                                input = Program.ui.ReadLineWithHistory();
+                                var form = UiForm.Create($"Tool Input: {tool.Name}", new ToolInputModel { Text = string.Empty });
+                                form.AddString<ToolInputModel>("Input", m => m.Text, (m,v)=> m.Text = v)
+                                    .WithHelp(guidance);
+                                if (!await Program.ui.ShowFormAsync(form)) { return Command.Result.Cancelled; }
                                 try
                                 {
-                                    // Parse input based on the tool's expected input type
+                                    input = ((ToolInputModel)form.Model!).Text;
                                     toolInput = ParseToolInput(toolInstance, input ?? string.Empty);
                                 }
                                 catch (Exception ex)

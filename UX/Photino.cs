@@ -8,6 +8,7 @@ using System.Collections.Generic;
 
 public sealed class PhotinoUi : IUi
 {
+	private class BoolBox { public bool Answer { get; set; } }
 	private PhotinoWindow? _win;
 	private Thread? _uiThread;
 	private readonly Queue<string> _outbox = new();
@@ -26,6 +27,15 @@ public sealed class PhotinoUi : IUi
 	private ConsoleColor _fg = ConsoleColor.Gray;
 	private ConsoleColor _bg = ConsoleColor.Black;
 	private string? _lastInput;
+
+	public Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
+	{
+		var model = new BoolBox { Answer = defaultAnswer };
+		var form = UiForm.Create(question, model);
+		form.AddBool<BoolBox>("Answer", m => m.Answer, (m, v) => m.Answer = v)
+			.WithHelp("True = Yes, False = No. ESC to cancel.");
+		return ShowFormAsync(form).ContinueWith(t => !t.Result ? defaultAnswer : ((BoolBox)form.Model!).Answer);
+	}
 
 	public PhotinoUi(string title = "CSChat") { _title = title; }
 	private string IndexHtmlPath => Path.Combine(AppContext.BaseDirectory, "UX/wwwroot", "index.html");
@@ -324,24 +334,6 @@ public sealed class PhotinoUi : IUi
 		_tcsMenu = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		Post(new { type = "ShowMenu", header, choices, selected });
 		return _tcsMenu.Task.GetAwaiter().GetResult();
-	}
-
-	public string? ReadLineWithHistory()
-	{
-		_tcsReadLine = new(TaskCreationOptions.RunContinuationsAsynchronously);
-		Post(new { type = "PromptLine", placeholder = _lastInput ?? "" });
-		var s = _tcsReadLine.Task.GetAwaiter().GetResult();
-		if (!string.IsNullOrWhiteSpace(s)) _lastInput = s;
-		return string.IsNullOrWhiteSpace(s) ? null : s;
-	}
-
-	public string ReadLine()
-	{
-		_tcsReadLine = new(TaskCreationOptions.RunContinuationsAsynchronously);
-		Post(new { type = "PromptLine", placeholder = "" });
-		var s = _tcsReadLine.Task.GetAwaiter().GetResult() ?? "";
-		if (!string.IsNullOrWhiteSpace(s)) _lastInput = s;
-		return s;
 	}
 
 	public ConsoleKeyInfo ReadKey(bool intercept)

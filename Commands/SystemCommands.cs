@@ -1,10 +1,13 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
 public partial class CommandManager
 {
+    private class LogSaveModel { public string Path { get; set; } = string.Empty; }
+
     private static Command CreateSystemCommands()
     {
         var subCommands = new List<Command>
@@ -38,22 +41,25 @@ public partial class CommandManager
                         Name = "save", Description = () => "Save the contents of the log to a file",
                         Action = () =>
                         {
-                            Program.ui.Write("Enter file path to save the log: ");
-                            var filePath = Program.ui.ReadLineWithHistory();
-                            if (!string.IsNullOrWhiteSpace(filePath))
-                            {
-                                try
-                                {
-                                    var logEntries = Log.GetOutput();
-                                    System.IO.File.WriteAllLines(filePath, logEntries);
-                                    Program.ui.WriteLine($"Log saved to '{filePath}'.");
-                                }
-                                catch (Exception ex)
-                                {
-                                    Program.ui.WriteLine($"Failed to save log: {ex.Message}");
-                                }
-                            }
-                            return Task.FromResult(Command.Result.Success);
+                                var form = UiForm.Create("Save log", new LogSaveModel { Path = "log.txt" });
+                                form.AddPath<LogSaveModel>("File path", m => m.Path, (m,v)=> m.Path = v)
+                                    .WithHelp("Destination file to write log lines.");
+                                return Program.ui.ShowFormAsync(form).ContinueWith(t => {
+                                    if (!t.Result) { return Command.Result.Cancelled; }
+                                    var path = ((LogSaveModel)form.Model!).Path;
+                                    if (string.IsNullOrWhiteSpace(path)) { return Command.Result.Cancelled; }
+                                    try
+                                    {
+                                        var logEntries = Log.GetOutput();
+                                        File.WriteAllLines(path, logEntries);
+                                        return Command.Result.Success;
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Program.ui.WriteLine($"Failed: {ex.Message}");
+                                        return Command.Result.Failed;
+                                    }
+                                });
                         }
                     }
                 }
@@ -212,7 +218,7 @@ public partial class CommandManager
                             }
                             return Command.Result.Cancelled;
                         }
-                    }                    
+                    }
                 }
             }
         };

@@ -3,6 +3,10 @@ using System.Text.RegularExpressions;
 
 public static class ADOCommands
 {
+    private class WorkItemLookupModel { public int Id { get; set; } }
+    private class TopNModel { public int N { get; set; } = 15; }
+    private class ProjectPickModel { public string? Project { get; set; } }
+
     public static Command Commands()
     {
         return new Command
@@ -22,15 +26,13 @@ public static class ADOCommands
                             Action = async () =>
                             {
                                 var adoClient = Program.SubsystemManager.Get<AdoClient>();
-                                Program.ui.Write("Enter work item ID: ");
-                                if (int.TryParse(Program.ui.ReadLine(), out var id))
-                                {
-                                    var workItem = await Program.SubsystemManager.Get<AdoClient>().GetWorkItemSummaryById(id);
-                                    Program.ui.WriteLine(workItem.ToString());
-                                    return Command.Result.Success;
-                                }
-                                Program.ui.WriteLine("Invalid ID.");
-                                return Command.Result.Cancelled;
+                                var form = UiForm.Create("Lookup Work Item", new WorkItemLookupModel { Id = 0 });
+                                form.AddInt<WorkItemLookupModel>("ID", m => m.Id, (m,v)=> m.Id = v).IntBounds(1, 10_000_000);
+                                if (!await Program.ui.ShowFormAsync(form)) { return Command.Result.Cancelled; }
+                                var id = ((WorkItemLookupModel)form.Model!).Id;
+                                var workItem = await Program.SubsystemManager.Get<AdoClient>().GetWorkItemSummaryById(id);
+                                Program.ui.WriteLine(workItem.ToString());
+                                return Command.Result.Success;
                             }
                         },
                         new Command
@@ -142,17 +144,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                     }
 
                                     // Ask whether to show another item; default is Yes on empty input
-                                    Program.ui.Write("Look at another item? [Y/n]: ");
-                                    var ans = Program.ui.ReadLine();
-                                    ans = ans?.Trim() ?? string.Empty;
-                                    if (string.IsNullOrWhiteSpace(ans) || ans.Equals("y", StringComparison.OrdinalIgnoreCase) || ans.StartsWith("y", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        // default Yes -> continue loop
-                                        continue;
-                                    }
-
-                                    // anything else -> stop
-                                    break;
+                                    if (await Program.ui.ConfirmAsync("Look at another item?", true)) continue; else break;
                                 }
 
                                 return Command.Result.Success;
@@ -175,14 +167,14 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                 var choices = savedQueries.Select(q => $"{q.Name} ({q.Project}) - {q.Path}").ToList();
                                 var header = "Select a saved query for ranking:\n" + new string('─', Math.Max(60, Program.ui.Width - 1));
                                 var selected = Program.ui.RenderMenu(header, choices);
-                                if (string.IsNullOrWhiteSpace(selected)) return Command.Result.Cancelled;
+                                if (string.IsNullOrWhiteSpace(selected)) { return Command.Result.Cancelled; }
                                 var q = savedQueries[choices.IndexOf(selected)];
 
                                 // N prompt
-                                Program.ui.Write("How many items (default 15): ");
-                                var nText = Program.ui.ReadLine();
-                                int topN = 15;
-                                if (!string.IsNullOrWhiteSpace(nText) && int.TryParse(nText, out var n) && n > 0) topN = n;
+                                var topForm = UiForm.Create("Top items", new TopNModel { N = 15 });
+                                topForm.AddInt<TopNModel>("Count", m => m.N, (m,v)=> m.N = v).IntBounds(1,100).WithHelp("Number of items to rank (1-100).");
+                                if (!await Program.ui.ShowFormAsync(topForm)) { return Command.Result.Cancelled; }
+                                var topN = ((TopNModel)topForm.Model!).N;
 
                                 var ado = Program.SubsystemManager.Get<AdoClient>();
                                 var items = await ado.GetWorkItemSummariesByQueryId(q.Id);
@@ -364,7 +356,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
 
                                 return Command.Result.Success;
                             }
-                        }                        
+                        }
                     }
                 },
                 new Command
@@ -375,9 +367,10 @@ Be concise and include a short bullet list of actionable next steps if any.";
                         var ado = Program.SubsystemManager.Get<AdoClient>();
 
                         var defaultProject = Program.config.Ado.ProjectName;
-                        Program.ui.Write($"Project [{defaultProject}]: ");
-                        var p = Program.ui.ReadLine();
-                        var project = string.IsNullOrWhiteSpace(p) ? defaultProject : p.Trim();
+                        var projForm = UiForm.Create("ADO Project", new ProjectPickModel { Project = defaultProject });
+                        projForm.AddString<ProjectPickModel>("Project", m => m.Project ?? "", (m,v)=> m.Project = v).MakeOptional();
+                        await Program.ui.ShowFormAsync(projForm); // even if cancelled, fall back to default
+                        var project = ((ProjectPickModel)projForm.Model!).Project ?? defaultProject;
 
                         while (true)
                         {

@@ -6,6 +6,20 @@ public class Terminal : IUi
 {
     private string? lastInput = null;
 
+    public Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
+    {
+        Write($"{question} {(defaultAnswer ? "[Y/n]" : "[y/N]")} ");
+        while (true)
+        {
+            var input = Console.ReadLine() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(input)) return Task.FromResult(defaultAnswer);
+            input = input.Trim().ToLowerInvariant();
+            if (input == "y" || input == "yes") return Task.FromResult(true);
+            if (input == "n" || input == "no") return Task.FromResult(false);
+            Write("Please enter y or n: ");
+        }
+    }
+
     public async Task<bool> ShowFormAsync(UiForm form)
     {
         await Task.CompletedTask;
@@ -447,70 +461,6 @@ public class Terminal : IUi
             }
         }
     }
-
-    public string? ReadLineWithHistory()
-    {
-        var buffer = new List<char>();
-        int cursor = 0;
-        ConsoleKeyInfo key;
-
-        while (true)
-        {
-            key = ReadKey(intercept: true);
-
-            if (key.Key == ConsoleKey.Enter)
-            {
-                WriteLine();
-                break;
-            }
-            else if (key.Key == ConsoleKey.Backspace)
-            {
-                if (cursor > 0)
-                {
-                    buffer.RemoveAt(cursor - 1);
-                    cursor--;
-                    Write("\b \b");
-                }
-            }
-            else if (key.Key == ConsoleKey.UpArrow)
-            {
-                if (lastInput != null)
-                {
-                    // Clear current buffer display
-                    for (int i = 0; i < buffer.Count; i++)
-                    {
-                        Write("\b \b");
-                    }
-
-                    // Set buffer to last input
-                    buffer.Clear();
-                    buffer.AddRange(lastInput.ToCharArray());
-                    cursor = buffer.Count;
-
-                    // Display the recalled input
-                    Write(lastInput);
-                }
-            }
-            else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
-            {
-                buffer.Insert(cursor, key.KeyChar);
-                cursor++;
-                Write(key.KeyChar.ToString());
-            }
-        }
-
-        var input = new string(buffer.ToArray()).Trim();
-
-        // Store the input for history if it's not empty
-        if (!string.IsNullOrWhiteSpace(input))
-        {
-            lastInput = input;
-        }
-
-        return string.IsNullOrWhiteSpace(input) ? null : input;
-    }
-
-    public string ReadLine() => Console.ReadLine() ?? string.Empty;
 
     public ConsoleKeyInfo ReadKey(bool intercept) => Console.ReadKey(intercept);
 
