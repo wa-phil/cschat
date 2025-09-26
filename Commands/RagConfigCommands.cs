@@ -6,7 +6,6 @@ using System.Text.RegularExpressions;
 
 public partial class CommandManager
 {
-
     private static Command CreateRagConfigCommands()
     {
         return new Command
