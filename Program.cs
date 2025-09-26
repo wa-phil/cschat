@@ -88,6 +88,7 @@ static class Program
         Context = new Context(config.SystemPrompt);
         ToolRegistry.Initialize();
 
+        // Initial legacy list (will be replaced by RagFileType user-managed entries after migration)
         Engine.SupportedFileTypes = config.RagSettings.SupportedFileTypes;
         Engine.SetProvider(config.Provider);
         Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
@@ -99,6 +100,31 @@ static class Program
         // Connect user-managed data first so annotated types are discovered
         // before subsystems query or load items from it.
         userManagedData.Connect();
+
+        // Migration: if no RagFileType entries yet, populate from legacy config
+        try
+        {
+            var existing = userManagedData.GetItems<RagFileType>();
+            if (existing.Count == 0 && config.RagSettings.SupportedFileTypes.Count > 0)
+            {
+                foreach (var ext in config.RagSettings.SupportedFileTypes.Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    var rft = new RagFileType { Extension = ext, Enabled = true };
+                    if (config.RagSettings.FileFilters.TryGetValue(ext, out var rules))
+                    {
+                        rft.Include = rules.Include.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+                        rft.Exclude = rules.Exclude.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+                    }
+                    userManagedData.AddItem(rft);
+                }
+                // Persist migration by clearing legacy filters (optional: keep for backward compatibility)
+                Config.Save(config, ConfigFilePath);
+            }
+        }
+        catch { /* ignore migration issues */ }
+
+        // Ensure Engine has up-to-date list
+        Engine.RefreshSupportedFileTypesFromUserManaged();
         SubsystemManager.Connect();
 
         // initialize chat manager to monitor thread deletions, load last active thread or create a new one

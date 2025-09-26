@@ -61,8 +61,8 @@ public static class DataCommands
     {
         return new Command
         {
-            Name = "add",
-            Description = () => $"Add a new {metadata.Name} item",
+            Name = "CReate",
+            Description = () => $"Create a new {metadata.Name} item",
             Action = async () => await Log.MethodAsync(async ctx =>
             {
                 ctx.Append(Log.Data.Name, metadata.Name);
@@ -94,7 +94,7 @@ public static class DataCommands
     {
         return new Command
         {
-            Name = "update",
+            Name = "Update",
             Description = () => $"Update an existing {metadata.Name} item",
             Action = async () => await Log.MethodAsync(async ctx =>
             {
@@ -254,7 +254,7 @@ public static class DataCommands
     {
         return new Command
         {
-            Name = "delete",
+            Name = "Delete",
             Description = () => $"Delete a {metadata.Name} item",
             Action = () =>
             {

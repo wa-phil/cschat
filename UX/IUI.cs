@@ -45,11 +45,19 @@ public sealed class UiField<TModel, TValue> : IUiField
         _tryParse = tryParse;
         _format = v => v?.ToString() ?? "";
 
-        if (UiFieldKind.Enum == kind)
+        var t = typeof(TValue);
+        if (UiFieldKind.Enum == kind && t.IsEnum)
         {
-            Choices = Enum.GetValues(typeof(TValue)) is TValue[] arr
-                ? Array.ConvertAll(arr, v => v?.ToString() ?? "")
-                : null;
+            // Only populate automatic enum choices when TValue is actually an enum type.
+            // AddChoice<TModel>() uses UiFieldKind.Enum but without this, TValue=string would otherwise cause an exception.
+            try
+            {
+                var values = Enum.GetValues(t);
+                var list = new List<string>();
+                foreach (var v in values) list.Add(v?.ToString() ?? "");
+                Choices = list;
+            }
+            catch { /* swallow: non-critical */ }
         }
     }
 
@@ -255,8 +263,13 @@ public sealed class UiForm
 
     // Add a dropdown/choice field for string values
     public IUiField AddChoice<TModel>(string label, IReadOnlyList<string> choices, Func<TModel, string> get, Action<TModel, string> set, string? key = null)
-        => Add(new UiField<TModel, string>(key ?? Fields.Count.ToString(), label, UiFieldKind.Enum, get, set,
-               s => (choices.Contains(s ?? "") ? (true, s ?? "", null) : (false, default, $"Choose one of: {string.Join(", ", choices)}"))));
+    {
+        var f = new UiField<TModel, string>(key ?? Fields.Count.ToString(), label, UiFieldKind.Enum, get, set,
+            s => (choices.Contains(s ?? "") ? (true, s ?? "", null) : (false, default, $"Choose one of: {string.Join(", ", choices)}")));
+        // Ensure choices are available to the UI for non-enum (string) dropdowns
+        f.Choices = choices.ToList();
+        return Add(f);
+    }
 
     public IUiField AddChoice(string label, IReadOnlyList<string> choices, string? key = null)
         => AddChoice<string>(label, choices, m => Model is string sv ? sv : (Model as object)?.ToString() ?? string.Empty, (m, v) => Model = v, key);

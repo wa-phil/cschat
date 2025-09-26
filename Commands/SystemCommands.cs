@@ -220,7 +220,6 @@ public partial class CommandManager
         // Add provider/rag/tool/subsystem commands
         subCommands.Add(CreateProviderCommands());
         subCommands.Add(CreateRagConfigCommands());
-        subCommands.Add(CreateRagFileTypeCommands());
         subCommands.Add(CreateADOConfigCommands());
         subCommands.Add(CreateSubsystemCommands());
 

@@ -27,9 +27,10 @@ public class file_list : ITool
             return ToolResult.Failure($"ERROR: Directory not found: {path}", Context);
         }
 
-        var supportedTypes = Engine.SupportedFileTypes;
+        Engine.RefreshSupportedFileTypesFromUserManaged();
+        var allowed = Engine.SupportedFileTypes; // already filtered for Enabled
         var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
-            .Where(f => supportedTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+            .Where(f => allowed.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
             .ToList();
 
         var list = string.Join("\n", files.Select(f => Path.GetRelativePath(path, f)));

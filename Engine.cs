@@ -17,21 +17,27 @@ public static class Engine
     public static ITextChunker? TextChunker = null;
     public static Planner Planner = new Planner();
 
-    public static List<string> SupportedFileTypes = new List<string>
+    // Backing list retained for performance; kept in sync from UserManagedData RagFileType entries.
+    public static List<string> SupportedFileTypes = new List<string>();
+
+    public static void RefreshSupportedFileTypesFromUserManaged()
     {
-        ".bash", ".bat",
-        ".c", ".cpp", ".cs", ".csproj", ".csv",
-        ".h", ".html",
-        ".ignore",
-        ".js",
-        ".log",
-        ".md",
-        ".py",
-        ".sh", ".sln",
-        ".ts", ".txt",
-        ".xml",
-        ".yml"
-    };
+        try
+        {
+            var items = Program.userManagedData.GetItems<RagFileType>()
+                .Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.Extension))
+                .Select(r => r.Extension.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(s => s)
+                .ToList();
+            SupportedFileTypes = items;
+        }
+        catch
+        {
+            // On early startup (before userManagedData connected) fall back to config
+            SupportedFileTypes = Program.config.RagSettings.SupportedFileTypes.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
+        }
+    }
     
     public static async Task AddFileToGraphStore(string path) => await AddContentItemsToGraphStore(new[] { (path, File.ReadAllText(path)) });
 
@@ -194,9 +200,11 @@ public static class Engine
     {
         if (!Directory.Exists(path))
             yield break;
-
+        RefreshSupportedFileTypesFromUserManaged();
+        var rftItems = new List<RagFileType>();
+        try { rftItems = Program.userManagedData.GetItems<RagFileType>(); } catch { }
         var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
-            .Where(f => SupportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase));
+            .Where(f => ShouldIncludeFile(f, rftItems));
 
         foreach (var file in files)
         {
@@ -210,12 +218,14 @@ public static class Engine
     {
         if (!File.Exists(zipPath))
             yield break;
-
+        RefreshSupportedFileTypesFromUserManaged();
+        var rftItems = new List<RagFileType>();
+        try { rftItems = Program.userManagedData.GetItems<RagFileType>(); } catch { }
         using var archive = ZipFile.OpenRead(zipPath);
         foreach (var entry in archive.Entries)
         {
             var ext = Path.GetExtension(entry.FullName);
-            if (string.IsNullOrWhiteSpace(ext) || !SupportedFileTypes.Contains(ext, StringComparer.OrdinalIgnoreCase))
+            if (!ShouldIncludePath(ext, entry.FullName, rftItems))
                 continue;
 
             using var stream = entry.Open();
@@ -225,6 +235,34 @@ public static class Engine
     }
 
     public static async Task AddFileToVectorStore(string path) => await AddContentItemsToVectorStore(new[] { (path, File.ReadAllText(path)) });
+
+    private static bool ShouldIncludeFile(string filePath, List<RagFileType> items)
+    {
+        var ext = Path.GetExtension(filePath);
+        return ShouldIncludePath(ext, filePath, items);
+    }
+
+    private static bool ShouldIncludePath(string ext, string relativePath, List<RagFileType> items)
+    {
+        if (string.IsNullOrWhiteSpace(ext)) return false;
+        var match = items.FirstOrDefault(i => i.Enabled && i.Extension.Equals(ext, StringComparison.OrdinalIgnoreCase));
+        if (match == null) return false;
+        // If include patterns exist, path must match one
+        if (match.Include.Any())
+        {
+            bool included = match.Include.Any(p => SafeRegexIsMatch(relativePath, p));
+            if (!included) return false;
+        }
+        // Exclude patterns override
+        if (match.Exclude.Any(p => SafeRegexIsMatch(relativePath, p))) return false;
+        return true;
+    }
+
+    private static bool SafeRegexIsMatch(string input, string pattern)
+    {
+        if (string.IsNullOrWhiteSpace(pattern)) return false;
+        try { return Regex.IsMatch(input, pattern); } catch { return false; }
+    }
 
     public static void SetTextChunker(string chunkerName) => Log.Method(ctx =>
     {
