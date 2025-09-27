@@ -22,6 +22,8 @@ public sealed class PhotinoUi : IUi
 	private TaskCompletionSource<ConsoleKeyInfo>? _tcsKey;
 	private TaskCompletionSource<Dictionary<string,string?>?>? _tcsForm;
 
+	private readonly IFilePicker _picker = FilePicker.Create();
+
 	private int _width = 120;
 	private int _height = 40;
 	private ConsoleColor _fg = ConsoleColor.Gray;
@@ -134,6 +136,33 @@ public sealed class PhotinoUi : IUi
 		}
 		return;
 	}
+	
+	public Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt)
+	{
+		var tcs = new TaskCompletionSource<IReadOnlyList<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		void RunOnUi()
+		{
+			_ = _picker.ShowAsync(opt).ContinueWith(t =>
+			{
+				if (t.IsFaulted) tcs.TrySetException(t.Exception!.InnerException ?? t.Exception!);
+				else tcs.TrySetResult(t.Result);
+			}, TaskScheduler.Default);
+		}
+
+		var win = _win; // local capture
+		if (win is not null)
+		{
+			try { win.Invoke(RunOnUi); }
+			catch { RunOnUi(); }
+		}
+		else
+		{
+			RunOnUi();
+		}
+
+		return tcs.Task;
+	}
 
 	private void HandleInbound(string raw) => Log.Method(ctx =>
 	{
@@ -211,12 +240,58 @@ public sealed class PhotinoUi : IUi
 					bool ok = B("ok", "OK");
 					if (!ok) { _tcsForm?.TrySetResult(null); break; }
 
-					var dict = new Dictionary<string,string?>(StringComparer.OrdinalIgnoreCase);
+					var dict = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 					if (map.TryGetValue("values", out var v) && v is Dictionary<string, object?> dv)
 					{
 						foreach (var kv in dv) dict[kv.Key] = Convert.ToString(kv.Value);
 					}
 					_tcsForm?.TrySetResult(dict);
+					break;
+				}
+
+				case "PickFiles":
+				{
+					// payload: { type:"PickFiles", requestId, options:{ multi, filters } }
+					var reqId = S("requestId", "reqId") ?? Guid.NewGuid().ToString("n");
+					var multi = B("multi");
+					List<string>? filters = null;
+					if (map.TryGetValue("options", out var o) && o is Dictionary<string, object?> od)
+					{
+						if (od.TryGetValue("multi", out var mv) && mv is not null) multi = Convert.ToBoolean(mv);
+						if (od.TryGetValue("filters", out var fv) && fv is IEnumerable<object?> arr)
+							filters = arr.Select(x => Convert.ToString(x))
+										.Where(s => !string.IsNullOrWhiteSpace(s)).ToList()!;
+					}
+
+					var opt = new FilePickerOptions(multi, filters?.ToArray());
+
+					void RunOnUi()
+					{
+						_ = _picker.ShowAsync(opt).ContinueWith(t =>
+						{
+							if (t.IsFaulted)
+							{
+								var ex = t.Exception!.InnerException ?? t.Exception!;
+								Post(new { type = "PickFilesResult", requestId = reqId, error = ex.Message });
+							}
+							else
+							{
+								Post(new { type = "PickFilesResult", requestId = reqId, files = t.Result });
+							}
+						}, TaskScheduler.Default);
+					}
+
+					var win = _win;
+					if (win is not null)
+					{
+						try { win.Invoke(RunOnUi); }
+						catch { RunOnUi(); }
+					}
+					else
+					{
+						RunOnUi();
+					}
+
 					break;
 				}
 			}
@@ -321,13 +396,25 @@ public sealed class PhotinoUi : IUi
 		return string.IsNullOrWhiteSpace(text) ? null : text;
 	}
 
-	public async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
+	public async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory) => await Log.MethodAsync(async ctx =>
 	{
-		var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-		_tcsReadLine = tcs;
-		Post(new { type = "PromptPath", dir = isDirectory });
-		return await tcs.Task;
-	}
+		var results = await PickFilesAsync(new FilePickerOptions(Multi: false, Filters: null));
+		ctx.Append(Log.Data.Result,	results.Count == 0 ? "<empty>" : string.Join(", ", results));
+		if (results.Count == 0) {
+			ctx.Append(Log.Data.Message, "user cancelled");
+			ctx.Succeeded(); 
+			return null;
+		}
+		var path = results[0];
+		if (isDirectory && !Directory.Exists(path) || !isDirectory && !File.Exists(path))
+		{
+			ctx.Append(Log.Data.Message, "path does not exist");
+			ctx.Succeeded();
+			return null;
+		}
+		ctx.Succeeded();
+		return path;
+	});
 
 	public string? RenderMenu(string header, List<string> choices, int selected = 0)
 	{

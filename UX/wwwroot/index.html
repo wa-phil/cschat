@@ -86,6 +86,8 @@
 	const send = document.getElementById('send');
 
 	function post(obj) { try { window.external?.sendMessage?.(JSON.stringify(obj)); } catch {} }
+	// requestId -> (files:string[]) => void
+	const pendingPickers = new Map();	
 	function cwrite(s){ consoleEl.textContent += (s ?? ''); consoleEl.scrollTop = consoleEl.scrollHeight; }
 	function cwriteline(s){ cwrite((s ?? '') + '\\n'); }
 
@@ -322,13 +324,15 @@
 				btn.type = 'button';
 				btn.textContent = 'Browse…';
 				btn.addEventListener('click', () => {
-					// Ask host; on next UserText, Photino wires it back to ReadPathWithAutocompleteAsync result
-					post({ type:'PromptPath', dir:false });
-					// Small hack: temporarily listen for a one-shot message by focusing and letting host put result back through FormError? Simpler: prompt()
-					// We keep a JS prompt fallback for now; Photino already handles PromptPath messages for host-driven pickers.
-					const p = prompt('Path:', input.value||'') || '';
-					if (p) input.value = p;
-					validateForm();
+					const reqId = Math.random().toString(36).slice(2);
+					pendingPickers.set(reqId, (files) => {
+						if (files && files.length) {
+							input.value = files[0];
+							validateForm();
+						}
+					});
+					// You can pass filters here if you want (e.g., ["*.csv","*.txt"])
+					post({ type:'PickFiles', requestId:reqId, options:{ multi:false } });
 				});
 				wrap.appendChild(input);
 				wrap.appendChild(btn);
@@ -529,9 +533,16 @@
 				case 'ConsoleWriteLine': cwriteline(msg.text||''); break;
 				case 'ShowMenu': openMenu(msg); break;
 				case 'ShowForm': openForm(msg); break;
-				case 'PromptLine': post({ type:'UserText', text: prompt('Input:', msg.placeholder||'') || '' }); break;
-				case 'PromptPath': post({ type:'UserText', text: prompt('Path:', '') || '' }); break;  // host can also trigger this
 				case 'FocusInput': t.focus(); break;
+				case 'PickFilesResult': {
+					const { requestId, files } = msg;
+					const cb = pendingPickers.get(requestId);
+					if (cb) {
+						pendingPickers.delete(requestId);
+						try { cb(files || []); } catch {}
+					}
+					break;
+				}				
 				case 'Clear': consoleEl.innerHTML=''; break;
 				case 'FormError': {
 					// payload: { type:'FormError', key, message }

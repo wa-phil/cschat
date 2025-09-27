@@ -301,6 +301,8 @@ public interface IUi
     Task<bool> ShowFormAsync(UiForm form);
     // simple yes/no confirmation (true=yes, false=no). Blank input chooses defaultAnswer.
     Task<bool> ConfirmAsync(string question, bool defaultAnswer = false);
+    // launches current platform file picker with given options, returns empty list if cancelled
+    Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt);
 
     // input
     Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory);

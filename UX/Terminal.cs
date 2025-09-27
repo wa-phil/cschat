@@ -76,6 +76,14 @@ public class Terminal : IUi
         return true;
     }
 
+    public async Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt)
+    {
+        var path = await ReadPathWithAutocompleteAsync(false);
+        if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
+            return Array.Empty<string>();
+        return new List<string> { path };
+    }
+
     public async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
     {
         await Task.CompletedTask; // Simulate asynchronous behavior
