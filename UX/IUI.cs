@@ -290,8 +290,8 @@ public sealed class UiForm
     public IUiField AddTime<TModel>(string label, Func<TModel, TimeSpan> get, Action<TModel, TimeSpan> set, string? key = null)
         => Add(label, UiFieldKind.Time, get, set, s => TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out var ts) ? (true, ts, null) : (false, default, "Enter a time (HH:MM)."), key);
 
-    public IUiField AddPath<TModel>(string label, Func<TModel, string> get, Action<TModel, string> set, string? key = null, PathPickerMode mode = PathPickerMode.OpenExisting)
-        => Add(label, UiFieldKind.Path, get, set, s => (true, s ?? "", null), key).WithPathMode(mode);
+    public IUiField AddPath<TModel>(string label, Func<TModel, string> get, Action<TModel, string> set, string? key = null)
+        => Add(label, UiFieldKind.Path, get, set, s => (true, s ?? "", null), key);
 
     // simple-list array field
     public IUiField AddList<TModel, TItem>(string label, Func<TModel, IList<TItem>> get, Action<TModel, IList<TItem>> set, string? key = null)

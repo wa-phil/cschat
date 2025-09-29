@@ -312,29 +312,29 @@
 				input = document.createElement('input');
 				input.type = 'password';
 				input.value = f.current ?? ''; 
-                        } else if (kind === 'path') {
-                                const wrap = document.createElement('div');
-                                wrap.style.display = 'grid';
-                                wrap.style.gridTemplateColumns = '1fr auto';
-                                wrap.style.gap = '8px';
-                                input=document.createElement('input');
-                                input.type = 'text';
-                                input.value = f.current ?? '';
-                                const mode = f.pathMode ?? 'OpenExisting';
-                                const btn = document.createElement('button');
-                                btn.type = 'button';
-                                btn.textContent = 'Browse…';
-                                btn.addEventListener('click', () => {
-                                        const reqId = Math.random().toString(36).slice(2);
-                                        pendingPickers.set(reqId, (files) => {
-                                                if (files && files.length) {
-                                                        input.value = files[0];
-                                                        validateForm();
-                                                }
-                                        });
-                                        // You can pass filters here if you want (e.g., ["*.csv","*.txt"])
-                                        post({ type:'PickFiles', requestId:reqId, options:{ multi:false, ensureExists: mode !== 'SaveFile' } });
-                                });
+			} else if (kind === 'path') {
+				const wrap = document.createElement('div');
+				wrap.style.display = 'grid';
+				wrap.style.gridTemplateColumns = '1fr auto';
+				wrap.style.gap = '8px';
+				input=document.createElement('input');
+				input.type = 'text';
+				input.value = f.current ?? '';
+				const mode = f.pathMode ?? 'OpenExisting';
+				const btn = document.createElement('button');
+				btn.type = 'button';
+				btn.textContent = 'Browse…';
+				btn.addEventListener('click', () => {
+					const reqId = Math.random().toString(36).slice(2);
+					pendingPickers.set(reqId, (files) => {
+						if (files && files.length) {
+							input.value = files[0];
+							validateForm();
+						}
+					});
+					// You can pass filters here if you want (e.g., ["*.csv","*.txt"])
+					post({ type:'PickFiles', requestId:reqId, options:{ multi:false, ensureExists: mode !== 'SaveFile' } });
+				});
 				wrap.appendChild(input);
 				wrap.appendChild(btn);
 				row.appendChild(wrap);
