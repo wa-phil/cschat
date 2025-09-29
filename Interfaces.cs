@@ -21,6 +21,12 @@ public enum UiFieldKind
     Array       // list/array of values
 }
 
+public enum PathPickerMode
+{
+    OpenExisting,
+    SaveFile
+}
+
 public interface IUiField
 {
     string Key { get; } // stable identity for roundtrips
@@ -32,6 +38,8 @@ public interface IUiField
     string? Placeholder { get; }
     string? Pattern { get; }
     string? PatternMessage { get; }
+
+    PathPickerMode PathMode { get; }
 
     Func<object?, string> Formatter { get; }
 
@@ -48,6 +56,7 @@ public interface IUiField
     IUiField WithPlaceholder(string? placeholder);
     IUiField WithRegex(string pattern, string? message = null);
     IUiField MakeOptionalIf(bool cond);
+    IUiField WithPathMode(PathPickerMode mode);
 }
 
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]

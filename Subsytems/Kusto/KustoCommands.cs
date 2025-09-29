@@ -95,7 +95,9 @@ public static class KustoCommands
 
                         var exportForm = UiForm.Create("Export results", new ExportModel { Format = "none", Path = "results.txt" });
                         exportForm.AddChoice<ExportModel>("Format", new[]{"none","csv","json"}, m => m.Format, (m,v)=> m.Format = v);
-                        exportForm.AddPath<ExportModel>("Path", m => m.Path, (m,v)=> m.Path = v).MakeOptionalIf(true).WithHelp("File path if exporting.");
+                        exportForm.AddPath<ExportModel>("Path", m => m.Path, (m,v)=> m.Path = v, mode: PathPickerMode.SaveFile)
+                                  .MakeOptionalIf(true)
+                                  .WithHelp("File path if exporting.");
                         if (await Program.ui.ShowFormAsync(exportForm))
                         {
                             var em = (ExportModel)exportForm.Model!;

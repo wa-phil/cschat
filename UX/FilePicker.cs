@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
-public record FilePickerOptions(bool Multi, string[]? Filters);
+public record FilePickerOptions(bool Multi, string[]? Filters, bool EnsureExists = true);
 
 public interface IFilePicker
 {
@@ -32,8 +32,27 @@ internal sealed class MacFilePicker : IFilePicker
 {
     public Task<List<string>> ShowAsync(FilePickerOptions opt) => Log.Method(ctx =>
     {
+        var extensions = NormalizeExtensions(opt.Filters);
+
+        if (!opt.EnsureExists)
+        {
+            var saved = SaveFile(extensions);
+            var results = string.IsNullOrEmpty(saved) ? new List<string>() : new List<string> { saved };
+            if (results.Count == 0)
+            {
+                ctx.Append(Log.Data.Message, "User cancelled");
+                ctx.Append(Log.Data.Result, "<empty>");
+            }
+            else
+            {
+                ctx.Append(Log.Data.Result, string.Join(", ", results));
+            }
+            ctx.Succeeded(results.Count > 0);
+            return Task.FromResult(results);
+        }
+
         // We are on the UI thread (Photino.Invoke). Just open the panel.
-        var files = OpenFiles(allowMultiple: opt.Multi, allowedExtensions: NormalizeExtensions(opt.Filters));
+        var files = OpenFiles(allowMultiple: opt.Multi, allowedExtensions: extensions);
         ctx.Append(Log.Data.Result, files.Count == 0 ? "<empty>" : string.Join(", ", files));
         ctx.Succeeded(files.Count > 0);
         return Task.FromResult(files);
@@ -160,6 +179,30 @@ internal sealed class MacFilePicker : IFilePicker
         ctx.Succeeded(paths.Count > 0);
         return paths;
     });
+
+    static string? SaveFile(string[]? allowedExtensions)
+    {
+        using var _ = new AutoReleasePool();
+
+        var NSSavePanel = GetClass("NSSavePanel");
+        var panel = objc_msgSend_IntPtr(NSSavePanel, Sel("savePanel"));
+
+        objc_msgSend_void_bool(panel, Sel("setCanCreateDirectories:"), true);
+
+        if (allowedExtensions is { Length: > 0 })
+        {
+            var nsArray = BuildNSArrayOfNSStrings(allowedExtensions);
+            objc_msgSend_void_IntPtr(panel, Sel("setAllowedFileTypes:"), nsArray);
+        }
+
+        var result = objc_msgSend_nint(panel, Sel("runModal"));
+        const nint NSModalResponseOK = 1;
+        if (result != NSModalResponseOK) return null;
+
+        var url = objc_msgSend_IntPtr(panel, Sel("URL"));
+        var pathNsString = objc_msgSend_IntPtr(url, Sel("path"));
+        return NSStringToManagedString(pathNsString);
+    }
 }
 
 /* =========================
@@ -180,8 +223,16 @@ internal sealed class WindowsFilePicker : IFilePicker
             dlg = (IFileOpenDialog)new FileOpenDialogRCW();
             // Options
             dlg.GetOptions(out var flags);
-            flags |= FOS.FOS_FORCEFILESYSTEM | FOS.FOS_FILEMUSTEXIST | FOS.FOS_PATHMUSTEXIST;
+            flags |= FOS.FOS_FORCEFILESYSTEM;
             if (opt.Multi) flags |= FOS.FOS_ALLOWMULTISELECT;
+            if (opt.EnsureExists)
+            {
+                flags |= FOS.FOS_FILEMUSTEXIST | FOS.FOS_PATHMUSTEXIST;
+            }
+            else
+            {
+                flags |= FOS.FOS_PATHMUSTEXIST | FOS.FOS_OVERWRITEPROMPT;
+            }
             dlg.SetOptions(flags);
 
             // Filters (optional)
