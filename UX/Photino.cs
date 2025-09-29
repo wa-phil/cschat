@@ -249,54 +249,58 @@ public sealed class PhotinoUi : IUi
 					break;
 				}
 
-				case "PickFiles":
+                        case "PickFiles":
+                        {
+                                // payload: { type:"PickFiles", requestId, options:{ multi, filters, pathMode } }
+                                var reqId = S("requestId", "reqId") ?? Guid.NewGuid().ToString("n");
+                                var multi = B("multi");
+                                var mode = PathPickerMode.OpenExisting;
+                                List<string>? filters = null;
+                                if (map.TryGetValue("options", out var o) && o is Dictionary<string, object?> od)
+                                {
+                                        if (od.TryGetValue("multi", out var mv) && mv is not null) multi = Convert.ToBoolean(mv);
+                                        if (od.TryGetValue("filters", out var fv) && fv is IEnumerable<object?> arr)
+                                                filters = arr.Select(x => Convert.ToString(x))
+                                                        .Where(s => !string.IsNullOrWhiteSpace(s)).ToList()!;
+                                        if (od.TryGetValue("pathMode", out var pv) && pv is not null)
+                                        {
+                                                var parsed = Convert.ToString(pv);
+                                                if (!string.IsNullOrWhiteSpace(parsed) && Enum.TryParse<PathPickerMode>(parsed, ignoreCase: true, out var pm))
+                                                        mode = pm;
+                                        }
+                                }
+
+                                var opt = new FilePickerOptions(multi, filters?.ToArray(), mode);
+
+				void RunOnUi()
 				{
-					// payload: { type:"PickFiles", requestId, options:{ multi, filters, ensureExists } }
-					var reqId = S("requestId", "reqId") ?? Guid.NewGuid().ToString("n");
-					var multi = B("multi");
-					var ensureExists = true;
-					List<string>? filters = null;
-					if (map.TryGetValue("options", out var o) && o is Dictionary<string, object?> od)
+					_ = _picker.ShowAsync(opt).ContinueWith(t =>
 					{
-						if (od.TryGetValue("multi", out var mv) && mv is not null) multi = Convert.ToBoolean(mv);
-						if (od.TryGetValue("filters", out var fv) && fv is IEnumerable<object?> arr)
-							filters = arr.Select(x => Convert.ToString(x))
-								.Where(s => !string.IsNullOrWhiteSpace(s)).ToList()!;
-						if (od.TryGetValue("ensureExists", out var ev) && ev is not null)
-							ensureExists = Convert.ToBoolean(ev);
-					}
-
-					var opt = new FilePickerOptions(multi, filters?.ToArray(), ensureExists);
-
-					void RunOnUi()
-					{
-						_ = _picker.ShowAsync(opt).ContinueWith(t =>
+						if (t.IsFaulted)
 						{
-							if (t.IsFaulted)
-							{
-								var ex = t.Exception!.InnerException ?? t.Exception!;
-								Post(new { type = "PickFilesResult", requestId = reqId, error = ex.Message });
-							}
-							else
-							{
-								Post(new { type = "PickFilesResult", requestId = reqId, files = t.Result });
-							}
-						}, TaskScheduler.Default);
-					}
-
-					var win = _win;
-					if (win is not null)
-					{
-						try { win.Invoke(RunOnUi); }
-						catch { RunOnUi(); }
-					}
-					else
-					{
-						RunOnUi();
-					}
-
-					break;
+							var ex = t.Exception!.InnerException ?? t.Exception!;
+							Post(new { type = "PickFilesResult", requestId = reqId, error = ex.Message });
+						}
+						else
+						{
+							Post(new { type = "PickFilesResult", requestId = reqId, files = t.Result });
+						}
+					}, TaskScheduler.Default);
 				}
+
+				var win = _win;
+				if (win is not null)
+				{
+					try { win.Invoke(RunOnUi); }
+					catch { RunOnUi(); }
+				}
+				else
+				{
+					RunOnUi();
+				}
+
+				break;
+			}
 			}
 
 			ctx.Succeeded();
@@ -402,7 +406,7 @@ public sealed class PhotinoUi : IUi
 
 	public async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory) => await Log.MethodAsync(async ctx =>
 	{
-		var results = await PickFilesAsync(new FilePickerOptions(Multi: false, Filters: null, EnsureExists: true));
+		var results = await PickFilesAsync(new FilePickerOptions(Multi: false, Filters: null, Mode: PathPickerMode.OpenExisting));
 		ctx.Append(Log.Data.Result, results.Count == 0 ? "<empty>" : string.Join(", ", results));
 		if (results.Count == 0)
 		{
