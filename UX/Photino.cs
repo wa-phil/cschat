@@ -406,9 +406,10 @@ public sealed class PhotinoUi : IUi
 
 	public async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory) => await Log.MethodAsync(async ctx =>
 	{
-                    var results = await PickFilesAsync(new FilePickerOptions(Multi: false, Filters: null, Mode: PathPickerMode.OpenExisting));
-			ctx.Append(Log.Data.Result, results.Count == 0 ? "<empty>" : string.Join(", ", results));
-		if (results.Count == 0) {
+		var results = await PickFilesAsync(new FilePickerOptions(Multi: false, Filters: null, Mode: PathPickerMode.OpenExisting));
+		ctx.Append(Log.Data.Result, results.Count == 0 ? "<empty>" : string.Join(", ", results));
+		if (results.Count == 0)
+		{
 			ctx.Append(Log.Data.Message, "user cancelled");
 			ctx.Succeeded(); 
 			return null;

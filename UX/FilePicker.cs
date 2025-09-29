@@ -228,7 +228,16 @@ internal sealed class WindowsFilePicker : IFilePicker
             dlg.GetOptions(out var flags);
             flags |= FOS.FOS_FORCEFILESYSTEM;
             if (opt.Multi) flags |= FOS.FOS_ALLOWMULTISELECT;
-            flags |= FOS.FOS_FILEMUSTEXIST | FOS.FOS_PATHMUSTEXIST;
+
+            if (PathPickerMode.OpenExisting == opt.Mode)
+            {
+                flags |= FOS.FOS_FILEMUSTEXIST | FOS.FOS_PATHMUSTEXIST;
+            }
+            else
+            {
+                flags |= FOS.FOS_PATHMUSTEXIST | FOS.FOS_OVERWRITEPROMPT;
+            }
+
             dlg.SetOptions(flags);
 
             ApplyFilters(opt, dlg);
