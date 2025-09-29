@@ -43,6 +43,7 @@ public partial class CommandManager
                         {
                                 var form = UiForm.Create("Save log", new LogSaveModel { Path = "log.txt" });
                                 form.AddPath<LogSaveModel>("File path", m => m.Path, (m,v)=> m.Path = v)
+                                    .WithPathMode(PathPickerMode.SaveFile)
                                     .WithHelp("Destination file to write log lines.");
                                 return Program.ui.ShowFormAsync(form).ContinueWith(t => {
                                     if (!t.Result) { return Command.Result.Cancelled; }
