@@ -219,6 +219,8 @@ internal sealed class WindowsFilePicker : IFilePicker
 
     static List<string> ShowFileOpenDialog(FilePickerOptions opt)
     {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+
         var results = new List<string>();
         IFileOpenDialog? dlg = null;
         try
@@ -277,6 +279,8 @@ internal sealed class WindowsFilePicker : IFilePicker
 
     static List<string> ShowFileSaveDialog(FilePickerOptions opt)
     {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        
         var results = new List<string>();
         IFileSaveDialog? dlg = null;
         try
