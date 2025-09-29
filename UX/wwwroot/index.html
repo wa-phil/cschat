@@ -320,6 +320,7 @@
 				input=document.createElement('input');
 				input.type = 'text';
 				input.value = f.current ?? '';
+				const mode = f.pathMode ?? 'OpenExisting';
 				const btn = document.createElement('button');
 				btn.type = 'button';
 				btn.textContent = 'Browse…';
@@ -332,7 +333,7 @@
 						}
 					});
 					// You can pass filters here if you want (e.g., ["*.csv","*.txt"])
-					post({ type:'PickFiles', requestId:reqId, options:{ multi:false } });
+                                        post({ type:'PickFiles', requestId:reqId, options:{ multi:false, pathMode: mode } });
 				});
 				wrap.appendChild(input);
 				wrap.appendChild(btn);

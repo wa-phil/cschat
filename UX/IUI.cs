@@ -15,6 +15,7 @@ public sealed class UiField<TModel, TValue> : IUiField
     public string? Placeholder { get; private set; }
     public string? Pattern { get; private set; }
     public string? PatternMessage { get; private set; }
+    public PathPickerMode PathMode { get; private set; } = PathPickerMode.OpenExisting;
 
     // constraints/choices
     public int? Min { get; set; }
@@ -128,6 +129,7 @@ public sealed class UiField<TModel, TValue> : IUiField
     IUiField IUiField.WithPlaceholder(string? ph) { Placeholder = ph; return this; }
     IUiField IUiField.WithRegex(string p, string? m) { Pattern = p; PatternMessage = m; return this; }
     IUiField IUiField.MakeOptionalIf(bool cond) { if (cond) {Required = false;} return this; }
+    IUiField IUiField.WithPathMode(PathPickerMode mode) { PathMode = mode; return this; }
 }
 
 // Array field for lists of simple element types (string/int/long/decimal/double/bool/guid/date/time)
@@ -141,6 +143,7 @@ public sealed class UiArrayField<TModel, TItem> : IUiField
     public string? Placeholder { get; private set; }
     public string? Pattern => null;
     public string? PatternMessage => null;
+    public PathPickerMode PathMode { get; private set; } = PathPickerMode.OpenExisting;
 
     private readonly Func<TModel, IList<TItem>> _get;
     private readonly Action<TModel, IList<TItem>> _set;
@@ -190,6 +193,7 @@ public sealed class UiArrayField<TModel, TItem> : IUiField
     public IUiField WithPlaceholder(string? placeholder) { Placeholder = placeholder; return this; }
     public IUiField WithRegex(string pattern, string? message = null) => this;
     public IUiField MakeOptionalIf(bool cond) => cond ? MakeOptional() : this;
+    public IUiField WithPathMode(PathPickerMode mode) { PathMode = mode; return this; }
 }
 
 public sealed class UiForm

@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
-public record FilePickerOptions(bool Multi, string[]? Filters);
+public record FilePickerOptions(bool Multi, string[]? Filters, PathPickerMode Mode = PathPickerMode.OpenExisting);
 
 public interface IFilePicker
 {
@@ -32,8 +32,27 @@ internal sealed class MacFilePicker : IFilePicker
 {
     public Task<List<string>> ShowAsync(FilePickerOptions opt) => Log.Method(ctx =>
     {
+        var extensions = NormalizeExtensions(opt.Filters);
+
+        if (opt.Mode == PathPickerMode.SaveFile)
+        {
+            var saved = SaveFile(extensions);
+            var results = string.IsNullOrEmpty(saved) ? new List<string>() : new List<string> { saved };
+            if (results.Count == 0)
+            {
+                ctx.Append(Log.Data.Message, "User cancelled");
+                ctx.Append(Log.Data.Result, "<empty>");
+            }
+            else
+            {
+                ctx.Append(Log.Data.Result, string.Join(", ", results));
+            }
+            ctx.Succeeded(results.Count > 0);
+            return Task.FromResult(results);
+        }
+
         // We are on the UI thread (Photino.Invoke). Just open the panel.
-        var files = OpenFiles(allowMultiple: opt.Multi, allowedExtensions: NormalizeExtensions(opt.Filters));
+        var files = OpenFiles(allowMultiple: opt.Multi, allowedExtensions: extensions);
         ctx.Append(Log.Data.Result, files.Count == 0 ? "<empty>" : string.Join(", ", files));
         ctx.Succeeded(files.Count > 0);
         return Task.FromResult(files);
@@ -160,6 +179,30 @@ internal sealed class MacFilePicker : IFilePicker
         ctx.Succeeded(paths.Count > 0);
         return paths;
     });
+
+    static string? SaveFile(string[]? allowedExtensions)
+    {
+        using var _ = new AutoReleasePool();
+
+        var NSSavePanel = GetClass("NSSavePanel");
+        var panel = objc_msgSend_IntPtr(NSSavePanel, Sel("savePanel"));
+
+        objc_msgSend_void_bool(panel, Sel("setCanCreateDirectories:"), true);
+
+        if (allowedExtensions is { Length: > 0 })
+        {
+            var nsArray = BuildNSArrayOfNSStrings(allowedExtensions);
+            objc_msgSend_void_IntPtr(panel, Sel("setAllowedFileTypes:"), nsArray);
+        }
+
+        var result = objc_msgSend_nint(panel, Sel("runModal"));
+        const nint NSModalResponseOK = 1;
+        if (result != NSModalResponseOK) return null;
+
+        var url = objc_msgSend_IntPtr(panel, Sel("URL"));
+        var pathNsString = objc_msgSend_IntPtr(url, Sel("path"));
+        return NSStringToManagedString(pathNsString);
+    }
 }
 
 /* =========================
@@ -167,12 +210,15 @@ internal sealed class MacFilePicker : IFilePicker
  * ========================= */
 internal sealed class WindowsFilePicker : IFilePicker
 {
-    public Task<List<string>> ShowAsync(FilePickerOptions opt) => Task.FromResult(ShowFileOpenDialog(opt));
-
-    static List<string> ShowFileOpenDialog(FilePickerOptions opt)
+    public Task<List<string>> ShowAsync(FilePickerOptions opt)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
 
+        return Task.FromResult(opt.Mode == PathPickerMode.SaveFile ? ShowFileSaveDialog(opt) : ShowFileOpenDialog(opt));
+    }
+
+    static List<string> ShowFileOpenDialog(FilePickerOptions opt)
+    {
         var results = new List<string>();
         IFileOpenDialog? dlg = null;
         try
@@ -180,16 +226,12 @@ internal sealed class WindowsFilePicker : IFilePicker
             dlg = (IFileOpenDialog)new FileOpenDialogRCW();
             // Options
             dlg.GetOptions(out var flags);
-            flags |= FOS.FOS_FORCEFILESYSTEM | FOS.FOS_FILEMUSTEXIST | FOS.FOS_PATHMUSTEXIST;
+            flags |= FOS.FOS_FORCEFILESYSTEM;
             if (opt.Multi) flags |= FOS.FOS_ALLOWMULTISELECT;
+            flags |= FOS.FOS_FILEMUSTEXIST | FOS.FOS_PATHMUSTEXIST;
             dlg.SetOptions(flags);
 
-            // Filters (optional)
-            if (opt.Filters is { Length: > 0 })
-            {
-                var specs = BuildFilterSpec(opt.Filters);
-                dlg.SetFileTypes((uint)specs.Length, specs);
-            }
+            ApplyFilters(opt, dlg);
 
             var hr = dlg.Show(IntPtr.Zero);
             if (hr == (uint)HRESULT.ERROR_CANCELLED) return results;
@@ -224,6 +266,45 @@ internal sealed class WindowsFilePicker : IFilePicker
         return results;
     }
 
+    static List<string> ShowFileSaveDialog(FilePickerOptions opt)
+    {
+        var results = new List<string>();
+        IFileSaveDialog? dlg = null;
+        try
+        {
+            dlg = (IFileSaveDialog)new FileSaveDialogRCW();
+            dlg.GetOptions(out var flags);
+            flags |= FOS.FOS_FORCEFILESYSTEM | FOS.FOS_PATHMUSTEXIST | FOS.FOS_OVERWRITEPROMPT;
+            dlg.SetOptions(flags);
+
+            ApplyFilters(opt, dlg);
+
+            var hr = dlg.Show(IntPtr.Zero);
+            if (hr == (uint)HRESULT.ERROR_CANCELLED) return results;
+
+            dlg.GetResult(out var item);
+            item.GetDisplayName(SIGDN.SIGDN_FILESYSPATH, out var pszName);
+            results.Add(Marshal.PtrToStringUni(pszName)!);
+            Marshal.FreeCoTaskMem(pszName);
+            Marshal.ReleaseComObject(item);
+        }
+        finally
+        {
+            if (dlg != null) Marshal.ReleaseComObject(dlg);
+        }
+
+        return results;
+    }
+
+    static void ApplyFilters(FilePickerOptions opt, IFileDialog dialog)
+    {
+        if (opt.Filters is { Length: > 0 })
+        {
+            var specs = BuildFilterSpec(opt.Filters);
+            dialog.SetFileTypes((uint)specs.Length, specs);
+        }
+    }
+
     static COMDLG_FILTERSPEC[] BuildFilterSpec(string[] patterns)
     {
         // Convert ["*.csv","*.txt;*.md"] -> [{ "Supported files", "*.csv;*.txt;*.md" }]
@@ -240,8 +321,11 @@ internal sealed class WindowsFilePicker : IFilePicker
     [ComImport, Guid("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7")]
     private class FileOpenDialogRCW { }
 
-    [ComImport, Guid("d57c7288-d4ad-4768-be02-9d969532d960"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IFileOpenDialog
+    [ComImport, Guid("C0B4E2F3-BA21-4773-8DBA-335EC946EB8B")]
+    private class FileSaveDialogRCW { }
+
+    [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IFileDialog
     {
         // IModalWindow
         [PreserveSig] uint Show(IntPtr parent);
@@ -270,10 +354,23 @@ internal sealed class WindowsFilePicker : IFilePicker
         void SetClientGuid(ref Guid guid);
         void ClearClientData();
         void SetFilter(IntPtr pFilter);
+    }
 
-        // IFileOpenDialog
+    [ComImport, Guid("d57c7288-d4ad-4768-be02-9d969532d960"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IFileOpenDialog : IFileDialog
+    {
         void GetResults(out IShellItemArray ppenum);
         void GetSelectedItems(out IShellItemArray ppsai);
+    }
+
+    [ComImport, Guid("84bccd23-5fde-4cdb-aea4-af64b83d78ab"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IFileSaveDialog : IFileDialog
+    {
+        void SetSaveAsItem(IntPtr psi);
+        void SetProperties(IntPtr pStore);
+        void SetCollectedProperties(IntPtr pList, bool fAppendDefault);
+        void GetProperties(out IntPtr ppStore);
+        void ApplyProperties(IntPtr psi, IntPtr pStore, IntPtr hwnd, IntPtr pSink);
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
