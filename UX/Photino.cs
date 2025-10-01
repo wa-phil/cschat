@@ -4,6 +4,7 @@ using System.Linq;
 using Photino.NET;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 
 public sealed class PhotinoUi : IUi
@@ -164,13 +165,13 @@ public sealed class PhotinoUi : IUi
 		return tcs.Task;
 	}
 	
-	private readonly Dictionary<string, CancellationTokenSource> _progressMap = new();
+        private readonly ConcurrentDictionary<string, CancellationTokenSource> _progressMap = new();
 
     public string StartProgress(string title, CancellationTokenSource cts)
 	{
         var id = Guid.NewGuid().ToString("n");
 		Post(new { type = "StartProgress", id, title, cancellable = true });
-		_progressMap[id] = cts;
+                _progressMap[id] = cts;
 
         return id;
 	}
@@ -188,7 +189,7 @@ public sealed class PhotinoUi : IUi
     public void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown)
 	{
 		Post(new { type = "CompleteProgress", id, artifact = artifactMarkdown });
-        _progressMap.Remove(id);
+        _progressMap.TryRemove(id, out _);
 	}
 
 	private void HandleInbound(string raw) => Log.Method(ctx =>
