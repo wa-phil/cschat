@@ -3,6 +3,30 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using ModelContextProtocol.Protocol;
 
+/// <summary>
+/// Chat message roles
+/// </summary> 
+public enum Roles
+{
+    System,
+    User,
+    Assistant,
+    Tool,
+    Progress,
+}
+
+public enum ChatMessageState { Normal, EphemeralActive, Finalized }
+
+public class ChatMessage
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("n");
+    public ChatMessageState State { get; set; } = ChatMessageState.Normal;
+    public Roles Role { get; set; }
+    public string Content { get; set; } = string.Empty; // Ensure non-nullable property is initialized
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public Dictionary<string, object>? Meta { get; set; } // optional metadata for UI
+}
+
 // field types for user input forms
 public enum UiFieldKind
 {

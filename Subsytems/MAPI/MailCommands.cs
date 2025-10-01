@@ -153,47 +153,43 @@ If none of the above fits, assign 'Other'.";
                         var assignments = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
                         using var cts = new CancellationTokenSource();
-                        using (var reporter = new ProgressUi.AsyncProgressReporterWithCancel("Classifying emails", cts))
                         {
-                            var gate = new SemaphoreSlim(Math.Max(1, Program.config.RagSettings.MaxIngestConcurrency));
-                            var tasks = msgs.Select((m, idx) => Task.Run(async () =>
+                            var msgList = msgs.ToList();
+                            try
                             {
-                                await gate.WaitAsync(reporter.Token);
-                                var item = reporter.StartItem($"msg {idx + 1}/{msgs.Count}");
-                                try
-                                {
-                                    item.SetTotalSteps(1);
-                                    var ctx = new Context(classifyPrompt);
-                                    ctx.AddUserMessage($"EMAIL\nfrom: {m.From?.EmailAddress}\nsubject: {m.Subject}\npreview: {m.BodyPreview}");
+                                var indices = msgs.Select((m,i) => (m.Id, i)).ToDictionary(x => x.Id, x => x.i);
 
-                                    try
-                                    {
-                                        var assignment = await TypeParser.GetAsync(ctx, typeof(MailAssignment)) as MailAssignment;
-                                        assignments[m.Id] = String.IsNullOrWhiteSpace(assignment?.Topic) ? "Other" : assignment.Topic;
-                                    }
-                                    catch (OperationCanceledException)
-                                    {
-                                        item.Cancel("canceled");
-                                        assignments[m.Id] = "Other";
-                                        return;
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        item.Fail(ex.Message);
-                                        assignments[m.Id] = "Other";
-                                        return;
-                                    }
+                                var (results, failures, canceled) = await AsyncProgress.For("Classifying emails")
+                                    .WithCancellation(cts)
+                                    .Run<IMailMessage, bool>(
+                                        items: () => msgList,
+                                        nameOf: m => $"{indices[m.Id] + 1}/{msgList.Count}  " + Utilities.TruncatePlain(m.Subject ?? "(no subject)", 60),
+                                        processAsync: async (m, pi, ct) =>
+                                        {
+                                            pi.SetTotal(1);
+                                            var ctx = new Context(classifyPrompt);
+                                            ctx.AddUserMessage($"EMAIL\nfrom: {m.From?.EmailAddress}\nsubject: {m.Subject}\npreview: {m.BodyPreview}");
 
-                                    item.Advance(1, "done");
-                                    item.Complete("done");
-                                }
-                                finally
-                                {
-                                    gate.Release();
-                                }
-                            })).ToList();
+                                            try
+                                            {
+                                                var assignment = await TypeParser.GetAsync(ctx, typeof(MailAssignment)) as MailAssignment;
+                                                assignments[m.Id] = String.IsNullOrWhiteSpace(assignment?.Topic) ? "Other" : assignment.Topic;
+                                            }
+                                            catch (OperationCanceledException)
+                                            {
+                                                assignments[m.Id] = "Other";
+                                                throw;
+                                            }
+                                            catch (Exception)
+                                            {
+                                                assignments[m.Id] = "Other";
+                                                throw;
+                                            }
 
-                            try { await Task.WhenAll(tasks); }
+                                            pi.Advance(1, "done");
+                                            return true;
+                                        });
+                            }
                             catch (Exception ex) { Program.ui.WriteLine($"Error during classification: {ex.Message}"); }
                         }
 
@@ -209,46 +205,46 @@ If none of the above fits, assign 'Other'.";
                         // 4) Summarize each topic separately (short) — run with bounded concurrency and progress reporting
                         var topicSummaries = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                         using var ctsSummary = new CancellationTokenSource();
-                        using (var reporterSummary = new ProgressUi.AsyncProgressReporterWithCancel("Summarizing topics", ctsSummary))
                         {
-                            var summaryGate = new SemaphoreSlim(Math.Max(1, Program.config.RagSettings.MaxIngestConcurrency));
-                            var summaryTasks = grouped.Select(kv => Task.Run(async () =>
+                            var kvList = grouped.ToList();
+                            try
                             {
-                                await summaryGate.WaitAsync(reporterSummary.Token);
-                                var item = reporterSummary.StartItem($"topic: {kv.Key} ({kv.Value.Count})");
-                                try
-                                {
-                                    item.SetTotalSteps(1);
-                                    var key = kv.Key;
-                                    var list = kv.Value;
-                                    var docs = string.Join("\n---\n", list.Select(m =>
-                                        $"from: {m.From?.EmailAddress}\nsubject: {m.Subject}\npreview: {m.BodyPreview}"));
+                                var (results, failures, canceled) = await AsyncProgress.For("Summarizing topics")
+                                    .WithCancellation(ctsSummary)
+                                    .Run<KeyValuePair<string, List<IMailMessage>>, bool>(
+                                        items: () => kvList,
+                                        nameOf: kv => $"topic: {kv.Key} ({kv.Value.Count})",
+                                        processAsync: async (kv, pi, ct) =>
+                                        {
+                                            pi.SetTotal(1);
+                                            var key = kv.Key;
+                                            var list = kv.Value;
+                                            var docs = string.Join("\n---\n", list.Select(m =>
+                                                $"from: {m.From?.EmailAddress}\nsubject: {m.Subject}\npreview: {m.BodyPreview}"));
 
-                                    var sctx = new Context(
+                                            var sctx = new Context(
 @"You are a mail analyst. Summarize this set of emails into 1-2 short paragraphs, then provide 1-6 concise bullets of actions or follow-ups. Be crisp.");
-                                    sctx.AddUserMessage(docs);
-                                    try
-                                    {
-                                        var summary = await Engine.Provider!.PostChatAsync(sctx, 0.2f);
-                                        topicSummaries[key] = summary;
-                                        item.Advance(1, "done");
-                                        item.Complete("done");
-                                    }
-                                    catch (OperationCanceledException)
-                                    {
-                                        item.Cancel("canceled");
-                                        topicSummaries[key] = "ERROR: canceled";
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        item.Fail(ex.Message);
-                                        topicSummaries[key] = $"ERROR: {ex.Message}";
-                                    }
-                                }
-                                finally { summaryGate.Release(); }
-                            })).ToList();
+                                            sctx.AddUserMessage(docs);
+                                            try
+                                            {
+                                                var summary = await Engine.Provider!.PostChatAsync(sctx, 0.2f);
+                                                topicSummaries[key] = summary;
+                                            }
+                                            catch (OperationCanceledException)
+                                            {
+                                                topicSummaries[key] = "ERROR: canceled";
+                                                throw;
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                topicSummaries[key] = $"ERROR: {ex.Message}";
+                                                throw;
+                                            }
 
-                            try { await Task.WhenAll(summaryTasks); }
+                                            pi.Advance(1, "done");
+                                            return true;
+                                        });
+                            }
                             catch (Exception ex) { Program.ui.WriteLine($"Error during topic summarization: {ex.Message}"); }
                         }
 

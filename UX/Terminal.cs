@@ -2,8 +2,150 @@ using System;
 using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
+
 public class Terminal : IUi
 {
+    public sealed class Progress
+    {
+        public enum ProgressState { Queued, Running, Failed, Canceled, Completed }
+
+        private static void WriteFullWidth(string s, ConsoleColor fg)
+        {
+            int width = Math.Max(10, Program.ui.Width - 1);
+            Program.ui.ForegroundColor = fg;
+            if (s.Length > width) s = s.Substring(0, width);
+            if (s.Length < width) s = s.PadRight(width);
+            Program.ui.WriteLine(s);
+            Program.ui.ResetColor();
+        }
+
+        private static string CenterOrTrim(string s, int innerWidth)
+        {
+            if (innerWidth <= 0) return string.Empty;
+            if (s.Length > innerWidth) s = s.Substring(0, Math.Max(0, innerWidth - 3)) + "...";
+            int pad = innerWidth - s.Length;
+            int left = pad / 2;
+            int right = pad - left;
+            return new string(' ', left) + s + new string(' ', right);
+        }
+
+        private static string ComposeLeftRight(string left, string right, int width)
+        {
+            // Ensure the right label fits; truncate left with ellipsis if needed
+            int rightLen = right.Length;
+            int availLeft = Math.Max(0, width - rightLen - 1); // at least one space gap
+            if (left.Length > availLeft)
+            {
+                // leave room for ellipsis
+                int keep = Math.Max(0, availLeft - 3);
+                left = (keep > 0 ? left.Substring(0, keep) : "") + (availLeft > 0 ? "..." : "");
+            }
+            int pad = Math.Max(1, width - left.Length - rightLen);
+            return left + new string(' ', pad) + right;
+        }
+
+        public static void DrawBoxedHeader(string text)
+        {
+            int width = Math.Max(10, Program.ui.Width - 1);
+            Program.ui.SetCursorPosition(0, 0);
+
+            // Top border
+            var top = "┌" + new string('─', Math.Max(0, width - 2)) + "┐";
+            WriteFullWidth(top, ConsoleColor.DarkGray);
+
+            // Middle line: │  title  │  (borders dark gray, title green)
+            int inner = Math.Max(0, width - 2);
+            var centered = CenterOrTrim(text, inner);
+
+            // left border
+            Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+            Program.ui.Write("│");
+            // title area
+            Program.ui.ForegroundColor = ConsoleColor.Green;
+            if (centered.Length < inner) centered = centered.PadRight(inner);
+            if (centered.Length > inner) centered = centered.Substring(0, inner);
+            Program.ui.Write(centered);
+            // right border
+            Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+            Program.ui.WriteLine("│");
+            Program.ui.ResetColor();
+
+            // Separator
+            var sep = "├" + new string('─', Math.Max(0, width - 2)) + "┤";
+            WriteFullWidth(sep, ConsoleColor.DarkGray);
+        }
+
+        public static void DrawProgressRow(string name, double percent, ProgressState state, string? note, int done, int total)
+        {
+            int width = Math.Max(10, Program.ui.Width - 1);
+            int row = Program.ui.CursorTop;
+
+            var glyph = state switch
+            {
+                ProgressState.Running => "▶",
+                ProgressState.Completed => "✓",
+                ProgressState.Failed => "✖",
+                ProgressState.Canceled => "■",
+                _ => "•"
+            };
+
+            string left = $"{glyph} {name}";
+            string right = total > 0
+                ? $"{percent,6:0.0}% ({done}/{total})"
+                : $"{percent,6:0.0}%";
+
+            string line = ComposeLeftRight(left, right, width);
+
+            var barBack = state switch
+            {
+                ProgressState.Failed => ConsoleColor.DarkRed,
+                ProgressState.Canceled => ConsoleColor.DarkGray,
+                ProgressState.Completed => ConsoleColor.DarkGray,
+                ProgressState.Running => ConsoleColor.DarkGray,
+                _ => ConsoleColor.DarkBlue,
+            };
+
+            var fore = state switch
+            {
+                ProgressState.Failed => ConsoleColor.Yellow,
+                ProgressState.Canceled => ConsoleColor.Gray,
+                _ => ConsoleColor.Gray
+            };
+
+            int fill = (int)Math.Round(Math.Clamp(percent, 0, 100) / 100.0 * width);
+
+            // Draw the two segments so the background fill remains visible "behind" the text.
+            Program.ui.SetCursorPosition(0, row);
+
+            // segment 1 (within fill)
+            var seg1 = line.Substring(0, Math.Min(fill, line.Length));
+            Program.ui.BackgroundColor = barBack;
+            Program.ui.ForegroundColor = fore;
+            Program.ui.Write(seg1);
+
+            // segment 2 (rest of line)
+            var seg2Len = Math.Max(0, width - seg1.Length);
+            var seg2 = seg1.Length < line.Length ? line.Substring(seg1.Length) : new string(' ', seg2Len);
+            Program.ui.BackgroundColor = ConsoleColor.Black;
+            Program.ui.ForegroundColor = fore;
+            Program.ui.Write(seg2.PadRight(seg2Len));
+
+            Program.ui.ResetColor();
+
+            // Move to next line for the caller
+            Program.ui.SetCursorPosition(0, row + 1);
+        }
+
+        public static void DrawFooterStats(int running, int queued, int completed, int failed, int canceled, string hint)
+        {
+            int width = Math.Max(10, Program.ui.Width - 1);
+
+            string stats = $"in-flight: {running}   queued: {queued}   completed: {completed}   failed: {failed}   canceled: {canceled}";
+            WriteFullWidth(stats, ConsoleColor.DarkGray);
+            WriteFullWidth(hint, ConsoleColor.DarkGray);
+        }
+    }
+
     private string? lastInput = null;
 
     public Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
@@ -57,7 +199,7 @@ public class Terminal : IUi
                     var k = ReadKey(intercept: true);
                     if (k.Key == ConsoleKey.Escape) { WriteLine("\n(cancelled)"); return false; }
                     if (k.Key == ConsoleKey.Enter) { WriteLine(); break; }
-                    if (k.Key == ConsoleKey.Backspace && buffer.Count > 0) { buffer.RemoveAt(buffer.Count-1); Write("\b \b"); continue; }
+                    if (k.Key == ConsoleKey.Backspace && buffer.Count > 0) { buffer.RemoveAt(buffer.Count - 1); Write("\b \b"); continue; }
                     if (k.KeyChar != '\0' && !char.IsControl(k.KeyChar)) { buffer.Add(k.KeyChar); Write(k.KeyChar.ToString()); }
                 }
 
@@ -82,8 +224,127 @@ public class Terminal : IUi
 
         if (string.IsNullOrWhiteSpace(path) || (opt.Mode != PathPickerMode.SaveFile && !System.IO.File.Exists(path)))
             return Array.Empty<string>();
-            
+
         return new List<string> { path };
+    }
+
+    private sealed class TermProg
+    {
+        public string Title = "";
+        public int RegionTop = 0;
+        public int RegionHeight = 3 + Program.config.MaxMenuItems + 2;
+        public int LastWidth;
+        public CancellationTokenSource Cts = new();
+    }
+
+    private readonly Dictionary<string, TermProg> _progress = new();
+
+    public string StartProgress(string title, CancellationTokenSource cts)
+    {
+        var id = Guid.NewGuid().ToString("n");
+        var tp = new TermProg { Title = title, Cts = cts, LastWidth = Math.Max(10, Width - 1) };
+        _progress[id] = tp;
+
+        // claim the top region & paint header once
+        SetCursorPosition(0, tp.RegionTop);
+        Progress.DrawBoxedHeader(title);
+        // leave rows + footer area blank
+        for (int i = 0; i < Program.config.MaxMenuItems + 2; i++) WriteLine(new string(' ', tp.LastWidth));
+        SetCursorPosition(0, tp.RegionTop);
+        return id;
+    }
+
+    public void UpdateProgress(string id, ProgressSnapshot s)
+    {
+        if (!_progress.TryGetValue(id, out var tp)) return;
+
+        // ESC cancels
+        while (KeyAvailable)
+        {
+            var key = ReadKey(intercept: true);
+            if (key.Key == ConsoleKey.Escape) { try { tp.Cts.Cancel(); } catch { } }
+        }
+
+        // width changes -> clear region
+        int width = Math.Max(10, Width - 1);
+        if (width != tp.LastWidth)
+        {
+            SetCursorPosition(0, tp.RegionTop);
+            for (int i = 0; i < tp.RegionHeight; i++)
+            {
+                Write(new string(' ', width));
+                if (i < tp.RegionHeight - 1) WriteLine();
+            }
+            tp.LastWidth = width;
+        }
+
+        // paint at region top
+        SetCursorPosition(0, tp.RegionTop);
+        Progress.DrawBoxedHeader(tp.Title);
+
+        // Show only *active* work. Keep failures visible; hide completed/canceled.
+        var topN = Program.config.MaxMenuItems;
+        static int Rank(ProgressState s) => s switch
+        {
+            ProgressState.Running  => 3,
+            ProgressState.Queued   => 2,
+            ProgressState.Failed   => 1,   // keep failed items visible
+            ProgressState.Canceled => 0,   // hide from main list (shown in footer stats)
+            ProgressState.Completed=> -1,  // hide from main list
+            _ => 0
+        };
+
+        var rows = s.Items
+            .Where(x => x.state != ProgressState.Completed && x.state != ProgressState.Canceled)
+            .OrderByDescending(x => Rank(x.state)) // Running > Queued > Failed
+            .ThenBy(x => x.percent)                // least progress first (more informative)
+            .ThenBy(x => x.name)
+            .Take(topN)
+            .ToList();
+
+        foreach (var r in rows)
+        {
+            var apState = r.state switch
+            {
+                ProgressState.Running => Progress.ProgressState.Running,
+                ProgressState.Queued => Progress.ProgressState.Queued,
+                ProgressState.Completed => Progress.ProgressState.Completed,
+                ProgressState.Failed => Progress.ProgressState.Failed,
+                ProgressState.Canceled => Progress.ProgressState.Canceled,
+                _ => Progress.ProgressState.Queued
+            };
+            Progress.DrawProgressRow(r.name, r.percent, apState, r.note, r.steps.done, r.steps.total);
+        }
+
+        // clear leftover rows
+        for (int i = rows.Count; i < topN; i++)
+        {
+            WriteLine(new string(' ', width));
+        }
+
+        var hint = "Press ESC to cancel";
+        Progress.DrawFooterStats(s.Stats.running, s.Stats.queued, s.Stats.completed, s.Stats.failed, s.Stats.canceled, (s.EtaHint is { } eta ? $"ETA: {eta} • " : "") + hint);
+
+        // park cursor at top so we never scroll the buffer
+        SetCursorPosition(0, tp.RegionTop);
+    }
+
+    public void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown)
+    {
+        if (_progress.Remove(id, out var tp))
+        {
+            // clear region and print the artifact as a Tool message
+            SetCursorPosition(0, tp.RegionTop);
+            for (int i = 0; i < tp.RegionHeight; i++)
+            {
+                Write(new string(' ', tp.LastWidth));
+                if (i < tp.RegionHeight - 1) WriteLine();
+            }
+            SetCursorPosition(0, tp.RegionTop);
+        }
+
+        // Display the same summary that was persisted to Context by Progress.cs
+        RenderChatMessage(new ChatMessage { Role = Roles.Tool, Content = artifactMarkdown });
     }
 
     public async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
@@ -571,6 +832,6 @@ public class Terminal : IUi
     public void WriteLine(string? text = null) => Console.WriteLine(text);
 
     public void Clear() => Console.Clear();
-    
+
     public Task RunAsync(Func<Task> appMain) => appMain();
 }

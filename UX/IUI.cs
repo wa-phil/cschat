@@ -308,6 +308,11 @@ public interface IUi
     // launches current platform file picker with given options, returns empty list if cancelled
     Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt);
 
+    // progress reporting
+    string StartProgress(string title, CancellationTokenSource cts);
+    void UpdateProgress(string id, ProgressSnapshot snapshot);
+    void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown);
+
     // input
     Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory);
     Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager);

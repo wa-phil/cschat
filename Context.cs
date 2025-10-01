@@ -19,18 +19,6 @@ public class Context
         AddSystemMessage(systemPrompt ?? Program.config.SystemPrompt);
     }
 
-    public Context(IEnumerable<ChatMessage> messages)
-    {
-        _conversationStartTime = DateTime.Now;
-        foreach (var msg in messages)
-        {
-            if (msg.Role == Roles.System)
-                AddSystemMessage(msg.Content);
-            else
-                _messages.Add(msg);
-        }
-    }
-
     public IEnumerable<ChatMessage> Messages(bool InluceSystemMessage = true)
     {
         var result = new List<ChatMessage>();
