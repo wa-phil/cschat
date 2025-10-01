@@ -229,6 +229,9 @@ static class Program
                 ui.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
                 ui.WriteLine();
 
+                // Render existing chat history from the loaded thread
+                ui.RenderChatHistory(Context.Messages());
+
                 while (true)
                 {
                     if (UiMode.Terminal == config.UiMode) ui.Write("> ");
