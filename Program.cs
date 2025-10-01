@@ -230,7 +230,7 @@ static class Program
                 ui.WriteLine();
 
                 // Render existing chat history from the loaded thread
-                ui.RenderChatHistory(Context.Messages());                
+                ui.RenderChatHistory(Context.Messages());
 
                 while (true)
                 {
