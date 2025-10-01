@@ -19,7 +19,7 @@
 	#console .bubble>:first-child{margin-top:0;} #console .bubble>:last-child{margin-bottom:0;}
 	#console>.bubble.user{ align-self:flex-end; background:#1d80ea; border-color:#1d80ea; color:#fafafa;}
 	#console>.bubble.assistant{ background:#ddd; border-color:#ddd; color:#000;}
-	#console>.bubble.tool{ align-self:stretch; width:100%; max-width:none; text-align:center; background:#111; border-color:#666; font-weight:600;}
+	#console>.bubble.tool{ align-self:stretch; width:auto; max-width:100%; box-sizing:border-box; text-align:left; background:#111; border-color:#666; font-weight:600; overflow-x:hidden; overflow-wrap:anywhere; }
 	#console>.bubble.system{ align-self:stretch; max-width:80%; background:#1a1a1a; border-style:dashed; color:#aaa;}
 
 	#menuOverlay{ position:fixed; inset:0; background:rgba(0,0,0,.0); pointer-events:none; z-index:9999; }
@@ -528,6 +528,9 @@
 			const msg = (typeof raw === 'string') ? JSON.parse(raw) : raw;
 			if (!msg || !msg.type) return;
 			switch (msg.type) {
+				case 'StartProgress': renderProgressBubble(msg.id, msg.title, !!msg.cancellable); break;
+				case 'UpdateProgress': updateProgressBubble(msg.id, msg); break;
+				case 'CompleteProgress': completeProgressBubble(msg.id, msg.artifact||''); break;				
 				case 'AppendMessage': add((msg.role||'').toLowerCase(), msg.content||''); break;
 				case 'RenderHistory': consoleEl.innerHTML=''; (msg.items||[]).forEach(x=>add((x.role||'').toLowerCase(), x.content||'')); break;
 				case 'ConsoleWrite': cwrite(msg.text||''); break;
@@ -572,12 +575,93 @@
 		consoleEl.scrollTop = consoleEl.scrollHeight;
 	}
 
+	// --- progress bubbles ---
+	function renderProgressBubble(id, title, cancellable){
+		const wrap = document.createElement('div');
+		wrap.className = 'bubble tool';
+		wrap.dataset.progressId = id;
+		wrap.innerHTML = `
+			<div style="text-align:left">
+			<div style="font-weight:700;margin-bottom:8px">${title}</div>
+			<div class="rows"></div>
+			<div class="stats" style="margin-top:6px;color:#888;font-size:.9em"></div>
+			<div class="actions" style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
+				${cancellable ? `<button data-cancel style="padding:6px 10px;border:1px solid #666;background:#222;color:#eee;border-radius:8px;cursor:pointer">Cancel</button>` : ``}
+			</div>
+			</div>`;
+		if (cancellable) {
+			wrap.querySelector('[data-cancel]').onclick = () => {
+			post({ type:'CancelProgress', id });
+			wrap.querySelector('[data-cancel]').disabled = true;
+			wrap.querySelector('[data-cancel]').textContent = 'Cancelling…';
+			};
+		}
+		consoleEl.appendChild(wrap);
+		consoleEl.scrollTop = consoleEl.scrollHeight;
+		return wrap;
+	}
+
+	function updateProgressBubble(id, payload){
+		const wrap = consoleEl.querySelector(`[data-progress-id="${id}"]`);
+		if (!wrap) return;
+		const rows = wrap.querySelector('.rows');
+		const stats = wrap.querySelector('.stats');
+
+		rows.innerHTML = '';
+		const MAX_ROWS = 5;
+		const rank = s => (s==='Running'?3 : s==='Queued'?2 : s==='Failed'?1 : s==='Canceled'?0 : -1);
+
+		const active = (payload.items || [])
+		.filter(r => r.state !== 'Completed' && r.state !== 'Canceled')
+		.sort((a,b) => (rank(b.state)-rank(a.state)) || (a.percent-b.percent) || a.name.localeCompare(b.name))
+		.slice(0, MAX_ROWS);
+
+		active.forEach(r => {
+		const pct = Math.max(0, Math.min(100, r.percent|0));
+		const glyph = r.state==='Running' ? '▶' : r.state==='Completed' ? '✓' : r.state==='Failed' ? '✖' : r.state==='Canceled' ? '■' : '•';
+		const right = (r.total>0) ? `${pct}% (${r.done}/${r.total})` : `${pct}%`;
+		const bar = document.createElement('div');
+		bar.className = 'progress-row';
+		bar.style.margin = '6px 0';
+		bar.innerHTML = `
+			<div style="display:flex;justify-content:space-between;gap:10px">
+			<div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70%">${glyph} ${r.name}</div>
+			<div style="color:#aaa">${right}</div>
+			</div>
+			<div class="bar" style="height:8px;background:#222;border:1px solid #444;border-radius:9999px;overflow:hidden">
+			<div class="fill" style="width:${pct}%;height:100%"></div>
+			</div>`;
+		const fill = bar.querySelector('.fill');
+		if (r.state==='Failed') fill.style.background = '#a11';
+		else if (r.state==='Canceled') fill.style.background = '#555';
+		else fill.style.background = '#5a9';
+		rows.appendChild(bar);
+		});
+
+
+		const s = payload.stats||{};
+		stats.textContent = `in-flight: ${s.running||0}   queued: ${s.queued||0}   completed: ${s.completed||0}   failed: ${s.failed||0}   canceled: ${s.canceled||0}` + (payload.eta ? ` • ETA: ${payload.eta}` : '');
+		if (!payload.active) {
+			const btn = wrap.querySelector('[data-cancel]'); if (btn) btn.remove();
+		}
+	}
+
+	function completeProgressBubble(id, artifactMarkdown){
+		const wrap = consoleEl.querySelector(`[data-progress-id="${id}"]`);
+		if (!wrap) return;
+		wrap.removeAttribute('data-progress-id');   // it’s not “live” anymore
+		wrap.className = 'bubble tool';             // normalize classes
+		wrap.innerHTML = marked.parse(artifactMarkdown || '_done_');
+		consoleEl.scrollTop = consoleEl.scrollHeight;
+	}
+
 	function submit() {
 		const v = t.value.trim();
 		if (!v) return;
 		post({ type:'UserText', text:v });
 		t.value = '';
 	}
+
 	send.onclick = submit;
 
 	t.addEventListener('keydown', (e) => {

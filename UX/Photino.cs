@@ -5,6 +5,7 @@ using Photino.NET;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 
 public sealed class PhotinoUi : IUi
 {
@@ -163,6 +164,33 @@ public sealed class PhotinoUi : IUi
 
 		return tcs.Task;
 	}
+	
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _progressMap = new();
+
+    public string StartProgress(string title, CancellationTokenSource cts)
+	{
+        var id = Guid.NewGuid().ToString("n");
+		Post(new { type = "StartProgress", id, title, cancellable = true });
+        _progressMap[id] = cts;
+
+        return id;
+	}
+
+	public void UpdateProgress(string id, ProgressSnapshot snapshot)
+	{
+		Post(new {
+			type = "UpdateProgress", id,
+			items = snapshot.Items.Select(x => new { name = x.name, percent = x.percent, state = x.state.ToString(), note = x.note, done = x.steps.done, total = x.steps.total }).ToList(),
+			stats = new { snapshot.Stats.running, snapshot.Stats.queued, snapshot.Stats.completed, snapshot.Stats.failed, snapshot.Stats.canceled },
+			eta = snapshot.EtaHint, active = snapshot.IsActive
+		});
+	}
+
+    public void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown)
+	{
+		Post(new { type = "CompleteProgress", id, artifact = artifactMarkdown });
+        _progressMap.TryRemove(id, out _);
+	}
 
 	private void HandleInbound(string raw) => Log.Method(ctx =>
 	{
@@ -210,6 +238,14 @@ public sealed class PhotinoUi : IUi
 
 			switch (type)
 			{
+				case "CancelProgress":
+				{
+					var pid = S("id","Id");
+					if (!string.IsNullOrWhiteSpace(pid) && _progressMap.TryGetValue(pid, out var cts))
+						try { cts.Cancel(); } catch { }
+					break;
+				}
+
 				case "UserText":
 					_tcsReadLine?.TrySetResult(S("text", "Text"));
 					if (!string.IsNullOrWhiteSpace(S("text", "Text")))
@@ -221,13 +257,13 @@ public sealed class PhotinoUi : IUi
 					break;
 
 				case "Key":
-				{
-					var key = S("key", "Key");
-					var chr = S("char", "Char");
-					var cki = MapToConsoleKeyInfo(key, chr, B("shift", "Shift"), B("ctrl", "Ctrl"), B("alt", "Alt"));
-					_tcsKey?.TrySetResult(cki);
-					break;
-				}
+					{
+						var key = S("key", "Key");
+						var chr = S("char", "Char");
+						var cki = MapToConsoleKeyInfo(key, chr, B("shift", "Shift"), B("ctrl", "Ctrl"), B("alt", "Alt"));
+						_tcsKey?.TrySetResult(cki);
+						break;
+					}
 
 				case "Resize":
 					var w = I("width", "Width"); if (w > 0) _width = w;
@@ -235,72 +271,72 @@ public sealed class PhotinoUi : IUi
 					break;
 
 				case "FormResult":
-				{
-					// map: { ok: bool, values?: { "Label": "stringValue", ... } }
-					bool ok = B("ok", "OK");
-					if (!ok) { _tcsForm?.TrySetResult(null); break; }
-
-					var dict = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-					if (map.TryGetValue("values", out var v) && v is Dictionary<string, object?> dv)
 					{
-						foreach (var kv in dv) dict[kv.Key] = Convert.ToString(kv.Value);
-					}
-					_tcsForm?.TrySetResult(dict);
-					break;
-				}
+						// map: { ok: bool, values?: { "Label": "stringValue", ... } }
+						bool ok = B("ok", "OK");
+						if (!ok) { _tcsForm?.TrySetResult(null); break; }
 
-                        case "PickFiles":
-                        {
-                                // payload: { type:"PickFiles", requestId, options:{ multi, filters, pathMode } }
-                                var reqId = S("requestId", "reqId") ?? Guid.NewGuid().ToString("n");
-                                var multi = B("multi");
-                                var mode = PathPickerMode.OpenExisting;
-                                List<string>? filters = null;
-                                if (map.TryGetValue("options", out var o) && o is Dictionary<string, object?> od)
-                                {
-                                        if (od.TryGetValue("multi", out var mv) && mv is not null) multi = Convert.ToBoolean(mv);
-                                        if (od.TryGetValue("filters", out var fv) && fv is IEnumerable<object?> arr)
-                                                filters = arr.Select(x => Convert.ToString(x))
-                                                        .Where(s => !string.IsNullOrWhiteSpace(s)).ToList()!;
-                                        if (od.TryGetValue("pathMode", out var pv) && pv is not null)
-                                        {
-                                                var parsed = Convert.ToString(pv);
-                                                if (!string.IsNullOrWhiteSpace(parsed) && Enum.TryParse<PathPickerMode>(parsed, ignoreCase: true, out var pm))
-                                                        mode = pm;
-                                        }
-                                }
-
-                                var opt = new FilePickerOptions(multi, filters?.ToArray(), mode);
-
-				void RunOnUi()
-				{
-					_ = _picker.ShowAsync(opt).ContinueWith(t =>
-					{
-						if (t.IsFaulted)
+						var dict = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+						if (map.TryGetValue("values", out var v) && v is Dictionary<string, object?> dv)
 						{
-							var ex = t.Exception!.InnerException ?? t.Exception!;
-							Post(new { type = "PickFilesResult", requestId = reqId, error = ex.Message });
+							foreach (var kv in dv) dict[kv.Key] = Convert.ToString(kv.Value);
+						}
+						_tcsForm?.TrySetResult(dict);
+						break;
+					}
+
+				case "PickFiles":
+					{
+						// payload: { type:"PickFiles", requestId, options:{ multi, filters, pathMode } }
+						var reqId = S("requestId", "reqId") ?? Guid.NewGuid().ToString("n");
+						var multi = B("multi");
+						var mode = PathPickerMode.OpenExisting;
+						List<string>? filters = null;
+						if (map.TryGetValue("options", out var o) && o is Dictionary<string, object?> od)
+						{
+							if (od.TryGetValue("multi", out var mv) && mv is not null) multi = Convert.ToBoolean(mv);
+							if (od.TryGetValue("filters", out var fv) && fv is IEnumerable<object?> arr)
+								filters = arr.Select(x => Convert.ToString(x))
+										.Where(s => !string.IsNullOrWhiteSpace(s)).ToList()!;
+							if (od.TryGetValue("pathMode", out var pv) && pv is not null)
+							{
+								var parsed = Convert.ToString(pv);
+								if (!string.IsNullOrWhiteSpace(parsed) && Enum.TryParse<PathPickerMode>(parsed, ignoreCase: true, out var pm))
+									mode = pm;
+							}
+						}
+
+						var opt = new FilePickerOptions(multi, filters?.ToArray(), mode);
+
+						void RunOnUi()
+						{
+							_ = _picker.ShowAsync(opt).ContinueWith(t =>
+							{
+								if (t.IsFaulted)
+								{
+									var ex = t.Exception!.InnerException ?? t.Exception!;
+									Post(new { type = "PickFilesResult", requestId = reqId, error = ex.Message });
+								}
+								else
+								{
+									Post(new { type = "PickFilesResult", requestId = reqId, files = t.Result });
+								}
+							}, TaskScheduler.Default);
+						}
+
+						var win = _win;
+						if (win is not null)
+						{
+							try { win.Invoke(RunOnUi); }
+							catch { RunOnUi(); }
 						}
 						else
 						{
-							Post(new { type = "PickFilesResult", requestId = reqId, files = t.Result });
+							RunOnUi();
 						}
-					}, TaskScheduler.Default);
-				}
 
-				var win = _win;
-				if (win is not null)
-				{
-					try { win.Invoke(RunOnUi); }
-					catch { RunOnUi(); }
-				}
-				else
-				{
-					RunOnUi();
-				}
-
-				break;
-			}
+						break;
+					}
 			}
 
 			ctx.Succeeded();

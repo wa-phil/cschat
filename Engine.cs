@@ -126,72 +126,40 @@ public static class Engine
     {
         ctx.OnlyEmitOnFailure();
 
-        var stopwatch = Stopwatch.StartNew();
+        var list = items?.ToList() ?? new();
         using var cts = new CancellationTokenSource();
 
-        var results = new ConcurrentBag<(string Name, bool ok, string? err)>();
-        var knownFiles = new ConcurrentBag<string>();
-        bool failed = false;
+        var (results, failures, canceled) =
+            await AsyncProgress.For("Adding content to RAG")
+                .WithCancellation(cts)
+                .Run<(string Name, string Content), bool>(
+                    items: () => list,
+                    nameOf: x => x.Name,
+                    processAsync: async (tuple, pi, ct) =>
+                    {
+                        await ContextManager.AddContent(
+                            tuple.Content, tuple.Name, ct,
+                            setTotalSteps: total => pi.SetTotal(total),
+                            advance: (delta, note) => pi.Advance(delta, note)
+                        );
+                        return true; // returning a result value for the caller
+                    });
 
-        using (var reporter = new ProgressUi.AsyncProgressReporterWithCancel("Adding content to RAG", cts))
+        // optional: persist "known files" context if not canceled
+        if (!canceled && list.Count > 0)
         {
-            var gate = new SemaphoreSlim(Math.Max(1, Program.config.RagSettings.MaxIngestConcurrency));
-            var tasks = items.Select(async tuple =>
-            {
-                var (name, content) = tuple;
-                var item = reporter.StartItem(name);
-                await gate.WaitAsync(reporter.Token);
-                knownFiles.Add(name);
-
-                try
-                {
-                    await ContextManager.AddContent(
-                        content, name, reporter.Token,
-                        total => item.SetTotalSteps(total),
-                        (delta, note) => item.Advance(delta, note));
-
-                    item.Complete("done");
-                    results.Add((name, true, null));
-                }
-                catch (OperationCanceledException)
-                {
-                    item.Cancel("canceled");
-                    results.Add((name, false, "canceled"));
-                }
-                catch (Exception ex)
-                {
-                    item.Fail(ex.Message);
-                    results.Add((name, false, ex.Message));
-                }
-                finally { gate.Release(); }
-            }).ToList();
-
-            try { await Task.WhenAll(tasks); }
-            catch (Exception ex) { failed = true; Program.ui.WriteLine($"Error during content ingestion: {ex.Message}"); }
-        } // reporter disposed here -> painter stops and prints its summary cleanly
-
-        // Now safe to print additional lines
-        var okCount = results.Count(r => r.ok);
-        var fail = results.Where(r => !r.ok && r.err != "canceled").ToList();
-        var canceledCount = results.Count(r => !r.ok && r.err == "canceled");
-
-        if (!cts.IsCancellationRequested && knownFiles.Count > 0)
-        {
-            await ContextManager.AddContent("Known files:\n" + string.Join("\n", knownFiles.OrderBy(x => x)), "known_files");
+            await ContextManager.AddContent("Known files:\n" + string.Join("\n", list.Select(x => x.Name).OrderBy(x => x)), "known_files");
         }
 
-        stopwatch.Stop();
-        Program.ui.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms total. Processed: {okCount}, failed: {fail.Count}, canceled: {canceledCount}.");
-        if (fail.Count > 0)
+        // If you want an extra assistant message beyond the artifact:
+        if (failures.Count > 0)
         {
-            Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
-            Program.ui.WriteLine("Failures:");
-            foreach (var f in fail.Take(20)) Program.ui.WriteLine($"  - {f.Name}: {f.err}");
-            if (fail.Count > 20) Program.ui.WriteLine($"  ...and {fail.Count - 20} more");
-            Program.ui.ResetColor();
+            Program.ui.RenderChatMessage(new ChatMessage {
+                Role = Roles.Assistant,
+                Content = $"Finished with {failures.Count} failures."
+            });
         }
-
-        ctx.Succeeded(!failed);
+        ctx.Succeeded(0 == failures.Count);
     });
 
     public static async Task AddDirectoryToVectorStore(string path) => await AddContentItemsToVectorStore(ReadFilesFromDirectory(path));
