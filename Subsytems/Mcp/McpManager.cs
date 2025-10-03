@@ -105,8 +105,9 @@ public class McpManager : ISubsystem
         }
     });
 
-    public async Task LoadAllServersAsync() => await Log.MethodAsync(async ctx =>
+    public async Task LoadAllServersAsync(IRealtimeWriter? output = null) => await Log.MethodAsync(async ctx =>
     {
+        output = output ?? Program.ui.BeginRealtime("Loading configured MCP servers...");
         ctx.OnlyEmitOnFailure();
         var serverDefs = new List<McpServerDefinition>();
         // Try to load from UserManagedData subsystem first
@@ -125,18 +126,18 @@ public class McpManager : ISubsystem
                 {
                     ctx.Append(Log.Data.Name, serverDef.Name);
                     ctx.Append(Log.Data.Command, serverDef.Command);
-                    var success = await ConnectToServerAsync(serverDef);
+                    var success = await ConnectToServerAsync(serverDef, output);
                     if (success)
                     {
                         loadedCount++;
                         Program.ui.ForegroundColor = ConsoleColor.Green;
-                        Program.ui.WriteLine($"Successfully connected to MCP server: {serverDef.Name}");
+                        output.WriteLine($"Successfully connected to MCP server: {serverDef.Name}");
                         Program.ui.ResetColor();
                     }
                     else
                     {
                         Program.ui.ForegroundColor = ConsoleColor.Red;
-                        Program.ui.WriteLine($"Failed to connect to MCP server: {serverDef.Name}");
+                        output.WriteLine($"Failed to connect to MCP server: {serverDef.Name}");
                         Program.ui.ResetColor();
                     }
                 }
@@ -144,7 +145,7 @@ public class McpManager : ISubsystem
             catch (Exception ex)
             {
                 Program.ui.ForegroundColor = ConsoleColor.Red;
-                Program.ui.WriteLine($"Warning: Failed to load MCP server {serverDef?.Name}: {ex.Message}.  See system logs for additional details.");
+                output.WriteLine($"Warning: Failed to load MCP server {serverDef?.Name}: {ex.Message}.  See system logs for additional details.");
                 Program.ui.ResetColor();
             }
         }
@@ -153,16 +154,16 @@ public class McpManager : ISubsystem
         ctx.Succeeded();
     });
 
-    private async Task<bool> ConnectToServerAsync(McpServerDefinition serverDef) => await Log.MethodAsync(async ctx =>
+    private async Task<bool> ConnectToServerAsync(McpServerDefinition serverDef, IRealtimeWriter? output = null) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Name, serverDef.Name);
         ctx.Append(Log.Data.Command, serverDef.Command);
-        
+        output = output ?? Program.ui.BeginRealtime($"Connecting client to MCP server: {serverDef.Name}...");
         try
         {
             Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
-            Program.ui.Write($"Connecting client to MCP server: {serverDef.Name}...");
+            output.Write($"Connecting client to MCP server: {serverDef.Name}...");
             Program.ui.ResetColor();
 
             // Create the MCP client using the simplified API
@@ -218,7 +219,7 @@ public class McpManager : ISubsystem
             _serverTools[serverDef.Name] = tools;
             
             Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
-            Program.ui.WriteLine($"✅ {clientTools.Count} tools added.");
+            output.WriteLine($"✅ {clientTools.Count} tools added.");
             Program.ui.ResetColor();
             ctx.Append(Log.Data.Count, tools.Count);
             ctx.Succeeded();
@@ -227,7 +228,7 @@ public class McpManager : ISubsystem
         catch (Exception ex)
         {
             Program.ui.ForegroundColor = ConsoleColor.Red;
-            Program.ui.WriteLine($" failed: {ex.Message}");
+            output.WriteLine($" failed: {ex.Message}");
             Program.ui.ResetColor();
             ctx.Failed($"Error connecting to MCP server: {ex.Message}", ex);
             return false;

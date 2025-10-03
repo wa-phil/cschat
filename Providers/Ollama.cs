@@ -17,8 +17,9 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         client.DefaultRequestHeaders.Add("Accept", "application/json");
     }
 
-    public async Task<List<string>> GetAvailableModelsAsync()
+    public async Task<List<string>> GetAvailableModelsAsync() => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         using var client = new HttpClient();
         try
         {
@@ -28,7 +29,7 @@ public class Ollama : IChatProvider, IEmbeddingProvider
             dynamic? parsed = resp!.FromJson<dynamic>();
             if (parsed == null || parsed!["models"] == null)
             {
-                Program.ui.WriteLine("No models found in response.");
+                ctx.Append(Log.Data.Message, "No models found in response.");
                 return models;
             }
             foreach (var model in parsed!["models"]!)
@@ -36,14 +37,15 @@ public class Ollama : IChatProvider, IEmbeddingProvider
                 if (model != null && model!["name"] != null)
                     models.Add((string)model!["name"]!);
             }
+            ctx.Succeeded(models.Count > 0);
             return models;
         }
-        catch
+        catch (Exception ex)
         {
-            Program.ui.WriteLine("Failed to fetch models from host.");
+            ctx.Failed("Failed to fetch models from host.", ex);
             return new List<string>();
         }
-    }
+    });
 
     public async Task<string> PostChatAsync(Context Context, float temperature) => await Log.MethodAsync(async ctx =>
     {
@@ -105,21 +107,18 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         if (!response.IsSuccessStatusCode)
         {
             ctx.Failed($"Failed to get embedding: {response.StatusCode}", Error.ToolFailed);
-            Program.ui.WriteLine($"Failed to get embedding: {response.StatusCode}");
             return Array.Empty<float>();
         }
         var json = await response.Content.ReadAsStringAsync();
         if (string.IsNullOrWhiteSpace(json))
         {
             ctx.Failed("Received empty response from embedding API", Error.EmptyResponse);
-            Program.ui.WriteLine("Received empty response from embedding API.");
             return Array.Empty<float>();
         }
         ctx.Append(Log.Data.Response, json);
         dynamic? parsed = json!.FromJson<dynamic>();
         if (null == parsed || null == parsed!["embedding"])
         {
-            Program.ui.WriteLine("No embedding found in response.");
             ctx.Failed("No embedding found in response", Error.EmptyResponse);
             return Array.Empty<float>();
         }
@@ -127,7 +126,6 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         if (embedding == null)
         {
             ctx.Failed("Embedding is null in response", Error.EmptyResponse);
-            Program.ui.WriteLine("Embedding is null in response.");
             return Array.Empty<float>();
         }
         ctx.Append(Log.Data.Count, embedding.Count());

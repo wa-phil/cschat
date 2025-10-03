@@ -166,6 +166,7 @@ You do not need to summarize the user's question, or comment on it, or explain y
     public async Task<(string result, Context Context)> PostChatAsync(Context context) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
+        using var output = Program.ui.BeginRealtime("Planning...");
         // We're just getting started, reset results and actionsTaken for each session
         results = new List<string>(); 
         actionsTaken = new HashSet<string>();
@@ -190,14 +191,14 @@ You do not need to summarize the user's question, or comment on it, or explain y
         var input = context.Messages().LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         int stepsTaken = 0, maxAllowedSteps = Program.config.MaxSteps;
         Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
-        Program.ui.WriteLine($"working on: {objective.Goal}");
+        output.WriteLine($"working on: {objective.Goal}");
         Program.ui.ResetColor();
 
         ctx.Append(Log.Data.Message, "Taking steps to achieve the goal.");
         // Conversation implies action on the part of the planner.
         int duplicatesAllowed = 3;
         bool planningFailed = false;
-        await foreach (var step in Steps(objective.Goal, context, input, onPlanningFailure: reason =>
+        await foreach (var step in Steps(output, objective.Goal, context, input, onPlanningFailure: reason =>
         {
             planningFailed = true;
             ctx.Append(Log.Data.Reason, reason);
@@ -215,7 +216,7 @@ You do not need to summarize the user's question, or comment on it, or explain y
             if (actionsTaken.Contains(key))
             {
                 Program.ui.ForegroundColor = ConsoleColor.DarkGray;
-                Program.ui.WriteLine($"Skipping duplicate step: {step.ToolName ?? "<unknown>"} with already attempted input.");
+                output.WriteLine($"Skipping duplicate step: {step.ToolName ?? "<unknown>"} with already attempted input.");
                 Program.ui.ResetColor();
 
                 if (0 == --duplicatesAllowed)
@@ -234,7 +235,7 @@ You do not need to summarize the user's question, or comment on it, or explain y
 
             ctx.Append(Log.Data.Count, stepsTaken);
             Program.ui.ForegroundColor = ConsoleColor.Yellow;
-            Program.ui.Write($"Step {stepsTaken}: {step.ToolName}...");
+            output.Write($"Step {stepsTaken}: {step.ToolName}...");
             Program.ui.ResetColor();
 
             var result = await ToolRegistry.InvokeInternalAsync(step!.ToolName!, step!.ToolInput!, context);
@@ -261,7 +262,7 @@ You do not need to summarize the user's question, or comment on it, or explain y
             results.Add(stepSummaryForPlanner);
 
             Program.ui.ForegroundColor = ConsoleColor.DarkGray;
-            Program.ui.WriteLine($"{status}\n{summary}"); // show what user would see
+            output.WriteLine($"{status}\n{summary}"); // show what user would see
             Program.ui.ResetColor();
 
             // check progress towards the goal
@@ -322,12 +323,12 @@ Use the following context to inform your response to the user's statement.
 
     private enum State { failed, success, noFurtherActionRequired };
 
-    public async IAsyncEnumerable<PlanStep> Steps(string goal, Context Context, string userInput, Action<string> onPlanningFailure = null!) 
+    public async IAsyncEnumerable<PlanStep> Steps(IRealtimeWriter output, string goal, Context Context, string userInput, Action<string> onPlanningFailure = null!) 
     {
         while (!done)
         {
             // Get the next step based on the goal and current context
-            string reason = string.Empty;            
+            string reason = string.Empty;
             State state = State.success;
             PlanStep? step = null;
             try
@@ -358,7 +359,7 @@ Use the following context to inform your response to the user's statement.
                     state = State.failed;
                     reason = "ERROR: Planner returned a step with null tool input; check logs for further details.";
                 }
-            } 
+            }
             catch (Exception ex)
             {
                 state = State.failed;
@@ -369,7 +370,7 @@ Use the following context to inform your response to the user's statement.
             {
                 onPlanningFailure?.Invoke(reason);
                 Program.ui.ForegroundColor = ConsoleColor.Red;
-                Program.ui.WriteLine(reason);
+                output.WriteLine(reason);
                 Program.ui.ResetColor();
                 yield break;
             }
@@ -377,7 +378,7 @@ Use the following context to inform your response to the user's statement.
             if (State.noFurtherActionRequired == state)
             {
                 Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
-                Program.ui.WriteLine("Done.");
+                output.WriteLine("Done.");
                 Program.ui.ResetColor();
                 yield break;
             }

@@ -32,6 +32,39 @@ public sealed class PhotinoUi : IUi
 	private ConsoleColor _bg = ConsoleColor.Black;
 	private string? _lastInput;
 
+	private sealed class PhotinoRealtimeWriter : IRealtimeWriter
+	{
+		private readonly PhotinoUi _ui;
+		private readonly string _id;
+		private bool _closed;
+
+		public PhotinoRealtimeWriter(PhotinoUi ui, string title)
+		{
+			_ui = ui;
+			_id = Guid.NewGuid().ToString("n");
+			_ui.Post(new { type = "StartRealtime", id = _id, title });
+		}
+
+		public void Write(string text)
+		{
+			if (_closed) return;
+			_ui.Post(new { type = "RealtimeAppend", id = _id, text = text ?? "", newline = false });
+		}
+
+		public void WriteLine(string? text = null)
+		{
+			if (_closed) return;
+			_ui.Post(new { type = "RealtimeAppend", id = _id, text = text ?? "", newline = true });
+		}
+
+		public void Dispose()
+		{
+			if (_closed) return;
+			_closed = true;
+			_ui.Post(new { type = "RealtimeComplete", id = _id });
+		}
+	}
+
 	public Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
 	{
 		var model = new BoolBox { Answer = defaultAnswer };
@@ -500,6 +533,17 @@ public sealed class PhotinoUi : IUi
 		Post(new { type = "ShowMenu", header, choices, selected });
 		return _tcsMenu.Task.GetAwaiter().GetResult();
 	}
+
+	public void RenderReport(Report report)
+	{
+		// Photino renders as markdown tool bubble
+		var md = report?.ToMarkdown() ?? "";
+		var message = new ChatMessage { Role = Roles.Tool, Content = md };
+		Program.Context.AddToolMessage(md);
+		RenderChatMessage(message);
+	}
+
+	public IRealtimeWriter BeginRealtime(string title) => new PhotinoRealtimeWriter(this, title ?? "Output");
 
 	public ConsoleKeyInfo ReadKey(bool intercept)
 			=> ReadKeyInternalAsync(intercept).GetAwaiter().GetResult();

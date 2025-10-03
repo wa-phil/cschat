@@ -589,6 +589,33 @@ public class Terminal : IUi
 		RenderChatMessage(message);
     }
 
+    public void RenderReport(Report report)
+    {
+        var width = Math.Max(20, Width - 1);
+        var text = report?.ToPlainText(width) ?? "";
+        var msg = new ChatMessage { Role = Roles.Tool, Content = text };
+        Program.Context.AddToolMessage(text);
+        RenderChatMessage(msg);
+    }
+
+    private sealed class TermRealtimeWriter : IRealtimeWriter
+    {
+        public void Write(string text) => Console.Write(text ?? "");
+        public void WriteLine(string? text = null) => Console.WriteLine(text);
+        public void Dispose() { /* no-op */ }
+    }
+
+    public IRealtimeWriter BeginRealtime(string title)
+    {
+        // Give a small heading so it's visible, then pass-through
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            WriteLine(title);
+            WriteLine(new string('-', Math.Min(title.Length, Math.Max(10, Width - 1))));
+        }
+        return new TermRealtimeWriter();
+    }    
+
     // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
     public string? RenderMenu(string header, List<string> choices, int selected = 0)
     {

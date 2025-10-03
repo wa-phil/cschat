@@ -5,6 +5,11 @@ using System.Collections;
 using System.Globalization;
 using System.Collections.Generic;
 
+/// <summary>
+/// Kinds of fields supported in a form
+/// </summary>
+/// <typeparam name="TModel">type of the model backing the form</typeparam>
+/// <typeparam name="TValue">type of the field value</typeparam>
 public sealed class UiField<TModel, TValue> : IUiField
 {
     public string Key { get; }     // stable id for roundtrips
@@ -64,7 +69,6 @@ public sealed class UiField<TModel, TValue> : IUiField
 
     // formatter uses typed getter + typed formatter
     public Func<object?, string> Formatter => model => _format(_get((TModel)model!));
-
     public IEnumerable<string>? EnumChoices() => Choices;
     public int? MinInt() => Min;
     public int? MaxInt() => Max;
@@ -128,11 +132,15 @@ public sealed class UiField<TModel, TValue> : IUiField
     IUiField IUiField.FormatWith(Func<object?, string> format) { _format = v => format(v); return this; }
     IUiField IUiField.WithPlaceholder(string? ph) { Placeholder = ph; return this; }
     IUiField IUiField.WithRegex(string p, string? m) { Pattern = p; PatternMessage = m; return this; }
-    IUiField IUiField.MakeOptionalIf(bool cond) { if (cond) {Required = false;} return this; }
+    IUiField IUiField.MakeOptionalIf(bool cond) { if (cond) { Required = false; } return this; }
     IUiField IUiField.WithPathMode(PathPickerMode mode) { PathMode = mode; return this; }
 }
 
-// Array field for lists of simple element types (string/int/long/decimal/double/bool/guid/date/time)
+/// <summary>
+/// Array field for lists of simple element types (string/int/long/decimal/double/bool/guid/date/time)
+/// </summary>
+/// <typeparam name="TModel">Type of the model backing the array in the form</typeparam>
+/// <typeparam name="TItem">Type of the items in the array</typeparam>
 public sealed class UiArrayField<TModel, TItem> : IUiField
 {
     public string Key { get; }
@@ -296,7 +304,15 @@ public sealed class UiForm
     // simple-list array field
     public IUiField AddList<TModel, TItem>(string label, Func<TModel, IList<TItem>> get, Action<TModel, IList<TItem>> set, string? key = null)
         => Add(new UiArrayField<TModel, TItem>(key ?? label, label, get, set));
+}
 
+/// <summary>
+/// Interface for a realtime text writer (e.g. console or terminal)
+/// </summary>
+public interface IRealtimeWriter : IDisposable
+{
+    void Write(string text);
+    void WriteLine(string? text = null);
 }
 
 public interface IUi
@@ -309,6 +325,9 @@ public interface IUi
     Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt);
 
     void RenderTable(Table table, string? title = null);
+    void RenderReport(Report report);
+    
+    IRealtimeWriter BeginRealtime(string title);
 
     // progress reporting
     string StartProgress(string title, CancellationTokenSource cts);

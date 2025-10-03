@@ -23,7 +23,8 @@ public static class PRsCommands
                         var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.prs.fetch",
                             new FetchPRsInput { ProfileName = prof.Name });
-                        Program.ui.WriteLine(resp);
+                        using var output = Program.ui.BeginRealtime("Fetching PRs...");
+                        output.WriteLine(resp);
                         return Command.Result.Success;
                     }
                 },
@@ -37,7 +38,8 @@ public static class PRsCommands
                         var w = ((PRsWindowModel)winForm.Model!).Window;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.prs.report",
                             new ReportPRsInput { ProfileName = prof.Name, WindowDays = w });
-                        Program.ui.WriteLine(resp);
+                        using var output = Program.ui.BeginRealtime("Generating report...");
+                        output.WriteLine(resp);
                         return Command.Result.Success;
                     }
                 },
@@ -54,7 +56,8 @@ public static class PRsCommands
                         var lim = ((PRsLimitModel)sliceForm.Model!).Limit;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.prs.slice",
                             new SlicePRsInput { ProfileName = prof.Name, Slice = chosen, Limit = lim });
-                        Program.ui.WriteLine(resp);
+                        using var output = Program.ui.BeginRealtime($"Fetching '{chosen}' slice...");
+                        output.WriteLine(resp);
                         return Command.Result.Success;
                     }
                 },
@@ -68,7 +71,8 @@ public static class PRsCommands
                         var m = ((PRsMaxModel)coachForm.Model!).Max;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.prs.coach",
                             new CoachPRsInput { ProfileName = prof.Name, MaxPerIC = m });
-                        Program.ui.WriteLine(resp);
+                        using var output = Program.ui.BeginRealtime("Analyzing PR threads...");
+                        output.WriteLine(resp);
                         return Command.Result.Success;
                     }
                 }
@@ -78,7 +82,12 @@ public static class PRsCommands
         static PRsProfile? PickProfile()
         {
             var profiles = Program.userManagedData.GetItems<PRsProfile>().OrderBy(p => p.Name).ToList();
-            if (profiles.Count == 0) { Program.ui.WriteLine("No PRs Profile found. Add one in Data → PRs Profile."); return null; }
+            if (profiles.Count == 0)
+            {
+                using var output = Program.ui.BeginRealtime("Looking for PRs profiles...");
+                output.WriteLine("No PRs Profile found. Add one in Data → PRs Profile.");
+                return null;
+            }
             if (profiles.Count == 1) return profiles[0];
             var choices = profiles.Select(p => p.ToString()).ToList();
             var sel = Program.ui.RenderMenu("Select PRs profile:", choices);

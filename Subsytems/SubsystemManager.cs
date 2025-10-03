@@ -99,12 +99,16 @@ public class SubsystemManager
         if (!enabled)
         {
             var dependents = GetDependentsForSubsystem(key).ToList();
-            foreach (var d in dependents)
+            if (dependents.Count > 0)
             {
-                if (IsEnabled(d))
+                using var output = Program.ui.BeginRealtime("Disabling dependencies");   
+                foreach (var d in dependents)
                 {
-                    Program.ui.WriteLine($"Disabling dependent subsystem '{d}' because '{key}' was disabled.");
-                    SetEnabled(d, false);
+                    if (IsEnabled(d))
+                    {
+                        output.WriteLine($"Disabling dependent subsystem '{d}' because '{key}' was disabled.");
+                        SetEnabled(d, false);
+                    }
                 }
             }
         }
@@ -160,19 +164,20 @@ public class SubsystemManager
         // Iterate a snapshot of the configured subsystems to avoid
         // modifying the collection (SetEnabled updates Program.config.Subsystems)
         var subsystems = Program.config.Subsystems.ToList();
+        using var output = Program.ui.BeginRealtime("Connecting to subsystems...");
         foreach (var kv in subsystems)
         {
             ctx.Append(Log.Data.Message, $"Setting subsystem '{kv.Key}' enabled to {kv.Value}.");
             if (kv.Value)
             {
-                Program.ui.Write($"Connecting to subsystem '{kv.Key}'...");
+                output.Write($"Connecting to subsystem '{kv.Key}'...");
             }
 
             Program.SubsystemManager.SetEnabled(kv.Key, kv.Value);
 
             if (kv.Value)
             {
-                Program.ui.WriteLine("connected.");
+                output.WriteLine("connected.");
             }
         }
         Config.Save(Program.config, Program.ConfigFilePath); // Save the config

@@ -60,7 +60,6 @@ public partial class CommandManager : Command
                         Program.config.Ado = (AdoConfig)form.Model!;
 
                         Config.Save(Program.config, Program.ConfigFilePath);
-                        Program.ui.WriteLine("ADO basics saved.");
                         return Command.Result.Success;
                     }
                 },
@@ -134,7 +133,6 @@ public partial class CommandManager : Command
                         Program.config.Ado.Insights = (AdoInsightsConfig)form.Model!;
 
                         Config.Save(Program.config, Program.ConfigFilePath);
-                        Program.ui.WriteLine("ADO insights saved.");
                         return Command.Result.Success;
                     }
                 }

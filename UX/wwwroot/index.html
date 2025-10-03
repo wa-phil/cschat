@@ -554,6 +554,9 @@
 			const msg = (typeof raw === 'string') ? JSON.parse(raw) : raw;
 			if (!msg || !msg.type) return;
 			switch (msg.type) {
+				case 'StartRealtime': renderRealtimeBubble(msg.id, msg.title||'Output'); break;
+				case 'RealtimeAppend': appendRealtime(msg.id, msg.text||'', !!msg.newline); break;
+				case 'RealtimeComplete': completeRealtime(msg.id); break;
 				case 'StartProgress': renderProgressBubble(msg.id, msg.title, !!msg.cancellable); break;
 				case 'UpdateProgress': updateProgressBubble(msg.id, msg); break;
 				case 'CompleteProgress': completeProgressBubble(msg.id, msg.artifact||''); break;				
@@ -599,6 +602,36 @@
 		el.innerHTML = marked.parse(text ?? '');
 		consoleEl.appendChild(el);
 		consoleEl.scrollTop = consoleEl.scrollHeight;
+	}
+
+	// --- realtime text bubbles ---
+	function renderRealtimeBubble(id, title){
+		const wrap = document.createElement('div');
+		wrap.className = 'bubble tool';
+		wrap.dataset.realtimeId = id;
+		wrap.innerHTML = `
+			<div style="text-align:left">
+			<div style="font-weight:700;margin-bottom:8px">${title}</div>
+			<pre class="rt" style="white-space:pre-wrap;margin:0"></pre>
+			</div>`;
+		consoleEl.appendChild(wrap);
+		consoleEl.scrollTop = consoleEl.scrollHeight;
+	}
+
+	function appendRealtime(id, text, newline){
+		const wrap = consoleEl.querySelector(`[data-realtime-id="${id}"]`);
+		if (!wrap) return;
+		const pre = wrap.querySelector('.rt');
+		if (!pre) return;
+		pre.textContent += (text||'') + (newline ? '\n' : '');
+		consoleEl.scrollTop = consoleEl.scrollHeight;
+	}
+
+	function completeRealtime(id){
+		const wrap = consoleEl.querySelector(`[data-realtime-id="${id}"]`);
+		if (!wrap) return;
+		// freeze it as a normal tool bubble (already styled); nothing else required
+		wrap.removeAttribute('data-realtime-id');
 	}
 
 	// --- progress bubbles ---

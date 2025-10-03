@@ -150,7 +150,6 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
         catch (Exception ex)
         {
             ctx.Failed($"Failed to get embedding from Azure OpenAI", ex);
-            Program.ui.WriteLine($"Failed to get embedding from AzureAI: {ex.Message}");
             return Array.Empty<float>();
         }
     });

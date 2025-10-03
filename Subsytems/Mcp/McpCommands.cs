@@ -22,6 +22,7 @@ namespace Subsytems.Mcp
                         Description = () => "Reload and reconnect to all configured MCP servers",
                         Action = async () => await Log.MethodAsync(async ctx =>
                         {
+                            using var output = Program.ui.BeginRealtime("Reloading MCP servers...");
                             ctx.OnlyEmitOnFailure();
                             ctx.Append(Log.Data.Message, "Reloading MCP servers");
 
@@ -31,15 +32,15 @@ namespace Subsytems.Mcp
                                 await McpManager.Instance.ShutdownAllAsync();
                                 
                                 // Reload from configuration files
-                                await McpManager.Instance.LoadAllServersAsync();
+                                await McpManager.Instance.LoadAllServersAsync(output);
 
                                 var connectedServers = McpManager.Instance.GetConnectedServers();
-                                Program.ui.WriteLine($"Successfully reloaded {connectedServers.Count} MCP servers.");
+                                output.WriteLine($"Successfully reloaded {connectedServers.Count} MCP servers.");
 
                                 if (connectedServers.Count > 0)
                                 {
                                     var totalTools = connectedServers.Sum(cs => cs.Tools.Count);
-                                    Program.ui.WriteLine($"Total tools available: {totalTools}");
+                                    output.WriteLine($"Total tools available: {totalTools}");
                                 }
                             }
                             catch (Exception ex)
@@ -57,13 +58,14 @@ namespace Subsytems.Mcp
                         Description = () => "Create documentation for all MCP servers and tools",
                         Action = () =>
                         {
+                            using var output = Program.ui.BeginRealtime("Creating MCP documentation...");
                             var connectedServers = McpManager.Instance.GetConnectedServers();
                             if (connectedServers.Count == 0)
                             {
-                                Program.ui.WriteLine("No MCP servers are currently connected.");
+                                output.WriteLine("No MCP servers are currently connected.");
                                 return Task.FromResult(Command.Result.Success);
                             }
-                            Program.ui.WriteLine("Creating documentation for MCP servers and tools...");
+                            output.WriteLine("Creating documentation for MCP servers and tools...");
                             var docPath = Path.Combine(Directory.GetCurrentDirectory(), "mcp_documentation.md");
                             using (var writer = new StreamWriter(docPath, false))
                             {
@@ -100,34 +102,35 @@ namespace Subsytems.Mcp
                         Description = () => "List tools from connected MCP servers",
                         Action = () =>
                         {
+                            using var output = Program.ui.BeginRealtime("Fetching tools from connected MCP servers...");
                             var connectedServers = McpManager.Instance.GetConnectedServers();
                             if (connectedServers.Count == 0)
                             {
-                                Program.ui.WriteLine("No MCP servers are currently connected.");
+                                output.WriteLine("No MCP servers are currently connected.");
                                 return Task.FromResult(Command.Result.Success);
                             }
 
-                            Program.ui.WriteLine($"Tools from connected MCP servers ({connectedServers.Count} servers):");
+                            output.WriteLine($"Tools from connected MCP servers ({connectedServers.Count} servers):");
                             foreach (var (serverName, tools) in connectedServers)
                             {
-                                Program.ui.WriteLine($"\n{serverName} ({tools.Count} tools):");
+                                output.WriteLine($"\n{serverName} ({tools.Count} tools):");
                                 foreach (var tool in tools)
                                 {
                                     Program.ui.ForegroundColor = ConsoleColor.Yellow;
-                                    Program.ui.WriteLine($"{tool.ToolName}");
+                                    output.WriteLine($"{tool.ToolName}");
                                     Program.ui.ForegroundColor = ConsoleColor.Gray;
-                                    Program.ui.WriteLine($"    Usage: {tool.Usage}");
-                                    Program.ui.WriteLine($"    Description: {tool.Description}");
+                                    output.WriteLine($"    Usage: {tool.Usage}");
+                                    output.WriteLine($"    Description: {tool.Description}");
                                     Program.ui.ResetColor();
                                     var exmapleText = tool.InputType?.GetCustomAttribute<ExampleText>()?.Text ?? string.Empty;
                                     if (!string.IsNullOrEmpty(exmapleText))
                                     {
                                         exmapleText = exmapleText.Replace("ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE.", string.Empty);
                                         Program.ui.ForegroundColor = ConsoleColor.DarkGray;
-                                        Program.ui.WriteLine($"    Example input:\n{exmapleText}");
+                                        output.WriteLine($"    Example input:\n{exmapleText}");
                                         Program.ui.ResetColor();
                                     }
-                                    Program.ui.WriteLine("---------------------------------------------------------");
+                                    output.WriteLine("---------------------------------------------------------");
                                 }
                             }
 
