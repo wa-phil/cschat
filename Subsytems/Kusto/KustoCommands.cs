@@ -83,15 +83,16 @@ public static class KustoCommands
                 {
                     Name = "run saved",
                     Description = () => "Run a saved query under a config (optional export)",
-                    Action = async () =>
+                    Action = async () => await Log.MethodAsync(async ctx=>
                     {
+                        ctx.OnlyEmitOnFailure();
                         var cfg = PickConfig();
                         if (cfg is null) return Command.Result.Failed;
                         var q = PickQuery(cfg);
                         if (q is null) return Command.Result.Failed;
 
                         var table = await kusto.QueryAsync(cfg, q.Kql);
-                        Program.ui.WriteLine(table.ToText(Program.ui.Width));
+                        Program.ui.RenderTable(table, $"Results: {cfg.Name} / {q.Name}");
 
                         var exportForm = UiForm.Create("Export results", new ExportModel { Format = "none", Path = "results.txt" });
                         exportForm.AddChoice<ExportModel>("Format", new[]{"none","csv","json"}, m => m.Format, (m,v)=> m.Format = v);
@@ -99,6 +100,7 @@ public static class KustoCommands
                                   .WithPathMode(PathPickerMode.SaveFile)
                                   .MakeOptionalIf(true)
                                   .WithHelp("File path if exporting.");
+                        bool exportSucceed = true;
                         if (await Program.ui.ShowFormAsync(exportForm))
                         {
                             var em = (ExportModel)exportForm.Model!;
@@ -111,15 +113,18 @@ public static class KustoCommands
                                 }
                                 catch (Exception ex)
                                 {
-                                    Program.ui.WriteLine($"Export failed: {ex.Message}");
+                                    exportSucceed = false;
+                                    ctx.Append(Log.Data.Message, $"Export failed: {ex.Message}");
                                 }
                             }
                         }
 
                         Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-                        await ContextManager.AddContent(table.ToText(Program.ui.Width), $"kusto/{cfg.Name}/results/{q.Name}");
+                        Program.ui.RenderTable(table, $"Results: {cfg.Name} / {q.Name}");
+                        await ContextManager.AddContent(table.ToCsv(), $"kusto/{cfg.Name}/results/{q.Name}");
+                        ctx.Succeeded(exportSucceed);
                         return Command.Result.Success;
-                    }
+                    })
                 },
                 new Command
                 {
@@ -176,8 +181,8 @@ public static class KustoCommands
                         var kql = ((KqlInputModel)adhocForm.Model!).Kql;
 
                         var table = await kusto.QueryAsync(cfg, kql);
-                        Program.ui.WriteLine(table.ToText(Program.ui.Width));
-                        await ContextManager.AddContent(table.ToText(Program.ui.Width), $"kusto/{cfg.Name}/results/__adhoc__");
+                        Program.ui.RenderTable(table, $"Results: {cfg.Name} / __adhoc__");
+                        await ContextManager.AddContent(table.ToCsv(), $"kusto/{cfg.Name}/results/__adhoc__");
 
                         if (await Program.ui.ConfirmAsync("Save this as a named query?", false))
                         {

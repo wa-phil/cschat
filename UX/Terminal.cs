@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Text;
 
 public class Terminal : IUi
 {
@@ -488,6 +489,104 @@ public class Terminal : IUi
         }
 
         return string.IsNullOrWhiteSpace(input) ? null : input;
+    }
+
+    public void RenderTable(Table table, string? title = null)
+    {
+        int maxWidth = Width - 1;
+        var hs = table.Headers.ToList();
+        var rowList = table.Rows.ToList();
+
+        int origCount = hs.Count;
+        var indices = Enumerable.Range(0, origCount).ToList();
+
+        if (rowList.Count > 0)
+        {
+            indices = indices.Where(i => rowList.Any(r => i < r.Length && !string.IsNullOrEmpty(r[i]))).ToList();
+            if (indices.Count == 0) indices = Enumerable.Range(0, origCount).ToList();
+        }
+
+        var maxLens = new List<int>();
+        foreach (var i in indices)
+        {
+            int w = hs[i]?.Length ?? 0;
+            foreach (var r in rowList)
+            {
+                if (i < r.Length && r[i] != null)
+                    w = Math.Max(w, r[i].Length);
+            }
+            maxLens.Add(w);
+        }
+
+        int colCount = indices.Count;
+        if (colCount == 0) return; // nothing to render
+
+        int sepWidth = 3 * Math.Max(0, colCount - 1);
+        int contentMax = Math.Max(1, maxWidth - sepWidth);
+
+        int minCol = 6;
+        if (contentMax < colCount * minCol)
+        {
+            minCol = Math.Max(1, contentMax / colCount);
+        }
+
+        var widths = new int[colCount];
+        int allocated = 0;
+        for (int idx = 0; idx < colCount; idx++)
+        {
+            int remaining = colCount - idx - 1;
+            int minForRemaining = remaining * minCol;
+            int availableForThis = contentMax - allocated - minForRemaining;
+            int desired = Math.Min(maxLens[idx], contentMax);
+            int w = Math.Clamp(desired, minCol, Math.Max(minCol, availableForThis));
+            widths[idx] = w;
+            allocated += w;
+        }
+
+        int leftover = contentMax - allocated;
+        for (int i = 0; leftover > 0 && i < colCount; i++)
+        {
+            int add = Math.Min(leftover, Math.Max(0, maxLens[i] - widths[i]));
+            widths[i] += add;
+            leftover -= add;
+        }
+        for (int i = 0; leftover > 0 && i < colCount; i++)
+        {
+            widths[i] += 1;
+            leftover -= 1;
+        }
+
+        string Fit(string s, int w) => (s.Length <= w) ? s.PadRight(w) : s.Substring(0, Math.Max(0, w - 1)) + "…";
+
+        var lines = new List<string>();
+        lines.Add(string.Join(" │ ", indices.Select((origIdx, j) => Fit(hs[origIdx] ?? "", widths[j]))));
+        lines.Add(string.Join("─┼─", widths.Select(c => new string('─', Math.Max(1, c)))));
+
+        foreach (var row in rowList)
+        {
+            var parts = new List<string>();
+            for (int j = 0; j < colCount; j++)
+            {
+                var origIdx = indices[j];
+                var s = (origIdx < row.Length) ? (row[origIdx] ?? "") : "";
+                parts.Add(Fit(s, widths[j]));
+            }
+            lines.Add(string.Join(" │ ", parts));
+        }
+
+        var sb = new StringBuilder();
+
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            sb.AppendLine(title);
+            sb.AppendLine(new string('-', Math.Min(maxWidth, title.Length)));
+        }
+
+        foreach (var line in lines) sb.AppendLine(line);
+        var text = sb.ToString().TrimEnd();
+		var message = new ChatMessage { Role = Roles.Tool, Content = text };
+		Program.Context.AddToolMessage(text);
+		RenderChatMessage(message);
     }
 
     // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled

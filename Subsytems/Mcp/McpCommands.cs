@@ -20,10 +20,11 @@ namespace Subsytems.Mcp
                     {
                         Name = "reload",
                         Description = () => "Reload and reconnect to all configured MCP servers",
-                        Action = async () =>
+                        Action = async () => await Log.MethodAsync(async ctx =>
                         {
-                            Program.ui.WriteLine("Reloading MCP servers...");
-                            
+                            ctx.OnlyEmitOnFailure();
+                            ctx.Append(Log.Data.Message, "Reloading MCP servers");
+
                             try
                             {
                                 // Shutdown all current connections
@@ -31,10 +32,10 @@ namespace Subsytems.Mcp
                                 
                                 // Reload from configuration files
                                 await McpManager.Instance.LoadAllServersAsync();
-                                
+
                                 var connectedServers = McpManager.Instance.GetConnectedServers();
                                 Program.ui.WriteLine($"Successfully reloaded {connectedServers.Count} MCP servers.");
-                                
+
                                 if (connectedServers.Count > 0)
                                 {
                                     var totalTools = connectedServers.Sum(cs => cs.Tools.Count);
@@ -43,12 +44,12 @@ namespace Subsytems.Mcp
                             }
                             catch (Exception ex)
                             {
-                                Program.ui.WriteLine($"Error reloading MCP servers: {ex.Message}");
+                                ctx.Failed("Error reloading MCP servers", ex);
                                 return Command.Result.Failed;
                             }
-
+                            ctx.Succeeded();
                             return Command.Result.Success;
-                        }
+                        })
                     },
                     new Command
                     {

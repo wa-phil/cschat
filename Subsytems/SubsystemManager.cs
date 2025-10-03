@@ -87,7 +87,7 @@ public class SubsystemManager
             {
                 if (!IsEnabled(dep))
                 {
-                    Program.ui.WriteLine($"Enabling dependency '{dep}' for subsystem '{key}'.");
+                    ctx.Append(Log.Data.Message, $"Enabling dependency '{dep}' for subsystem '{key}'.");
                     SetEnabled(dep, true);
                 }
             }

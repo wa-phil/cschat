@@ -42,23 +42,21 @@ public sealed class PRsFetchTool : ITool
         });
         table = Table.FromEnumerable(projected);
 
-        var rendered = table.ToText(Program.ui.Width);
-        ctx.AddToolMessage(rendered);
-        await ContextManager.AddContent(rendered, $"prs/{profile.Name}/results");
+        Program.ui.RenderTable(table, "PRs");
+        await ContextManager.AddContent(table.ToCsv(), $"prs/{profile.Name}/results");
 
         if (!string.IsNullOrWhiteSpace(p.Export))
         {
             var ext = Path.GetExtension(p.Export).ToLowerInvariant();
             var content = ext switch
             {
-                ".csv"  => table.ToCsv(),
                 ".json" => table.ToJson(),
-                _       => rendered
+                _       => table.ToCsv()
             };
             File.WriteAllText(p.Export!, content);
             ctx.AddToolMessage($"Saved: {p.Export}");
         }
-        return ToolResult.Success(rendered, ctx);
+        return ToolResult.Success($"{profile.Name}: returned {table.Rows.Count} rows", ctx);
     }
 }
 

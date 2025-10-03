@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Linq;
 using Photino.NET;
 using System.Threading;
@@ -460,6 +461,38 @@ public sealed class PhotinoUi : IUi
 		ctx.Succeeded();
 		return path;
 	});
+
+	public void RenderTable(Table table, string? title = null)
+	{
+		var sb = new StringBuilder();
+
+		// headers
+		if (table.Headers.Count > 0)
+		{
+			sb.Append("| ");
+			foreach (var h in table.Headers) sb.Append(Escape(h)).Append(" | ");
+			sb.AppendLine();
+			sb.Append("| ");
+			foreach (var _ in table.Headers) sb.Append("--- | ");
+			sb.AppendLine();
+		}
+		// rows
+		foreach (var r in table.Rows)
+		{
+			sb.Append("| ");
+			foreach (var c in r) sb.Append(Escape(c)).Append(" | ");
+			sb.AppendLine();
+		}
+
+		var md = sb.ToString();
+		if (!string.IsNullOrWhiteSpace(title)) md = $"### {Escape(title)}\n\n" + md;
+		var message = new ChatMessage { Role = Roles.Tool, Content = md };
+		Program.Context.AddToolMessage(md);
+		RenderChatMessage(message);
+		return;
+		
+		string Escape(string s) => s?.Replace("\n", " ").Replace("\r", " ").Replace("|", "\\|") ?? string.Empty;
+	}
 
 	public string? RenderMenu(string header, List<string> choices, int selected = 0)
 	{

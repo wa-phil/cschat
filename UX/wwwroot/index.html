@@ -15,13 +15,38 @@
 	#send{ padding:8px 14px; border:1px solid #d9d9d9; border-radius:9999px; background:#f6f6f6; font:inherit; cursor:pointer;}
 	#send:hover{background:#f0f0f0;} #send:active{background:#eaeaea;}
 	pre{margin:0 0 8px 0; white-space:pre-wrap;}
-	#console>.bubble{ white-space:normal; margin:0; padding:10px 12px; border-radius:10px; line-height:1.35; word-break:break-word; background:#1b1b1b; border:1px solid #333; color:var(--fg); max-width:min(70ch,70%); align-self:flex-start; font-family:system-ui,sans-serif; }
+	
+	/* message bubbles */
+	#console>.bubble{ white-space:normal; margin:0; padding:10px 12px; border-radius:10px; line-height:1.35; word-break:break-word; background:#1b1b1b; border:1px solid #333; color:var(--fg); max-width:min(90ch,85%); align-self:flex-start; font-family:system-ui,sans-serif; }
 	#console .bubble>:first-child{margin-top:0;} #console .bubble>:last-child{margin-bottom:0;}
 	#console>.bubble.user{ align-self:flex-end; background:#1d80ea; border-color:#1d80ea; color:#fafafa;}
-	#console>.bubble.assistant{ background:#ddd; border-color:#ddd; color:#000;}
-	#console>.bubble.tool{ align-self:stretch; width:auto; max-width:100%; box-sizing:border-box; text-align:left; background:#111; border-color:#666; font-weight:600; overflow-x:hidden; overflow-wrap:anywhere; }
-	#console>.bubble.system{ align-self:stretch; max-width:80%; background:#1a1a1a; border-style:dashed; color:#aaa;}
+	#console>.bubble.assistant{ background:#eee; border-color:#eee; color:#000;}
+	#console>.bubble.system{ align-self:stretch; max-width:80%; background:#ddd; border-style:dashed; color:#000;}
 
+	/* tool bubbles scroll horizontally if they must, but prefer wrapping first */
+	#console>.bubble.tool { color: #000; --pad-top: 10px; padding:var(--pad-top) 12px 10px 12px; align-self: stretch; width: auto; max-width: 100%; box-sizing: border-box; text-align: left; background: #eee; border-color: #eee; font-weight: 500; overflow-wrap: anywhere; max-height: 65vh; min-height: 220px; overflow: auto; overflow-x: auto; }
+	#console .bubble.tool h1,
+	#console .bubble.tool h2,
+	#console .bubble.tool h3,
+	#console .bubble.tool h4,
+	#console .bubble.tool h5,
+	#console .bubble.tool h6 { color:#000; }
+
+	/* tables: fixed layout + wrapping cells = stable widths */
+	#console .bubble.tool table { width: 100%; border-collapse: collapse; table-layout: fixed; font-weight: normal; }
+
+	/* cells: wrap, don't clip; let URLs break nicely */
+	#console .bubble.tool th,
+	#console .bubble.tool td { border: 1px solid #333; padding: 6px 8px; text-align: left; vertical-align: top; white-space: normal; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; color:#000;}
+	
+	/* lighter, clearer stripes and header */
+	#console .bubble.tool th { background: #ddd; }
+	#console .bubble.tool tr:nth-child(even) td { background: #f5f5f5; color:#000; }
+
+	/* sticky header for tall tables */
+	#console .bubble.tool thead th { position: sticky; top: calc(-1 * var(--pad-top)); z-index: 2; background: #ddd; box-shadow: 0 1px 0 #333 inset; }
+
+	/* menu overlay */ 
 	#menuOverlay{ position:fixed; inset:0; background:rgba(0,0,0,.0); pointer-events:none; z-index:9999; }
 	#menuPanel{ position:absolute; top:-90%; left:50%; transform:translateX(-50%); width:min(760px,92vw); max-height:min(70vh,600px); background:#fff; color:#000; border-radius:0 0 10px 10px; box-shadow:0 20px 50px rgba(0,0,0,.35); display:grid; grid-template-rows:auto auto 1fr auto; overflow:hidden; transition:top .3s ease-in-out; }
 	#menuOverlay.active{ pointer-events:auto; } #menuOverlay.active #menuPanel{ top:0; }
@@ -36,6 +61,7 @@
 	#menuTab{ position:fixed; top:0; left:50%; transform:translateX(-50%); background:#111; color:#eee; padding:4px 10px; font-size:.85em; border-radius:0 0 6px 6px; cursor:pointer; z-index:9998; }
 	#menuOverlay.active ~ #menuTab { display:none; }
 
+	/* form overlay */
 	#formOverlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.55); z-index:10000; }
 	#formPanel{ background:#fff; color:#000; width:min(840px,92vw); max-height:min(80vh,720px); display:grid; grid-template-rows:auto 1fr auto; border-radius:12px; overflow:hidden; box-shadow:0 30px 70px rgba(0,0,0,.45);}
 	#formTitle{ padding:14px 16px; background:#111; color:#eee; font-weight:700; }

@@ -24,24 +24,35 @@ public sealed class S360FetchTool : ITool
         if (profile is null) return ToolResult.Failure($"No S360 Profile named '{p.ProfileName}'.", ctx);
 
         var s360 = Program.SubsystemManager.Get<S360Client>();
-        var table = await s360.FetchAsync(profile);  // <-- built-in Kusto
+        var table = await s360.FetchAsync(profile);
 
-        var rendered = table.ToText(Program.ui.Width);
-        ctx.AddToolMessage(rendered);
-        await ContextManager.AddContent(rendered, $"s360/{profile.Name}/results");
+        // filter and format the table output to soemhting more easily digested by humans.
+        var projected = Table.FromEnumerable(table.SelectRows(a => new
+        {
+            Service = a("ServiceName"),
+            Title = a("KpiTitle"),
+            ActionItem = a("ActionItemTitle"),
+            DueDate = a("CurrentDueDate"),
+            State = a("SLAState"),
+            Eta = a("CurrentETA"),
+            URL = a("URL"),
+            Description = a("KpiDescriptionHtml")
+        }));
+
+        Program.ui.RenderTable(projected, "active S360 items");
+        await ContextManager.AddContent(table.ToCsv(), $"s360/{profile.Name}/results");
 
         if (!string.IsNullOrWhiteSpace(p.Export))
         {
             var ext = Path.GetExtension(p.Export).ToLowerInvariant();
             var content = ext switch {
-                ".csv"  => table.ToCsv(),
                 ".json" => table.ToJson(),
-                _       => rendered
+                _       => table.ToCsv()
             };
             File.WriteAllText(p.Export!, content);
             ctx.AddToolMessage($"Saved: {p.Export}");
         }
-        return ToolResult.Success(rendered, ctx);
+        return ToolResult.Success($"{profile.Name}: returned {table.Rows.Count} rows", ctx);
     }
 }
 
@@ -194,20 +205,20 @@ public sealed class S360SliceTool : ITool
             x.Row.URL
         }).ToList();
 
-    var outTable = new Table(headers, outRows);
-    ctx.AddToolMessage(outTable.ToText(Program.ui.Width));
+        var outTable = new Table(headers, outRows);
+        Program.ui.RenderTable(outTable, "S360 Results");
+        ctx.AddToolMessage(outTable.ToCsv());
 
         if (!string.IsNullOrWhiteSpace(p.Export))
         {
             var ext = Path.GetExtension(p.Export).ToLowerInvariant();
             var content = ext switch {
-                ".csv"  => outTable.ToCsv(),
                 ".json" => outTable.ToJson(),
-                _       => outTable.ToText(Program.ui.Width)
+                _       => outTable.ToCsv()
             };
             File.WriteAllText(p.Export!, content);
             ctx.AddToolMessage($"Saved: {p.Export}");
         }
-    return ToolResult.Success(outTable.ToText(Program.ui.Width), ctx);
+        return ToolResult.Success($"{profile.Name}: returned {outTable.Rows.Count} rows", ctx);
     }
 }

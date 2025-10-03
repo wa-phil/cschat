@@ -108,7 +108,6 @@ public class AzureAI : IChatProvider, IEmbeddingProvider
         catch (Exception ex)
         {
             ctx.Failed($"Azure OpenAI request failed", ex);
-            Program.ui.WriteLine($"Error: {ex.Message}.\n Validate that you have access to the Azure OpenAI service and that the model '{config.Model}' is available.");
             return string.Empty;
         }
     });

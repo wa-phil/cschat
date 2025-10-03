@@ -256,18 +256,29 @@ public static class DataCommands
         {
             Name = "Delete",
             Description = () => $"Delete a {metadata.Name} item",
-            Action = async () =>
+            Action = async () => await Log.MethodAsync(async ctx =>
             {
                 try
                 {
+                    ctx.OnlyEmitOnFailure();
                     var subsystem = Program.userManagedData;
                     var method = typeof(UserManagedData).GetMethod("GetItems")?.MakeGenericMethod(type);
                     var items = method?.Invoke(subsystem, null) as System.Collections.IEnumerable;
 
-                    if (items == null) { return Command.Result.Success; }
+                    if (items == null)
+                    {
+                        ctx.Append(Log.Data.Message, "No items found");
+                        ctx.Succeeded();
+                        return Command.Result.Success;
+                    }
 
                     var itemList = items.Cast<object>().ToList();
-                    if (itemList.Count == 0) { return Command.Result.Success; }
+                    if (itemList.Count == 0)
+                    {
+                        ctx.Append(Log.Data.Message, "No items found");
+                        ctx.Succeeded();
+                        return Command.Result.Success;
+                    }
 
                     // Use the menu system to select an item to delete
                     var choices = itemList.Select((item, index) => $"{index}: {item}").ToList();
@@ -275,13 +286,23 @@ public static class DataCommands
                         $"Select {metadata.Name} to delete:",
                         choices
                     );
-                    if (selected == null) { return Command.Result.Cancelled; }
+                    if (selected == null)
+                    {
+                        ctx.Append(Log.Data.Message, "User cancelled selection");
+                        ctx.Succeeded();
+                        return Command.Result.Cancelled;
+                    }
 
                     var selectedIndex = int.Parse(selected.Split(':')[0]);
 
                     // Confirm deletion
                     var confirm = await Program.ui.ConfirmAsync($"Are you sure you want to delete '{itemList[selectedIndex]}'?");
-                    if (!confirm) { return Command.Result.Cancelled; }
+                    if (!confirm)
+                    {
+                        ctx.Append(Log.Data.Message, "User cancelled deletion");
+                        ctx.Succeeded();
+                        return Command.Result.Cancelled;
+                    }
 
                     // Delete the item - build a predicate and invoke DeleteItem<T> via reflection
                     var original = itemList[selectedIndex];
@@ -304,14 +325,15 @@ public static class DataCommands
                     deleteMi.Invoke(subsystem, new[] { predicate });
 
                     Config.Save(Program.config, Program.ConfigFilePath);
+                    ctx.Succeeded();
                     return Command.Result.Success;
                 }
                 catch (Exception ex)
                 {
-                    Program.ui.WriteLine($"Error deleting {metadata.Name}: {ex.Message}");
+                    ctx.Failed($"Error deleting {metadata.Name}", ex);
                     return Command.Result.Failed;
                 }
-            }
+            })
         };
     }
 }

@@ -83,7 +83,6 @@ public class Ollama : IChatProvider, IEmbeddingProvider
         catch (Exception ex)
         {
             ctx.Failed("Exception during PostChatAsync", ex);
-            Program.ui.WriteLine($"Exception occurred: {ex.Message}");
             throw;
         }
     });
