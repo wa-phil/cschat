@@ -21,7 +21,7 @@
 	#console .bubble>:first-child{margin-top:0;} #console .bubble>:last-child{margin-bottom:0;}
 	#console>.bubble.user{ align-self:flex-end; background:#1d80ea; border-color:#1d80ea; color:#fafafa;}
 	#console>.bubble.assistant{ background:#eee; border-color:#eee; color:#000;}
-	#console>.bubble.system{ align-self:stretch; max-width:80%; background:#ddd; border-style:dashed; color:#000;}
+	#console>.bubble.system{ align-self:stretch; width: auto; text-align: left; max-width:100%; background:#ddd; border-style:dashed; color:#000;}
 
 	/* tool bubbles scroll horizontally if they must, but prefer wrapping first */
 	#console>.bubble.tool { color: #000; --pad-top: 10px; padding:var(--pad-top) 12px 10px 12px; align-self: stretch; width: auto; max-width: 100%; box-sizing: border-box; text-align: left; background: #eee; border-color: #eee; font-weight: 500; overflow-wrap: anywhere; max-height: 65vh; min-height: 220px; overflow: auto; overflow-x: auto; }
@@ -607,7 +607,7 @@
 	// --- realtime text bubbles ---
 	function renderRealtimeBubble(id, title){
 		const wrap = document.createElement('div');
-		wrap.className = 'bubble tool';
+		wrap.className = 'bubble system';
 		wrap.dataset.realtimeId = id;
 		wrap.innerHTML = `
 			<div style="text-align:left">

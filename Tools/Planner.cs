@@ -166,7 +166,6 @@ You do not need to summarize the user's question, or comment on it, or explain y
     public async Task<(string result, Context Context)> PostChatAsync(Context context) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        using var output = Program.ui.BeginRealtime("Planning...");
         // We're just getting started, reset results and actionsTaken for each session
         results = new List<string>(); 
         actionsTaken = new HashSet<string>();
@@ -188,6 +187,7 @@ You do not need to summarize the user's question, or comment on it, or explain y
             return (finalResult, context); // context is unchanged
         }
 
+        using var output = Program.ui.BeginRealtime("Planning...");
         var input = context.Messages().LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         int stepsTaken = 0, maxAllowedSteps = Program.config.MaxSteps;
         Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
