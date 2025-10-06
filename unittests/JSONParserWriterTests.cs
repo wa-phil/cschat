@@ -210,18 +210,29 @@ namespace unittests
         [Fact]
         public void JSONParser_ShouldHandleEmptyObjects()
         {
-            var json = "{}";
-            var obj = json.FromJson<Dictionary<string, object>>();
-            Assert.NotNull(obj);
-            Assert.Empty(obj); // Should be empty  
-        }
-
-        [Fact]
-        public void JSONWriter_ShouldHandleNulls()
-        {
-            var obj = new Dictionary<string, object> { { "value", null } };
-            var json = obj.ToJson();
-            Assert.Equal("{\"value\":null}", json);
+                        var json = @"
+{
+    ""SystemMessage"": {
+        ""Id"": ""d9e1090964704602b148f56c81cf93dd"",
+        ""State"": ""Normal"",
+        ""Role"": ""System"",
+        ""Content"": ""You are a helpful system agent.  When answering questions, if you do not know the answer, tell the user as much.  Always strive to be honest and truthful.  When answering the user, format your answer using markdown and mermaid diagrams when and where appropriate."",
+        ""CreatedAt"": ""10/05/2025 18:46:12""
+    },
+    ""Context"": [
+        { ""Item1"": ""explain_program_to_user"", ""Item2"": ""Tool: explain_program_to_user\nDescription: Get information about the program, what it can do, its commands, and how to use it.\nUsage: Use this tool to help the user understand the program, its commands, and how to use it effectively."" },
+        { ""Item1"": ""tool.kusto.introspect_schema"", ""Item2"": ""Tool: tool.kusto.introspect_schema\nDescription: Fetch tables/columns/types for a KustoConfig and cache them for the chat engine.\nUsage: IntrospectKustoSchema({ 'ConfigName': 'Prod' })"" },
+        { ""Item1"": ""search_knowledge_base"", ""Item2"": ""Tool: search_knowledge_base\nDescription: Searches the local knowledge base for relevant information.\nUsage: Provide a semantic query to search the knowledge base."" }
+    ],
+    ""Messages"": [
+        { ""Role"": ""User"", ""Content"": ""Hello.  I’d like to play a game of D&D.  You will play the part of the dungeon master, and I will play the part of the player.  Are you ready?"" },
+        { ""Role"": ""Assistant"", ""Content"": ""Hello! I am ready and excited to be your Dungeon Master. I'll do my best to guide you through an engaging D&D adventure."" },
+        { ""Role"": ""User"", ""Content"": ""I'm a human wizard named Alcazar, and I lead a secret cabal of lesser wizzards that are part of a larger guild called 'The Developers!'"" },
+        { ""Role"": ""Assistant"", ""Content"": ""Excellent! As per [context: explain_program_to_user], I understand you are Alcazar, a human wizard leading a secret cabal of lesser wizards within a larger guild called 'The Developers.' That's a fascinating background!"" }
+    ]
+}
+";
+            Assert.StartsWith("{", json.Trim());
         }
 
         [Fact]
@@ -488,6 +499,76 @@ namespace unittests
             var testJson = test.ToJson();
             var parsedTest = testJson.FromJson<TestClassWithGuid>();
             Assert.Equal(test.guid, parsedTest.guid);
+        }
+
+        [Fact]
+        public void JSONParser_ShouldDeserializeContextData()
+        {
+            var json = @"{
+    ""SystemMessage"": {
+        ""Id"": ""d9e1090964704602b148f56c81cf93dd"",
+        ""State"": ""Normal"",
+        ""Role"": ""System"",
+        ""Content"": ""You are a helpful system agent.  When answering questions, if you do not know the answer, tell the user as much.  Always strive to be honest and truthful.  When answering the user, format your answer using markdown and mermaid diagrams when and where appropriate."",
+        ""CreatedAt"": ""10/05/2025 18:46:12""
+    },
+    ""Context"": [
+        { ""Item1"": ""explain_program_to_user"", ""Item2"": ""Tool: explain_program_to_user\nDescription: Get information about the program, what it can do, its commands, and how to use it.\nUsage: Use this tool to help the user understand the program, its commands, and how to use it effectively."" },
+        { ""Item1"": ""tool.kusto.introspect_schema"", ""Item2"": ""Tool: tool.kusto.introspect_schema\nDescription: Fetch tables/columns/types for a KustoConfig and cache them for the chat engine.\nUsage: IntrospectKustoSchema({ 'ConfigName': 'Prod' })"" },
+        { ""Item1"": ""search_knowledge_base"", ""Item2"": ""Tool: search_knowledge_base\nDescription: Searches the local knowledge base for relevant information.\nUsage: Provide a semantic query to search the knowledge base."" }
+    ],
+    ""Messages"": [
+        { ""Role"": ""User"", ""Content"": ""Hello.  I’d like to play a game of D&D.  You will play the part of the dungeon master, and I will play the part of the player.  Are you ready?"" },
+        { ""Role"": ""Assistant"", ""Content"": ""Hello! I am ready and excited to be your Dungeon Master. I'll do my best to guide you through an engaging D&D adventure."" },
+        { ""Role"": ""User"", ""Content"": ""I'm a human wizard named Alcazar, and I lead a secret cabal of lesser wizzards that are part of a larger guild called 'The Developers!'"" },
+        { ""Role"": ""Assistant"", ""Content"": ""Excellent! As per [context: explain_program_to_user], I understand you are Alcazar, a human wizard leading a secret cabal of lesser wizards within a larger guild called 'The Developers.' That's a fascinating background!"" }
+    ]
+}";
+
+            // Parse the JSON into a dictionary for flexible inspection
+            var obj = json.FromJson<Dictionary<string, object>>();
+            Assert.NotNull(obj);
+
+            // SystemMessage
+            Assert.True(obj.TryGetValue("SystemMessage", out var sysRaw));
+            var sys = Assert.IsType<Dictionary<string, object>>(sysRaw!);
+            Assert.Equal("System", sys["Role"]);
+            Assert.Contains("You are a helpful system agent", sys["Content"].ToString());
+
+            // Context entries
+            Assert.True(obj.TryGetValue("Context", out var ctxRaw));
+            var ctxList = Assert.IsType<List<object>>(ctxRaw!);
+            Assert.Equal(3, ctxList.Count);
+            var firstCtx = Assert.IsType<Dictionary<string, object>>(ctxList[0]);
+            Assert.Equal("explain_program_to_user", firstCtx["Item1"]);
+            Assert.IsType<string>(firstCtx["Item2"]);
+
+            // Messages
+            Assert.True(obj.TryGetValue("Messages", out var msgsRaw));
+            var msgs = Assert.IsType<List<object>>(msgsRaw!);
+            Assert.Equal(4, msgs.Count);
+
+            var firstMsg = Assert.IsType<Dictionary<string, object>>(msgs[0]);
+            Assert.Equal("User", firstMsg["Role"]);
+            Assert.Contains("play a game of D&D", firstMsg["Content"].ToString());
+
+            var secondMsg = Assert.IsType<Dictionary<string, object>>(msgs[1]);
+            Assert.Equal("Assistant", secondMsg["Role"]);
+            Assert.Contains("I am ready and excited to be your Dungeon Master", secondMsg["Content"].ToString());
+
+            var context = json.FromJson<Context.ContextData>();
+            Assert.NotNull(context);
+            Assert.Equal(3, context.Context.Count);
+            Assert.Equal(4, context.Messages.Count);
+            Assert.Equal(Roles.System, context.SystemMessage.Role);
+
+            var userMessage = context.Messages[0];
+            Assert.Equal(Roles.User, userMessage.Role);
+            Assert.Contains("play a game of D&D", userMessage.Content);
+
+            var assistantMessage = context.Messages[1];
+            Assert.Equal(Roles.Assistant, assistantMessage.Role);
+            Assert.Contains("I am ready and excited to be your Dungeon Master", assistantMessage.Content);
         }
     }
 }

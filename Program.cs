@@ -160,7 +160,10 @@ static class Program
         }
         else
         {
-            Program.ui.WriteLine("No tools registered. Please check your configuration.");
+            Log.Method(ctx =>
+            {
+                ctx.Warn("No tools registered. Please check your configuration.");
+            });
         }
 
         foreach (var tool in ToolRegistry.GetRegisteredTools())
@@ -173,7 +176,8 @@ static class Program
     [STAThread]
     static async Task Main(string[] args)
     {
-        Program.ui.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
+        Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
+
         Startup();
 
         bool showHelp = false;
@@ -201,7 +205,6 @@ static class Program
                 ui = new Terminal();
                 break;
             case UiMode.Gui:
-                Console.WriteLine("Using GUI UI mode.");
                 ui = new PhotinoUi();
                 break;
             default:
@@ -225,9 +228,12 @@ static class Program
 
                 Config.Save(config, ConfigFilePath);
 
-                ui.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-                ui.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
-                ui.WriteLine();
+                {
+                    using var output = ui.BeginRealtime("Chat Session");
+                    output.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
+                    output.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
+                    output.WriteLine();
+                }
 
                 // Render existing chat history from the loaded thread
                 ui.RenderChatHistory(Context.Messages());
@@ -257,12 +263,12 @@ static class Program
         }
         catch (Exception ex)
         {
-            ui.WriteLine($"Exception: {ex.Message}");
-            ui.WriteLine("Log Entries:");
+            Console.WriteLine($"Exception: {ex.Message}");
+            Console.WriteLine("Log Entries:");
             var entries = Log.GetOutput().ToList();
-            ui.WriteLine($"Log Entries [{entries.Count}]:");
-            entries.ToList().ForEach(entry => ui.WriteLine(entry));
-            ui.WriteLine("Chat History:");
+            Console.WriteLine($"Log Entries [{entries.Count}]:");
+            entries.ToList().ForEach(entry => Console.WriteLine(entry));
+            Console.WriteLine("Chat History:");
             ui.RenderChatHistory(Context.Messages());
             throw; // unhandled exceptions result in a stack trace in the Program.ui.
         }

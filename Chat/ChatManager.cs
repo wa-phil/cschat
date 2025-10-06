@@ -195,7 +195,12 @@ Ensure the name is meaningful yet distinct from existing thread names: " + exist
         {
             Program.Context.Load(fp);
         }
-        Program.Context.AddSystemMessage(Program.config.SystemPrompt);
+        else
+        {
+            // Only add system prompt if this is a brand-new (empty) thread
+            Program.Context.AddSystemMessage(Program.config.SystemPrompt);            
+        }
+
         ctx.Succeeded();
     });
 }

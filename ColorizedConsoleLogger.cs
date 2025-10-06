@@ -30,7 +30,7 @@ namespace cschat
 			[Log.Data.Response] = ConsoleColor.DarkYellow
 		};
 
-		public static void WriteColorizedLog(Dictionary<Log.Data, object> data)
+		public static void WriteColorizedLog(Dictionary<Log.Data, object> data, IRealtimeWriter output)
 		{
 			// Write core log elements
 			WriteOrderedProperties(data);
@@ -39,18 +39,18 @@ namespace cschat
 			if (data.TryGetValue(Log.Data.Message, out var message))
 			{
 				WriteColoredMessage(message.ToString() ?? string.Empty);
-				Program.ui.Write(" | ");
+				output.Write(" | ");
 			}
 
 			// Write remaining properties
 			WriteRemainingProperties(data);
-			Program.ui.WriteLine();
+			output.WriteLine();
 
 			// Write stack trace if present
 			if (data.TryGetValue(Log.Data.Threw, out var stackTrace))
 			{
 				WriteColored(ConsoleColor.Red, $"Stack Trace: {stackTrace}");
-				Program.ui.WriteLine();
+				output.WriteLine();
 			}
 		}
 

@@ -61,7 +61,7 @@ public static class Engine
                 knownFiles.AppendLine(name);
                 Program.ui.ForegroundColor = ConsoleColor.DarkGray;
                 output.Write($"Adding file '{name}' to RAG store... ");
-                await ContextManager.AddGraphContent(content, name);
+                await ContextManager.AddGraphContent(content, name, output);
                 Program.ui.ResetColor();
                 output.WriteLine("Done.");
                 countItems++;
@@ -96,11 +96,11 @@ public static class Engine
             if (showText)
             {
                 Program.ui.ForegroundColor = ConsoleColor.DarkGray;
-                output.Write($"{indent}{(isLast ? "└── " : "├── ")}");
+                output!.Write($"{indent}{(isLast ? "└── " : "├── ")}");
                 Program.ui.ForegroundColor = ConsoleColor.Green;
-                output.Write(command.Name);
+                output!.Write(command.Name);
                 Program.ui.ForegroundColor = ConsoleColor.DarkGray;
-                output.Write(" - ");
+                output!.Write(" - ");
             }
 
             var line = $"{indent}{(isLast ? "└── " : "├── ")}{command.Name} - ";
@@ -112,7 +112,7 @@ public static class Engine
             }
             if (showText)
             {
-                output.WriteLine(description);
+                output!.WriteLine(description);
                 Program.ui.ResetColor();
             }
 
