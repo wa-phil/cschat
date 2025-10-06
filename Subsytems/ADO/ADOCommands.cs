@@ -171,22 +171,44 @@ Be concise and include a short bullet list of actionable next steps if any.";
 
                                 var (ranked, _, _, _) = AdoInsights.Analyze(items, Program.config.Ado.Insights);
 
-                                topN = Math.Min(topN, ranked.Count);
-                                Program.ui.WriteLine();
-                                Program.ui.WriteLine($"—— Top {topN} attention-worthy items ——");
-                                Program.ui.WriteLine($"{"ID",8}  {"Score",5}  {"State",-12} {"Pri",3} {"Due",10}  Title");
-                                Program.ui.WriteLine(new string('─', Math.Max(60, Program.ui.Width - 1)));
+                                var report = Report.Create($"ADO Top Attention Items: {q.Name}")
+                                    .Paragraph($"Project: {q.Project} | Path: {q.Path} | Items analyzed: {items.Count}");
 
-                                foreach (var s in ranked.Take(topN))
+                                if (ranked.Count == 0)
                                 {
-                                    var due = s.Item.DueDate?.ToString("yyyy-MM-dd") ?? "—";
-                                    var pri = string.IsNullOrWhiteSpace(s.Item.Priority) ? "-" : s.Item.Priority!;
-                                    var title = Utilities.TruncatePlain(s.Item.Title, Math.Max(30, Program.ui.Width - 40));
-                                    Program.ui.WriteLine($"{s.Item.Id,8}  {s.Score,5:0.0}  {s.Item.State,-12} {pri,3} {due,10}  {title}");
+                                    report.Paragraph("No items produced a ranking score.");
+                                    Program.ui.RenderReport(report);
+                                    return Command.Result.Success;
                                 }
 
-                                Program.ui.WriteLine();
-                                Program.ui.WriteLine("Signals legend per item is available in the action-plan view; this list is score-only.");
+                                topN = Math.Min(topN, ranked.Count);
+
+                                var rows = ranked
+                                    .Take(topN)
+                                    .Select((s, idx) => new[]
+                                    {
+                                        (idx + 1).ToString(),
+                                        s.Item.Id.ToString(),
+                                        s.Score.ToString("0.0"),
+                                        s.Item.State ?? string.Empty,
+                                        string.IsNullOrWhiteSpace(s.Item.Priority) ? "-" : s.Item.Priority!,
+                                        s.Item.DueDate?.ToString("yyyy-MM-dd") ?? "—",
+                                        Utilities.TruncatePlain(s.Item.Title, 80)
+                                    })
+                                    .ToList();
+
+                                var table = new Table(
+                                    new[] { "Rank", "ID", "Score", "State", "Pri", "Due", "Title" },
+                                    rows);
+
+                                report.Section($"Top {topN} Attention-worthy Items", sec => sec.TableBlock(table));
+
+                                report.Section("Notes", sec =>
+                                {
+                                    sec.Paragraph("Signals legend per item is available in the action-plan view; this list is score-only.");
+                                });
+
+                                Program.ui.RenderReport(report);
                                 return Command.Result.Success;
                             }
                         },
