@@ -112,6 +112,33 @@
 	const send = document.getElementById('send');
 
 	function post(obj) { try { window.external?.sendMessage?.(JSON.stringify(obj)); } catch {} }
+
+	// Open all links in the system browser instead of navigating inside Photino
+	document.addEventListener('click', (e) => {
+		const a = e.target?.closest?.('a[href]');
+		if (!a) return;
+
+		const href = a.getAttribute('href') || '';
+		// Allow in-page anchors
+		if (href.startsWith('#')) return;
+
+		// Let the host open it (http/https/mailto/file/etc.)
+		e.preventDefault();
+		e.stopPropagation();
+		post({ type: 'OpenExternal', url: href });
+	});
+
+	// also catch middle-clicks (auxclick) so they don’t navigate inside
+	document.addEventListener('auxclick', (e) => {
+		const a = e.target?.closest?.('a[href]');
+		if (!a) return;
+		const href = a.getAttribute('href') || '';
+		if (href.startsWith('#')) return;
+		e.preventDefault();
+		e.stopPropagation();
+		post({ type: 'OpenExternal', url: href });
+	});
+
 	// requestId -> (files:string[]) => void
 	const pendingPickers = new Map();	
 	function cwrite(s){ consoleEl.textContent += (s ?? ''); consoleEl.scrollTop = consoleEl.scrollHeight; }

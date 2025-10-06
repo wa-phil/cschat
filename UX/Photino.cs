@@ -4,6 +4,7 @@ using System.Text;
 using System.Linq;
 using Photino.NET;
 using System.Threading;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -272,6 +273,29 @@ public sealed class PhotinoUi : IUi
 
 			switch (type)
 			{
+				case "OpenExternal":
+				{
+					var url = S("url", "href", "Url", "Href");
+					if (!string.IsNullOrWhiteSpace(url))
+					{
+						try
+						{
+							// Launch with the default handler (browser, mail client, etc.)
+							Process.Start(new ProcessStartInfo
+							{
+								FileName = url,
+								UseShellExecute = true
+							});
+						}
+						catch (Exception ex)
+						{
+							// Optional: surface a tiny error toast/log if you want
+							WriteLine($"Failed to open link: {ex.Message}");
+						}
+					}
+					break;
+				}
+				
 				case "CancelProgress":
 				{
 					var pid = S("id","Id");
