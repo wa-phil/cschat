@@ -105,6 +105,7 @@ public static class ADOCommands
 
                                     try
                                     {
+                                        using var output = Program.ui.BeginRealtime($"Summarizing workitem #{picked.Id}...");
                                         var prompt =
 @"Summarize this Azure DevOps work item for a teammate.
 Focus on: current state, priority, assignee, most recent changes, and key discussion points.
@@ -113,19 +114,19 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                         ctx.AddUserMessage(blob);
                                         var summary = await Engine.Provider!.PostChatAsync(ctx, 0.2f);
 
-                                        Program.ui.WriteLine();
-                                        Program.ui.WriteLine($"URL: {Program.SubsystemManager.Get<AdoClient>().GetOrganizationUrl()}/_workitems/edit/{picked.Id}");
-                                        Program.ui.WriteLine("—— Work Item Summary ——");
-                                        Program.ui.WriteLine(summary);
-                                        Program.ui.WriteLine("—— End Summary ——");
+                                        output.WriteLine($"URL: {Program.SubsystemManager.Get<AdoClient>().GetOrganizationUrl()}/_workitems/edit/{picked.Id}");
+                                        output.WriteLine("—— Work Item Summary ——");
+                                        output.WriteLine(summary);
+                                        output.WriteLine("—— End Summary ——");
                                     }
                                     catch (Exception ex)
                                     {
-                                        Program.ui.WriteLine("Summarization failed; showing raw details instead.");
-                                        Program.ui.WriteLine();
-                                        Program.ui.WriteLine(blob);
-                                        Program.ui.WriteLine();
-                                        Program.ui.WriteLine($"[error: {ex.Message}]");
+                                        using var output = Program.ui.BeginRealtime($"Error summarizing workitem #{picked.Id}");
+                                        output.WriteLine("Summarization failed; showing raw details instead.");
+                                        output.WriteLine();
+                                        output.WriteLine(blob);
+                                        output.WriteLine();
+                                        output.WriteLine($"[error: {ex.Message}]");
                                     }
 
                                     // Ask whether to show another item; default is Yes on empty input
