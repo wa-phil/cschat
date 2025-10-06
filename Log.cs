@@ -22,8 +22,6 @@
 //         return 42;
 //     });
 // ===============================================
-
-using cschat;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -256,19 +254,86 @@ public static class Log
     private static List<object> _buffer = new List<object>();
     public static IEnumerable<string> GetOutput() => _buffer.Select(item => item.ToJson());
     public static void ClearOutput() => _buffer.Clear();
-
-    public static void PrintColorizedOutput()
+    
+    private static readonly Dictionary<Log.Level, string> LevelInfo = new()
     {
-        using var ouptut = Program.ui.BeginRealtime($"Log Entries [{_buffer.Count}]");
-        Program.ui.ForegroundColor = ConsoleColor.Blue;
-        ouptut.WriteLine($"Log Entries [{_buffer.Count}]:");
-        Program.ui.ResetColor();
+        [Log.Level.Verbose]     = "VERB",
+        [Log.Level.Information] = "INFO",
+        [Log.Level.Warning]     = "WARN",
+        [Log.Level.Error]       = "ERRO"
+    };
 
-        _buffer.OfType<Dictionary<string, object>>()
-               .Select(dict => dict.Where(kv => Enum.TryParse<Data>(kv.Key, out _))
-               .ToDictionary(kv => Enum.Parse<Data>(kv.Key), kv => kv.Value))
-               .ToList()
-               .ForEach(entry => ColorizedConsoleLogger.WriteColorizedLog(entry, ouptut));
+    public static void GenerateTable()
+    {
+        // Build a table view of the log instead of colorized streaming output.
+        // Columns: Timestamp, Verbosity, Succeeded, ThreadId, Source, Method, Error, Data
+        var headers = new List<string> { "Timestamp", "Verbosity", "Succeeded", "ThreadId", "Source", "Method", "Error", "Data" };
+        var rows = new List<string[]>();
+
+        // Collect remaining data into JSON (excluding GitHash and already represented columns / error related fields used)
+        var excluded = new HashSet<Data>
+        {
+            Data.Timestamp, Data.Level, Data.Success, Data.ThreadId, Data.Source, Data.Method,
+            Data.GitHash, Data.ErrorCode, Data.Caught, Data.Message, Data.Threw
+        };
+
+        foreach (var raw in _buffer.OfType<Dictionary<string, object>>())
+        {
+            // Map string keys back to enum (ignore anything that doesn't map)
+            var dict = new Dictionary<Data, object>();
+            foreach (var kv in raw)
+            {
+                if (Enum.TryParse<Data>(kv.Key, out var d)) dict[d] = kv.Value;
+            }
+
+            string GetString(Data key) => dict.TryGetValue(key, out var v) ? v?.ToString() ?? string.Empty : string.Empty;
+
+            var timestamp = GetString(Data.Timestamp);
+            var threadId = GetString(Data.ThreadId);
+            var source = GetString(Data.Source);
+            var method = GetString(Data.Method);
+
+            var verbosity = LevelInfo[(Log.Level)dict[Data.Level]];
+            bool succeeded = dict.TryGetValue(Data.Success, out var v) ? (v is bool b && b) : false;
+            var successText = succeeded ? "success" : "FAILED";
+            // Derive Error column
+            string error = string.Empty;
+            if (!succeeded)
+            {
+                // Prefer explicit error info ordering
+                if (dict.TryGetValue(Data.ErrorCode, out var ec) && ec != null) error = ec.ToString() ?? string.Empty;
+                else if (dict.TryGetValue(Data.Caught, out var caught) && caught != null) error = caught.ToString() ?? string.Empty;
+                else if (dict.TryGetValue(Data.Message, out var msg) && msg != null) error = msg.ToString() ?? string.Empty;
+                else if (dict.TryGetValue(Data.Threw, out var threw) && threw != null) error = "(threw)";
+            }
+
+            var remaining = new Dictionary<string, object?>();
+            foreach (var kv in dict)
+            {
+                if (!excluded.Contains(kv.Key)) remaining[kv.Key.ToString()] = kv.Value;
+            }
+
+            // Only include error-related fields not selected if success or if they weren't used above
+            if (string.IsNullOrEmpty(error))
+            {
+                if (dict.TryGetValue(Data.ErrorCode, out var ec2)) remaining[Data.ErrorCode.ToString()] = ec2;
+                if (dict.TryGetValue(Data.Caught, out var caught2)) remaining[Data.Caught.ToString()] = caught2;
+                if (dict.TryGetValue(Data.Message, out var msg2)) remaining[Data.Message.ToString()] = msg2;
+            }
+
+            var dataJson = remaining.Count == 0 ? string.Empty : remaining.ToJson();
+            rows.Add(new[] { timestamp, verbosity, successText, threadId, source, method, error, dataJson });
+        }
+
+        var table = new Table(headers, rows);
+
+        // Emit header with Git hash (they are all the same, just take first)
+        var gitHash = _buffer.OfType<Dictionary<string, object>>()
+                             .Select(d => d.TryGetValue(Data.GitHash.ToString(), out var gh) ? gh?.ToString() : null)
+                             .FirstOrDefault(h => !string.IsNullOrEmpty(h)) ?? BuildInfo.GitCommitHash;
+
+        Program.ui.ForegroundColor = ConsoleColor.Blue;
+        Program.ui.RenderTable(table, $"GitHash: {gitHash} Log Entries [{rows.Count}]");
     }
 
     public static void Initialize()
