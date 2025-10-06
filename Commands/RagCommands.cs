@@ -80,6 +80,22 @@ public partial class CommandManager
                 },
                 new Command
                 {
+                    Name = "Graph Generate Documentation for Code Directory", Description = () => "Generate documentation for a code directory",
+                    Action = async () =>
+                    {
+                        Console.Write("Enter code directory path: ");
+                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: true);
+                        if (!string.IsNullOrWhiteSpace(input))
+                        {
+                            await Engine.AddDirectoryToGraphStore(input);
+                            Console.WriteLine($"Added directory '{input}' to RAG.");
+                            await Engine.GenerateCodeAndGraphDocumentationAsync(input);
+                        }
+                        return Command.Result.Success;
+                    }
+                },
+/*                new Command
+                {
                     Name = "Graph Generate Documentation", Description = () => "Generate documentation for the Knowledge Graph",
                     Action = async () =>
                     {
@@ -87,6 +103,7 @@ public partial class CommandManager
                         return Command.Result.Success;
                     }
                 },
+*/
                 new Command
                 {
                     Name = "add zip contents", Description = () => "Add contents of a zip file to the RAG store",

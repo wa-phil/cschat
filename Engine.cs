@@ -69,7 +69,65 @@ public static class Engine
         }
     });
 
-    public static async Task GetDocumentation() => await Log.MethodAsync(async ctx =>
+    public static async Task GenerateCodeAndGraphDocumentationAsync(string path) => await Log.MethodAsync(async ctx =>
+    {
+        try
+        {
+            ctx.OnlyEmitOnFailure();
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var countItems = 0;
+            var knownFiles = new StringBuilder();
+
+            Console.WriteLine("Started processing files for RAG store...");
+
+            string content;
+            /*if (Directory.Exists(path))
+            {
+                var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
+                var sb = new StringBuilder();
+                foreach (var file in files)
+                {
+                    sb.AppendLine($"--- File: {Path.GetFileName(file)} ---");
+                    sb.AppendLine(File.ReadAllText(file));
+                }
+                content = sb.ToString();
+            }
+            else
+            {
+                content = File.ReadAllText(path);
+            }*/
+
+            // Generate code and graph documentation
+            if (Directory.Exists(path))
+            {
+                var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
+                foreach (var file in files)
+                {
+                    Console.WriteLine($"Processing file: {file}");
+                    content = File.ReadAllText(file);
+                    await GraphStoreManager.GenerateCodeAndGraphDocumentationAsync(content, Path.GetFileName(file));
+                }
+            }
+            else
+            {
+                Console.WriteLine($"Processing file: {path}");
+                content = File.ReadAllText(path);
+                await GraphStoreManager.GenerateCodeAndGraphDocumentationAsync(content, path);
+            }
+
+            //GraphStoreManager.PrintClustersAndEntities();
+
+            stopwatch.Stop();
+            Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
+            ctx.Succeeded();
+        }
+        finally
+        {
+            Console.ResetColor();
+        }
+    });
+
+/*    public static async Task GetDocumentation() => await Log.MethodAsync(async ctx =>
     {
         try
         {
@@ -93,7 +151,7 @@ public static class Engine
             Console.ResetColor();
         }
     });
-
+*/
 
     public static string BuildCommandTreeArt(IEnumerable<Command> commands, string indent = "", bool isLast = true, bool showText = true)
     {
