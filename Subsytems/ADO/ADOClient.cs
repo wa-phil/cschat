@@ -389,17 +389,7 @@ public static class AdoCredentialHelper
             return azPat;
         }
 
-        // 3. Prompt user interactively
-        Program.ui.Write("Enter your Azure DevOps Personal Access Token (PAT): ");
-        var pat = ReadPasswordMasked();
-        if (string.IsNullOrWhiteSpace(pat))
-        {
-            ctx.Failed("No PAT provided.", Error.InvalidInput);
-            return null;
-        }
-        ctx.Append(Log.Data.Message, "ADO PAT provided by user.");
-        ctx.Succeeded();
-        return pat;
+        throw new NotImplementedException("Interactive PAT input is not implemented.");
     });
 
     private static string? TryGetTokenFromAzCli() => Log.Method(ctx =>
@@ -437,36 +427,4 @@ public static class AdoCredentialHelper
         ctx.Succeeded();
         return output.Trim();
     });
-
-    private static string ReadPasswordMasked()
-    {
-        Program.ui.Write("Enter your Azure DevOps Personal Access Token (PAT)\nInput will be masked, press Enter when done, ESC to cancel.");
-        var password = new StringBuilder();
-        while (true)
-        {
-            var key = Program.ui.ReadKey(intercept: true);
-            if (key.Key == ConsoleKey.Enter)
-            {
-                Program.ui.WriteLine();
-                break;
-            }
-            else if (key.Key == ConsoleKey.Backspace && password.Length > 0)
-            {
-                Program.ui.Write("\b \b");
-                password.Length--;
-            }
-            else if (key.Key == ConsoleKey.Escape)
-            {
-                Program.ui.WriteLine("\nInput cancelled.");
-                return string.Empty; // Allow cancellation
-            }
-            else if (!char.IsControl(key.KeyChar))
-            {
-                Program.ui.Write("*");
-                password.Append(key.KeyChar);
-            }
-
-        }
-        return password.ToString();
-    }
 }
