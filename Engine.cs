@@ -128,7 +128,7 @@ public static class Engine
         return sb.ToString();
     }
 
-    public static async Task AddContentItemsToVectorStore(IEnumerable<(string Name, string Content)> items) => await Log.MethodAsync(async ctx =>
+    public static async Task AddContentItemsToVectorStore(IEnumerable<(string Name, string Content)> items, string description) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
 
@@ -137,6 +137,7 @@ public static class Engine
 
         var (results, failures, canceled) =
             await AsyncProgress.For("Adding content to RAG")
+                .WithDescription(description)
                 .WithCancellation(cts)
                 .Run<(string Name, string Content), bool>(
                     items: () => list,
@@ -168,7 +169,7 @@ public static class Engine
         ctx.Succeeded(0 == failures.Count);
     });
 
-    public static async Task AddDirectoryToVectorStore(string path) => await AddContentItemsToVectorStore(ReadFilesFromDirectory(path));
+    public static async Task AddDirectoryToVectorStore(string path) => await AddContentItemsToVectorStore(ReadFilesFromDirectory(path), path);
 
     private static IEnumerable<(string Name, string Content)> ReadFilesFromDirectory(string path)
     {
@@ -186,7 +187,7 @@ public static class Engine
         }
     }
 
-    public static async Task AddZipFileToVectorStore(string zipPath) => await AddContentItemsToVectorStore(ReadFilesFromZip(zipPath));
+    public static async Task AddZipFileToVectorStore(string zipPath) => await AddContentItemsToVectorStore(ReadFilesFromZip(zipPath), zipPath);
 
     private static IEnumerable<(string Name, string Content)> ReadFilesFromZip(string zipPath)
     {
@@ -208,7 +209,7 @@ public static class Engine
         }
     }
 
-    public static async Task AddFileToVectorStore(string path) => await AddContentItemsToVectorStore(new[] { (path, File.ReadAllText(path)) });
+    public static async Task AddFileToVectorStore(string path) => await AddContentItemsToVectorStore(new[] { (path, File.ReadAllText(path)) }, path);
 
     private static bool ShouldIncludeFile(string filePath, List<RagFileType> items)
     {

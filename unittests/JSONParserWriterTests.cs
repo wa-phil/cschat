@@ -60,6 +60,7 @@ namespace unittests
         public void JSONParser_ShouldParseDictionary()
         {
             var dict = "{\"a\":1,\"b\":2}".FromJson<Dictionary<string, int>>();
+            Assert.NotNull(dict);
             Assert.Equal(1, dict["a"]);
             Assert.Equal(2, dict["b"]);
         }
@@ -167,6 +168,7 @@ namespace unittests
         {
             var json = "{\"renamed\":42,\"Ignored\":\"no\",\"Normal\":\"ok\"}";
             var obj = json.FromJson<DataMemberTestClass>();
+            Assert.NotNull(obj);
             Assert.Equal(42, obj.OriginalName); // DataMember(Name)
             Assert.Null(obj.Ignored);           // IgnoreDataMember
             Assert.Equal("ok", obj.Normal);    // Normal property
@@ -452,27 +454,32 @@ namespace unittests
             var guid = Guid.NewGuid();
             var json = $"{{\"guid\": \"{guid}\"}}";
             var parsedGuid = json.FromJson<Dictionary<string, object>>();
+            Assert.NotNull(parsedGuid);
             Assert.Equal(guid.ToString(), parsedGuid["guid"].ToString());
 
             // Test with null
             var nullJson = "{\"guid\": null}";
             var parsedNull = nullJson.FromJson<Dictionary<string, object>>();
+            Assert.NotNull(parsedNull);
             Assert.Null(parsedNull["guid"]);
 
             // Test with empty string
             var emptyJson = "{\"guid\": \"\"}";
             var parsedEmpty = emptyJson.FromJson<Dictionary<string, object>>();
+            Assert.NotNull(parsedEmpty);
             Assert.Equal(string.Empty, parsedEmpty["guid"]);
 
             // Test with empty GUID
             var emptyGuidJson = "{\"guid\": \"00000000-0000-0000-0000-000000000000\"}";
             var parsedEmptyGuid = emptyGuidJson.FromJson<TestClassWithGuid>();
+            Assert.NotNull(parsedEmptyGuid);
             Assert.Equal(Guid.Empty, parsedEmptyGuid.guid);
 
             // Test with valid GUID
             var newGuid = new Guid("12345678-1234-1234-1234-123456789012");
             var validGuidJson = "{\"guid\": \"12345678-1234-1234-1234-123456789012\"}";
             var parsedValidGuid = validGuidJson.FromJson<TestClassWithGuid>();
+            Assert.NotNull(parsedValidGuid);
             Assert.Equal(newGuid, parsedValidGuid.guid);
 
             // Test with valid GUIDs in different formats
@@ -488,6 +495,7 @@ namespace unittests
             {
                 var formattedJson = $"{{\"guid\": \"{format}\"}}";
                 var parsedFormat = formattedJson.FromJson<TestClassWithGuid>();
+                Assert.NotNull(parsedFormat);
                 Assert.Equal(new Guid(format), parsedFormat.guid);
             }
 
@@ -498,6 +506,7 @@ namespace unittests
             };
             var testJson = test.ToJson();
             var parsedTest = testJson.FromJson<TestClassWithGuid>();
+            Assert.NotNull(parsedTest);
             Assert.Equal(test.guid, parsedTest.guid);
         }
 
@@ -558,6 +567,9 @@ namespace unittests
 
             var context = json.FromJson<Context.ContextData>();
             Assert.NotNull(context);
+            Assert.NotNull(context.Context);
+            Assert.NotNull(context.Messages);
+            Assert.NotNull(context.SystemMessage);
             Assert.Equal(3, context.Context.Count);
             Assert.Equal(4, context.Messages.Count);
             Assert.Equal(Roles.System, context.SystemMessage.Role);

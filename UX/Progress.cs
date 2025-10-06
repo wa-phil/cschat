@@ -106,6 +106,7 @@ public sealed class ProgressItem
 public sealed record ProgressSnapshot(
     string Id,
     string Title,
+    string Description,
     IReadOnlyList<(string name, double percent, ProgressState state, string? note, (int done, int total) steps)> Items,
     (int running, int queued, int completed, int failed, int canceled) Stats,
     string? EtaHint,
@@ -118,14 +119,16 @@ public sealed class AsyncProgress
     public sealed class Builder
     {
         private readonly string _title;
+        private string _description = string.Empty;
         private int _maxConcurrency = Program.config.RagSettings.MaxIngestConcurrency;
         private CancellationTokenSource? _externalCts;
 
         internal Builder(string title) { _title = title; }
         public Builder MaxConcurrency(int n) { _maxConcurrency = Math.Max(1, n); return this; }
         public Builder WithCancellation(CancellationTokenSource cts) { _externalCts = cts; return this; }
+        public Builder WithDescription(string desc) { _description = desc ?? string.Empty; return this; }
 
-        public async Task<(IReadOnlyList<TResult> results, IReadOnlyList<(string name,string? error)> failures, bool canceled)>
+        public async Task<(IReadOnlyList<TResult> results, IReadOnlyList<(string name, string? error)> failures, bool canceled)>
             Run<T, TResult>(
                 Func<IEnumerable<T>> items,
                 Func<T, string> nameOf,
@@ -156,7 +159,7 @@ public sealed class AsyncProgress
                 var t = pumpCts.Token;
                 while (!t.IsCancellationRequested)
                 {
-                    Program.ui.UpdateProgress(id, Snapshot(_title, progressItems.Values.ToList(), active:true));
+                    Program.ui.UpdateProgress(id, Snapshot(_title, _description, progressItems.Values.ToList(), active:true));
                     try { await Task.Delay(100, t); } catch { /* canceled */ }
                 }
             }, pumpCts.Token);
@@ -203,7 +206,7 @@ public sealed class AsyncProgress
                 pumpCts.Cancel();
                 try { await pump; } catch { /* ignore */ }
                 // final snapshot & artifact
-                var final = Snapshot(_title, progressItems.Values.ToList(), active:false);
+                var final = Snapshot(_title, _description, progressItems.Values.ToList(), active:false);
                 var summaryMd = RenderSummaryMarkdown(final, sw.Elapsed);
                 // 1. persist to chat history (do not render here -- UIs handle visuals)
                 try { Program.Context.AddToolMessage(summaryMd); } catch { /* best effort */ }
@@ -216,7 +219,7 @@ public sealed class AsyncProgress
                     runCts.IsCancellationRequested || (_externalCts?.IsCancellationRequested ?? false));
         }
 
-        private static ProgressSnapshot Snapshot(string title, List<ProgressItem> items, bool active)
+        private static ProgressSnapshot Snapshot(string title, string description, List<ProgressItem> items, bool active)
         {
             int running = 0, queued = 0, completed = 0, failed = 0, canceled = 0;
             var rows = new List<(string,double,ProgressState,string? ,(int,int))>(items.Count);
@@ -246,6 +249,7 @@ public sealed class AsyncProgress
             return new ProgressSnapshot(
                 Id: Guid.NewGuid().ToString("n"), // renderer can ignore
                 Title: title,
+                Description: description,
                 Items: rows,
                 Stats: (running, queued, completed, failed, canceled),
                 EtaHint: eta,
@@ -263,8 +267,8 @@ public sealed class AsyncProgress
             var more = Math.Max(0, s.Items.Count(i => i.state == ProgressState.Failed) - 20);
             var moreLine = more > 0 ? $"\n…and **{more}** more failures." : "";
             return
-$@"**{s.Title}** — finished in `{elapsed.TotalMilliseconds:N0} ms`
-
+$@"**{s.Title+(string.IsNullOrWhiteSpace(s.Description) ? "" : $": {s.Description}")}**
+— Finished : **{elapsed.TotalMilliseconds:N0}** ms
 - Processed: **{total}**
 - Completed: **{c}**   Failed: **{f}**   Canceled: **{x}**
 
