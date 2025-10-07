@@ -229,7 +229,7 @@ namespace unittests
     ""Messages"": [
         { ""Role"": ""User"", ""Content"": ""Hello.  I’d like to play a game of D&D.  You will play the part of the dungeon master, and I will play the part of the player.  Are you ready?"" },
         { ""Role"": ""Assistant"", ""Content"": ""Hello! I am ready and excited to be your Dungeon Master. I'll do my best to guide you through an engaging D&D adventure."" },
-        { ""Role"": ""User"", ""Content"": ""I'm a human wizard named Alcazar, and I lead a secret cabal of lesser wizzards that are part of a larger guild called 'The Developers!'"" },
+        { ""Role"": ""User"", ""Content"": ""I'm a human wizard named Alcazar, and I lead a secret cabal of lesser wizards that are part of a larger guild called 'The Developers!'"" },
         { ""Role"": ""Assistant"", ""Content"": ""Excellent! As per [context: explain_program_to_user], I understand you are Alcazar, a human wizard leading a secret cabal of lesser wizards within a larger guild called 'The Developers.' That's a fascinating background!"" }
     ]
 }
