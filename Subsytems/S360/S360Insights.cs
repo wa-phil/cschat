@@ -1,8 +1,9 @@
 using System;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 public static class S360Insights
 {
@@ -36,12 +37,14 @@ public static class S360Insights
     }
 
     /// <summary>
-    /// Build a strong-formatting prompt that asks the LLM to output a grouped action plan.
-    /// Items are grouped by Service and sorted by DUE date (soonest first).
+    /// Append a structured action plan into a Report object. Items are grouped by Service
+    /// and sorted by due date. This produces a Report (tables & bullets) suitable for
+    /// rendering with the app's Report API.
     /// </summary>
-    public static string MakeGroupedActionPlanPrompt(
-        IEnumerable<(S360Client.S360Row Row, float Score, Dictionary<string,float> Factors)> scored)
+    public static async Task AppendGroupedActionPlanAsync(Report parent, IEnumerable<(S360Client.S360Row Row, float Score, Dictionary<string,float> Factors)> scored)
     {
+        if (null == Engine.Provider) throw new InvalidOperationException("LLM provider is not configured.");
+
         var groups = scored
             .GroupBy(x => x.Row.ServiceName)
             .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
@@ -50,49 +53,70 @@ public static class S360Insights
                 Items = g.OrderBy(x => ParseDate(x.Row.CurrentDueDate) ?? DateTime.MaxValue)
             });
 
-        var sb = new StringBuilder();
-        sb.AppendLine("You are an engineering manager writing a triage action plan.");
-        sb.AppendLine("Goal: make it scannable. Group by Service. Under each service, list items sorted by soonest DUE date.");
-        sb.AppendLine("For EACH item output exactly:");
-        sb.AppendLine("  - <Title> [<SLAState>] (Due: <yyyy-MM-dd or —> | ETA: <value or —> | Owner: <Assigned or Unassigned>)");
-        sb.AppendLine("    Summary: <1–2 crisp sentences, max ~240 chars>");
-        sb.AppendLine("    Next: <clear next step(s) such as set ETA / assign owner / update status / follow link>");
-        sb.AppendLine("    Links:");
-        sb.AppendLine("      - <description> — <url>");
-        sb.AppendLine("Use the provided link text as the description; if missing, use 'S360 item'. Do not invent URLs or facts. Keep it concise.");
-        sb.AppendLine();
-
         foreach (var g in groups)
         {
-            sb.AppendLine($"Service: {g.Service}");
+            // Prepare per-item summaries (await provider outside of the report builders)
+            var preparedItems = new List<(string title, S360Client.S360Row r, string summary, string next, List<(string text,string url)> links)>();
             foreach (var x in g.Items)
             {
                 var r = x.Row;
                 var title = string.IsNullOrWhiteSpace(r.ActionItemTitle) ? r.KpiTitle : r.ActionItemTitle;
-                var status = string.IsNullOrWhiteSpace(r.CurrentStatus) ? "" : $"Status: {Utilities.TruncatePlain(r.CurrentStatus, 200)}";
-                var descPlain = Utilities.TruncatePlain(Utilities.StripHtml(r.KpiDescriptionHtml ?? string.Empty), 500);
-                var eta = string.IsNullOrWhiteSpace(r.CurrentETA) ? "—" : r.CurrentETA.Trim();
-                var due = NormalizeDateString(r.CurrentDueDate);
-                var owner = string.IsNullOrWhiteSpace(r.AssignedTo) ? "Unassigned" : r.AssignedTo.Trim();
+                var deterministicSummary = r.KpiDescriptionHtml ?? string.Empty;
+                string summaryText = deterministicSummary;
+                string nextStep = "set ETA / assign owner / update status";
+                try
+                {
+                    var sb = new StringBuilder();
+                    sb.AppendLine("You are an assistant that writes a concise 3-4 sentence summary and a one-line next step for an engineering action item.");
+                    sb.AppendLine("Provide output as two lines beginning with 'Summary:' and 'Next:' respectively.");
+                    sb.AppendLine();
+                    sb.AppendLine($"Title: {title}");
+                    sb.AppendLine($"SLAState: {r.SLAState}");
+                    sb.AppendLine($"Due: {NormalizeDateString(r.CurrentDueDate)}");
+                    sb.AppendLine($"ETA: { (string.IsNullOrWhiteSpace(r.CurrentETA)? "—": r.CurrentETA.Trim()) }");
+                    sb.AppendLine($"Owner: { (string.IsNullOrWhiteSpace(r.AssignedTo)? "Unassigned": r.AssignedTo.Trim()) }");
+                    if (!string.IsNullOrWhiteSpace(deterministicSummary)) sb.AppendLine($"Description: {deterministicSummary}");
+                    var links = ExtractLinks(r.KpiDescriptionHtml, r.URL).Take(5).ToList();
+                    if (links.Any())
+                    {
+                        sb.AppendLine("Links:");
+                        foreach (var (t,u) in links) sb.AppendLine($"- {t} — {u}");
+                    }
 
-                sb.AppendLine($"- Title: {title}");
-                sb.AppendLine($"  SLA: {r.SLAState}");
-                sb.AppendLine($"  Due: {due}");
-                sb.AppendLine($"  ETA: {eta}");
-                sb.AppendLine($"  Owner: {owner}");
-                if (!string.IsNullOrWhiteSpace(status)) sb.AppendLine($"  {status}");
-                if (!string.IsNullOrWhiteSpace(descPlain)) sb.AppendLine($"  Description: {descPlain}");
+                    var ctx = new Context(sb.ToString());
+                    var resp = await Engine.Provider!.PostChatAsync(ctx, 0.2f);
+                    if (!string.IsNullOrWhiteSpace(resp))
+                    {
+                        var lines = resp.Split(new[] {'\n','\r'}, StringSplitOptions.RemoveEmptyEntries)
+                            .Select(l => l.Trim()).ToList();
+                        var sumLine = lines.FirstOrDefault(l => l.StartsWith("Summary:", StringComparison.OrdinalIgnoreCase));
+                        var nextLine = lines.FirstOrDefault(l => l.StartsWith("Next:", StringComparison.OrdinalIgnoreCase));
+                        if (sumLine != null) summaryText = sumLine.Substring(sumLine.IndexOf(':')+1).Trim();
+                        if (nextLine != null) nextStep = nextLine.Substring(nextLine.IndexOf(':')+1).Trim();
+                        if (sumLine == null && lines.Count > 0) summaryText = lines[0];
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Method(ctx=>ctx.Failed("LLM error", ex));
+                }
 
-                var links = ExtractLinks(r.KpiDescriptionHtml, r.URL);
-                sb.AppendLine("  ItemLinks:");
-                foreach (var (text,url) in links)
-                    sb.AppendLine($"    - [{text}] {url}");
-                sb.AppendLine();
+                preparedItems.Add((Utilities.TruncatePlain(title,120), r, summaryText, nextStep, ExtractLinks(r.KpiDescriptionHtml, r.URL).ToList()));
             }
-        }
 
-        sb.AppendLine("Now produce the action plan in the REQUIRED output format described above. Do not add extra commentary.");
-        return sb.ToString();
+            // Each service becomes a section. Under each service, create a subsection per item
+            parent.Section(g.Service ?? "(unknown)", sec => {
+                foreach (var it in preparedItems)
+                {
+                    sec.Section(it.title, item => {
+                        item.Paragraph($"[{it.r.SLAState}] (Due: {NormalizeDateString(it.r.CurrentDueDate)} | ETA: {(string.IsNullOrWhiteSpace(it.r.CurrentETA)? "—": it.r.CurrentETA.Trim())} | Owner: {(string.IsNullOrWhiteSpace(it.r.AssignedTo)? "Unassigned": it.r.AssignedTo.Trim())})");
+                        if (!string.IsNullOrWhiteSpace(it.summary)) item.Section("Summary", s => s.Paragraph(it.summary));
+                        if (!string.IsNullOrWhiteSpace(it.next)) item.Section("Next steps", s => s.Bulleted(it.next));
+                        if (it.links.Any()) item.Section("Links", l => l.Bulleted(it.links.Select(lk => $"{lk.text} — {lk.url}").ToArray()));
+                    });
+                }
+            });
+        }
 
         static DateTime? ParseDate(string s)
             => DateTime.TryParse(s, out var dt) ? DateTime.SpecifyKind(dt, DateTimeKind.Utc) : (DateTime?)null;
