@@ -322,25 +322,25 @@ public class GraphStore
 
     public void PrintGraph()
     {
-        Program.ui.WriteLine($"\n=== GRAPH STORE SUMMARY ===");
-        Program.ui.WriteLine($"Total Entities: {EntityCount}");
-        Program.ui.WriteLine($"Total Relationships: {RelationshipCount}");
+        using var output = Program.ui.BeginRealtime("=== GRAPH STORE SUMMARY ===");
+        output.WriteLine($"Total Entities: {EntityCount}");
+        output.WriteLine($"Total Relationships: {RelationshipCount}");
 
-        Program.ui.WriteLine("\nEntities with Directional Relationships:");
+        output.WriteLine("\nEntities with Directional Relationships:");
         foreach (var entity in Entities.Values)
         {
             var counts = entity.GetRelationshipCounts();
-            Program.ui.WriteLine($"- {entity} [Out: {counts.OutgoingCount}, In: {counts.IncomingCount}, Total: {counts.TotalCount}]");
+            output.WriteLine($"- {entity} [Out: {counts.OutgoingCount}, In: {counts.IncomingCount}, Total: {counts.TotalCount}]");
 
             // Show outgoing relationships
             var outgoingTypes = entity.GetOutgoingRelationshipTypes();
             if (outgoingTypes.Count > 0)
             {
-                Program.ui.WriteLine($"  Outgoing Relationships ({counts.OutgoingCount}):");
+                output.WriteLine($"  Outgoing Relationships ({counts.OutgoingCount}):");
                 foreach (var relType in outgoingTypes)
                 {
                     var targets = entity.GetOutgoingNeighborsByType(relType);
-                    Program.ui.WriteLine($"    --[{relType}]--> {string.Join(", ", targets.Select(n => n.Name))}");
+                    output.WriteLine($"    --[{relType}]--> {string.Join(", ", targets.Select(n => n.Name))}");
                 }
             }
 
@@ -348,44 +348,44 @@ public class GraphStore
             var incomingTypes = entity.GetIncomingRelationshipTypes();
             if (incomingTypes.Count > 0)
             {
-                Program.ui.WriteLine($"  Incoming Relationships ({counts.IncomingCount}):");
+                output.WriteLine($"  Incoming Relationships ({counts.IncomingCount}):");
                 foreach (var relType in incomingTypes)
                 {
                     var sources = entity.GetIncomingNeighborsByType(relType);
-                    Program.ui.WriteLine($"    <--[{relType}]-- {string.Join(", ", sources.Select(n => n.Name))}");
+                    output.WriteLine($"    <--[{relType}]-- {string.Join(", ", sources.Select(n => n.Name))}");
                 }
             }
 
             if (counts.TotalCount == 0)
             {
-                Program.ui.WriteLine("  No relationships");
+                output.WriteLine("  No relationships");
             }
         }
 
-        Program.ui.WriteLine("\nDirect Relationships:");
+        output.WriteLine("\nDirect Relationships:");
         foreach (var rel in Relationships)
-            Program.ui.WriteLine($"- {rel}");
+            output.WriteLine($"- {rel}");
 
-        Program.ui.WriteLine("============================\n");
+        output.WriteLine("============================\n");
     }
 
     // Print detailed graph analysis
     public void PrintGraphAnalysis()
     {
-        Program.ui.WriteLine($"\n=== GRAPH ANALYSIS ===");
-        Program.ui.WriteLine($"Total Entities: {EntityCount}");
-        Program.ui.WriteLine($"Total Relationships: {RelationshipCount}");
+        using var output = Program.ui.BeginRealtime("=== GRAPH ANALYSIS ===");
+        output.WriteLine($"Total Entities: {EntityCount}");
+        output.WriteLine($"Total Relationships: {RelationshipCount}");
 
         // Find most connected entities
         var sortedByConnections = Entities.Values
             .OrderByDescending(e => e.GetAllNeighbors().Count)
             .Take(5);
 
-        Program.ui.WriteLine("\nMost Connected Entities:");
+        output.WriteLine("\nMost Connected Entities:");
         foreach (var entity in sortedByConnections)
         {
             var neighborCount = entity.GetAllNeighbors().Count;
-            Program.ui.WriteLine($"- {entity.Name}: {neighborCount} connections");
+            output.WriteLine($"- {entity.Name}: {neighborCount} connections");
         }
 
         // Show relationship type distribution
@@ -393,39 +393,40 @@ public class GraphStore
             .OrderByDescending(g => g.Count())
             .ToDictionary(g => g.Key, g => g.Count());
 
-        Program.ui.WriteLine("\nRelationship Types:");
+        output.WriteLine("\nRelationship Types:");
         foreach (var kvp in relationshipTypes)
         {
-            Program.ui.WriteLine($"- {kvp.Key}: {kvp.Value} instances");
+            output.WriteLine($"- {kvp.Key}: {kvp.Value} instances");
         }
 
         // Find isolated entities (no connections)
         var isolatedEntities = Entities.Values.Where(e => e.GetAllNeighbors().Count == 0).ToList();
         if (isolatedEntities.Count > 0)
         {
-            Program.ui.WriteLine($"\nIsolated Entities ({isolatedEntities.Count}):");
+            output.WriteLine($"\nIsolated Entities ({isolatedEntities.Count}):");
             foreach (var entity in isolatedEntities)
             {
-                Program.ui.WriteLine($"- {entity.Name}");
+                output.WriteLine($"- {entity.Name}");
             }
         }
 
-        Program.ui.WriteLine("======================\n");
+        output.WriteLine("======================\n");
     }
 
     // Print all entities within N hops of a given entity
     public void PrintEntitiesWithinHops(string entityName, int maxHops)
     {
+        using var output = Program.ui.BeginRealtime($"=== ENTITIES WITHIN {maxHops} HOP(S) OF '{entityName}' ===");
         if (!Entities.ContainsKey(entityName))
         {
-            Program.ui.WriteLine($"Entity '{entityName}' not found in the graph.");
+            output.WriteLine($"Entity '{entityName}' not found in the graph.");
             return;
         }
 
         var entitiesWithinHops = GetEntitiesWithinHops(entityName, maxHops);
 
-        Program.ui.WriteLine($"\n=== ENTITIES WITHIN {maxHops} HOP(S) OF '{entityName}' ===");
-        Program.ui.WriteLine($"Found {entitiesWithinHops.Count} entities:");
+        output.WriteLine($"\n=== ENTITIES WITHIN {maxHops} HOP(S) OF '{entityName}' ===");
+        output.WriteLine($"Found {entitiesWithinHops.Count} entities:");
 
         // Group by distance/hop count
         var entitiesByDistance = new Dictionary<int, List<Entity>>();
@@ -463,14 +464,14 @@ public class GraphStore
             {
                 var hopEntities = entitiesByDistance[hop];
                 if (hop == 0)
-                    Program.ui.WriteLine($"\nStarting Entity (0 hops):");
+                    output.WriteLine($"\nStarting Entity (0 hops):");
                 else
-                    Program.ui.WriteLine($"\nEntities at {hop} hop(s) away ({hopEntities.Count}):");
+                    output.WriteLine($"\nEntities at {hop} hop(s) away ({hopEntities.Count}):");
 
                 foreach (var entity in hopEntities)
                 {
                     var counts = entity.GetRelationshipCounts();
-                    Program.ui.WriteLine($"  - {entity.Name} ({entity.Type}) [Connections: {counts.TotalCount}]");
+                    output.WriteLine($"  - {entity.Name} ({entity.Type}) [Connections: {counts.TotalCount}]");
 
                     // Show how this entity connects back to previous hop (except for starting entity)
                     if (hop > 0)
@@ -498,13 +499,13 @@ public class GraphStore
                         }
 
                         if (connectingRelationships.Count > 0)
-                            Program.ui.WriteLine($"    Connected via: {string.Join(", ", connectingRelationships)}");
+                            output.WriteLine($"    Connected via: {string.Join(", ", connectingRelationships)}");
                     }
                 }
             }
         }
 
-        Program.ui.WriteLine($"\n=== END {maxHops} HOP(S) ANALYSIS ===\n");
+        output.WriteLine($"\n=== END {maxHops} HOP(S) ANALYSIS ===\n");
     }
 
     // Add graph analytics capabilities
@@ -513,55 +514,55 @@ public class GraphStore
     // Detect and display communities using Louvain algorithm
     public void PrintCommunityAnalysis()
     {
-        Program.ui.WriteLine("\n=== COMMUNITY DETECTION (LOUVAIN ALGORITHM) ===");
+        using var output = Program.ui.BeginRealtime("=== COMMUNITY DETECTION (LOUVAIN ALGORITHM) ===");
 
         if (IsEmpty)
         {
-            Program.ui.WriteLine("Graph is empty. No communities to detect.");
+            output.WriteLine("Graph is empty. No communities to detect.");
             return;
         }
 
         var (communities, modularity) = Analytics.DetectCommunities();
         var clusters = Analytics.GenerateClusters(communities);
 
-        Program.ui.WriteLine($"Detected {clusters.Count} communities with modularity score: {modularity:F4}");
-        Program.ui.WriteLine($"(Higher modularity = better community structure)");
+        output.WriteLine($"Detected {clusters.Count} communities with modularity score: {modularity:F4}");
+        output.WriteLine($"(Higher modularity = better community structure)");
 
         foreach (var cluster in clusters)
         {
-            Program.ui.WriteLine($"\n--- COMMUNITY {cluster.Id} ---");
-            Program.ui.WriteLine($"Size: {cluster.Size} entities");
-            Program.ui.WriteLine($"Density: {cluster.Density:F3} (how tightly connected)");
+            output.WriteLine($"\n--- COMMUNITY {cluster.Id} ---");
+            output.WriteLine($"Size: {cluster.Size} entities");
+            output.WriteLine($"Density: {cluster.Density:F3} (how tightly connected)");
 
-            Program.ui.WriteLine("\nEntity Types in this Community:");
+            output.WriteLine("\nEntity Types in this Community:");
             foreach (var typeCount in cluster.EntityTypes.OrderByDescending(kvp => kvp.Value))
             {
-                Program.ui.WriteLine($"  • {typeCount.Key}: {typeCount.Value} entities");
+                output.WriteLine($"  • {typeCount.Key}: {typeCount.Value} entities");
             }
 
-            Program.ui.WriteLine("\nTop Relationship Types:");
+            output.WriteLine("\nTop Relationship Types:");
             foreach (var relType in cluster.TopRelationshipTypes)
             {
-                Program.ui.WriteLine($"  • {relType}");
+                output.WriteLine($"  • {relType}");
             }
 
-            Program.ui.WriteLine("\nEntities in this Community:");
+            output.WriteLine("\nEntities in this Community:");
             foreach (var entityName in cluster.EntityNames.Take(10)) // Show first 10
             {
                 if (Entities.ContainsKey(entityName))
                 {
                     var entity = Entities[entityName];
-                    Program.ui.WriteLine($"  • {entity.Name} ({entity.Type})");
+                    output.WriteLine($"  • {entity.Name} ({entity.Type})");
                 }
             }
 
             if (cluster.EntityNames.Count > 10)
             {
-                Program.ui.WriteLine($"  ... and {cluster.EntityNames.Count - 10} more entities");
+                output.WriteLine($"  ... and {cluster.EntityNames.Count - 10} more entities");
             }
         }
 
-        Program.ui.WriteLine($"\n=== END COMMUNITY ANALYSIS ===");
+        output.WriteLine($"\n=== END COMMUNITY ANALYSIS ===");
     }
 
     // Get entities in a specific community
@@ -588,22 +589,22 @@ public class GraphStore
     // Print detailed community information
     public void PrintDetailedCommunityInfo(int? specificCommunityId = null)
     {
-        Program.ui.WriteLine("\n=== DETAILED COMMUNITY INFORMATION ===");
+        using var output = Program.ui.BeginRealtime("=== DETAILED COMMUNITY INFORMATION ===");
 
         if (IsEmpty)
         {
-            Program.ui.WriteLine("Graph is empty. No communities to analyze.");
+            output.WriteLine("Graph is empty. No communities to analyze.");
             return;
         }
 
         var (communities, modularity) = Analytics.DetectCommunities();
         var clusters = Analytics.GenerateClusters(communities);
 
-        Program.ui.WriteLine($"Graph Overview:");
-        Program.ui.WriteLine($"  • Total Entities: {EntityCount}");
-        Program.ui.WriteLine($"  • Total Relationships: {RelationshipCount}");
-        Program.ui.WriteLine($"  • Communities Detected: {clusters.Count}");
-        Program.ui.WriteLine($"  • Modularity Score: {modularity:F4} (higher = better community structure)");
+        output.WriteLine($"Graph Overview:");
+        output.WriteLine($"  • Total Entities: {EntityCount}");
+        output.WriteLine($"  • Total Relationships: {RelationshipCount}");
+        output.WriteLine($"  • Communities Detected: {clusters.Count}");
+        output.WriteLine($"  • Modularity Score: {modularity:F4} (higher = better community structure)");
 
         // Filter to specific community if requested
         var clustersToShow = specificCommunityId.HasValue
@@ -612,37 +613,37 @@ public class GraphStore
 
         if (specificCommunityId.HasValue && clustersToShow.Count == 0)
         {
-            Program.ui.WriteLine($"\nCommunity {specificCommunityId.Value} not found.");
+            output.WriteLine($"\nCommunity {specificCommunityId.Value} not found.");
             return;
         }
 
         foreach (var cluster in clustersToShow)
         {
-            Program.ui.WriteLine($"\n╔══ COMMUNITY {cluster.Id} ══════════════════════════════════");
-            Program.ui.WriteLine($"║ Size: {cluster.Size} entities");
-            Program.ui.WriteLine($"║ Density: {cluster.Density:F3} (0=sparse, 1=fully connected)");
+            output.WriteLine($"\n╔══ COMMUNITY {cluster.Id} ══════════════════════════════════");
+            output.WriteLine($"║ Size: {cluster.Size} entities");
+            output.WriteLine($"║ Density: {cluster.Density:F3} (0=sparse, 1=fully connected)");
 
             // Entity type breakdown
-            Program.ui.WriteLine($"║");
-            Program.ui.WriteLine($"║ Entity Types:");
+            output.WriteLine($"║");
+            output.WriteLine($"║ Entity Types:");
             var totalInCommunity = cluster.EntityTypes.Values.Sum();
             foreach (var typeCount in cluster.EntityTypes.OrderByDescending(kvp => kvp.Value))
             {
                 var percentage = (double)typeCount.Value / totalInCommunity * 100;
-                Program.ui.WriteLine($"║   • {typeCount.Key}: {typeCount.Value} entities ({percentage:F1}%)");
+                output.WriteLine($"║   • {typeCount.Key}: {typeCount.Value} entities ({percentage:F1}%)");
             }
 
             // Relationship patterns
-            Program.ui.WriteLine($"║");
-            Program.ui.WriteLine($"║ Top Relationship Types in Community:");
+            output.WriteLine($"║");
+            output.WriteLine($"║ Top Relationship Types in Community:");
             foreach (var relType in cluster.TopRelationshipTypes.Take(5))
             {
-                Program.ui.WriteLine($"║   • {relType}");
+                output.WriteLine($"║   • {relType}");
             }
 
             // Central entities (most connected within community)
-            Program.ui.WriteLine($"║");
-            Program.ui.WriteLine($"║ Most Connected Entities in Community:");
+            output.WriteLine($"║");
+            output.WriteLine($"║ Most Connected Entities in Community:");
             var communityEntities = cluster.EntityNames
                 .Where(name => Entities.ContainsKey(name))
                 .Select(name => Entities[name])
@@ -653,42 +654,42 @@ public class GraphStore
             {
                 var communityConnections = entity.GetAllNeighbors().Count(n => cluster.EntityNames.Contains(n.Name));
                 var totalConnections = entity.GetAllNeighbors().Count;
-                Program.ui.WriteLine($"║   • {entity.Name} ({entity.Type}): {communityConnections}/{totalConnections} connections");
+                output.WriteLine($"║   • {entity.Name} ({entity.Type}): {communityConnections}/{totalConnections} connections");
             }
 
             // Show all entities if small community or first 15 if large
-            Program.ui.WriteLine($"║");
+            output.WriteLine($"║");
             if (cluster.Size <= 15)
             {
-                Program.ui.WriteLine($"║ All Entities in Community:");
+                output.WriteLine($"║ All Entities in Community:");
                 foreach (var entityName in cluster.EntityNames.OrderBy(n => n))
                 {
                     if (Entities.ContainsKey(entityName))
                     {
                         var entity = Entities[entityName];
                         var counts = entity.GetRelationshipCounts();
-                        Program.ui.WriteLine($"║   • {entity.Name} ({entity.Type}) - {counts.TotalCount} total connections");
+                        output.WriteLine($"║   • {entity.Name} ({entity.Type}) - {counts.TotalCount} total connections");
                     }
                 }
             }
             else
             {
-                Program.ui.WriteLine($"║ Sample Entities (showing 15 of {cluster.Size}):");
+                output.WriteLine($"║ Sample Entities (showing 15 of {cluster.Size}):");
                 foreach (var entityName in cluster.EntityNames.Take(15))
                 {
                     if (Entities.ContainsKey(entityName))
                     {
                         var entity = Entities[entityName];
                         var counts = entity.GetRelationshipCounts();
-                        Program.ui.WriteLine($"║   • {entity.Name} ({entity.Type}) - {counts.TotalCount} total connections");
+                        output.WriteLine($"║   • {entity.Name} ({entity.Type}) - {counts.TotalCount} total connections");
                     }
                 }
-                Program.ui.WriteLine($"║   ... and {cluster.Size - 15} more entities");
+                output.WriteLine($"║   ... and {cluster.Size - 15} more entities");
             }
 
             // Cross-community connections
-            Program.ui.WriteLine($"║");
-            Program.ui.WriteLine($"║ Cross-Community Connections:");
+            output.WriteLine($"║");
+            output.WriteLine($"║ Cross-Community Connections:");
             var crossConnections = new Dictionary<int, int>();
             foreach (var entityName in cluster.EntityNames)
             {
@@ -711,30 +712,30 @@ public class GraphStore
             {
                 foreach (var cc in crossConnections.OrderByDescending(kvp => kvp.Value).Take(3))
                 {
-                    Program.ui.WriteLine($"║   • {cc.Value} connections to Community {cc.Key}");
+                    output.WriteLine($"║   • {cc.Value} connections to Community {cc.Key}");
                 }
             }
             else
             {
-                Program.ui.WriteLine($"║   • No cross-community connections (isolated community)");
+                output.WriteLine($"║   • No cross-community connections (isolated community)");
             }
 
-            Program.ui.WriteLine($"╚════════════════════════════════════════════════════════");
+            output.WriteLine($"╚════════════════════════════════════════════════════════");
         }
 
         // Summary statistics
         if (!specificCommunityId.HasValue)
         {
-            Program.ui.WriteLine($"\n=== COMMUNITY SUMMARY STATISTICS ===");
+            output.WriteLine($"\n=== COMMUNITY SUMMARY STATISTICS ===");
             var avgSize = clusters.Average(c => c.Size);
             var avgDensity = clusters.Average(c => c.Density);
             var largestCommunity = clusters.OrderByDescending(c => c.Size).First();
             var densestCommunity = clusters.OrderByDescending(c => c.Density).First();
 
-            Program.ui.WriteLine($"Average Community Size: {avgSize:F1} entities");
-            Program.ui.WriteLine($"Average Community Density: {avgDensity:F3}");
-            Program.ui.WriteLine($"Largest Community: #{largestCommunity.Id} with {largestCommunity.Size} entities");
-            Program.ui.WriteLine($"Densest Community: #{densestCommunity.Id} with {densestCommunity.Density:F3} density");
+            output.WriteLine($"Average Community Size: {avgSize:F1} entities");
+            output.WriteLine($"Average Community Density: {avgDensity:F3}");
+            output.WriteLine($"Largest Community: #{largestCommunity.Id} with {largestCommunity.Size} entities");
+            output.WriteLine($"Densest Community: #{densestCommunity.Id} with {densestCommunity.Density:F3} density");
 
             // Size distribution
             var sizeGroups = clusters.GroupBy(c => c.Size switch
@@ -746,36 +747,36 @@ public class GraphStore
                 _ => "Very Large (100+)"
             }).OrderBy(g => g.Key);
 
-            Program.ui.WriteLine($"\nCommunity Size Distribution:");
+            output.WriteLine($"\nCommunity Size Distribution:");
             foreach (var group in sizeGroups)
             {
-                Program.ui.WriteLine($"  • {group.Key}: {group.Count()} communities");
+                output.WriteLine($"  • {group.Key}: {group.Count()} communities");
             }
         }
 
-        Program.ui.WriteLine($"\n=== END DETAILED COMMUNITY INFORMATION ===");
+        output.WriteLine($"\n=== END DETAILED COMMUNITY INFORMATION ===");
     }
     
     // Helper method to print just a summary table of all communities
     public void PrintCommunitySummaryTable()
     {
-        Program.ui.WriteLine("\n=== COMMUNITY SUMMARY TABLE ===");
-        
+        using var output = Program.ui.BeginRealtime("=== COMMUNITY SUMMARY TABLE ===");
+
         if (IsEmpty)
         {
-            Program.ui.WriteLine("Graph is empty. No communities to display.");
+            output.WriteLine("Graph is empty. No communities to display.");
             return;
         }
         
         var (communities, modularity) = Analytics.DetectCommunities();
         var clusters = Analytics.GenerateClusters(communities);
-        
-        Program.ui.WriteLine($"Total Communities: {clusters.Count} | Modularity: {modularity:F4}");
-        Program.ui.WriteLine();
-        Program.ui.WriteLine("┌──────────┬──────────┬──────────┬─────────────────────────────────────┐");
-        Program.ui.WriteLine("│ Comm. ID │   Size   │ Density  │ Dominant Entity Types               │");
-        Program.ui.WriteLine("├──────────┼──────────┼──────────┼─────────────────────────────────────┤");
-        
+
+        output.WriteLine($"Total Communities: {clusters.Count} | Modularity: {modularity:F4}");
+        output.WriteLine();
+        output.WriteLine("┌──────────┬──────────┬──────────┬─────────────────────────────────────┐");
+        output.WriteLine("│ Comm. ID │   Size   │ Density  │ Dominant Entity Types               │");
+        output.WriteLine("├──────────┼──────────┼──────────┼─────────────────────────────────────┤");
+
         foreach (var cluster in clusters)
         {
             var dominantTypes = cluster.EntityTypes
@@ -786,13 +787,13 @@ public class GraphStore
             
             var typesStr = string.Join(", ", dominantTypes);
             if (typesStr.Length > 35) typesStr = typesStr.Substring(0, 32) + "...";
-            
-            Program.ui.WriteLine($"│    {cluster.Id,2}    │    {cluster.Size,3}   │  {cluster.Density,6:F3} │ {typesStr,-35} │");
+
+            output.WriteLine($"│    {cluster.Id,2}    │    {cluster.Size,3}   │  {cluster.Density,6:F3} │ {typesStr,-35} │");
         }
-        
-        Program.ui.WriteLine("└──────────┴──────────┴──────────┴─────────────────────────────────────┘");
-        Program.ui.WriteLine("\nUse PrintDetailedCommunityInfo(communityId) for detailed analysis of specific communities.");
-        Program.ui.WriteLine("=================================");
+
+        output.WriteLine("└──────────┴──────────┴──────────┴─────────────────────────────────────┘");
+        output.WriteLine("\nUse PrintDetailedCommunityInfo(communityId) for detailed analysis of specific communities.");
+        output.WriteLine("=================================");
     }    
 }
 
@@ -1071,7 +1072,7 @@ public static class GraphStoreManager
             Graph.AddRelationship(relDto.Source, relDto.Target, relDto.Type, relDto.Description);
     }
 
-    public static async Task ExtractAndStoreAsync(string content, string reference) => await Log.MethodAsync(async ctx =>
+    public static async Task ExtractAndStoreAsync(string content, string reference, IRealtimeWriter? output) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         ctx.Append(Log.Data.Reference, reference);
@@ -1098,23 +1099,30 @@ For each relationship, identify:
             var response = await TypeParser.GetAsync(working, typeof(GraphDto));
             if (response == null || response is not GraphDto graphDtoObject)
             {
-                Program.ui.WriteLine($"JSON processing issue");
+                ctx.Append(Log.Data.Message, "JSON processing issue");
                 return;
             }
-            Program.ui.WriteLine($"\n=== Extracted from {response} ===");
+            if (null == output)
+            {
+                output = Program.ui.BeginRealtime($"=== Extracted from {response} ===");
+            }
+            else
+            {
+                output.WriteLine($"\n=== Extracted from {response} ===");
+            }            
 
             if (graphDtoObject != null)
             {
                 GraphStoreManager.ParseGraphFromJson(graphDtoObject);
-                await GenerateEntityEmbeddingsAsync(graphDtoObject.Entities);
-                Program.ui.WriteLine($"Successfully processed {graphDtoObject.Entities?.Count ?? 0} entities and {graphDtoObject.Relationships?.Count ?? 0} relationships");
+                await GenerateEntityEmbeddingsAsync(graphDtoObject.Entities, output);
+                output.WriteLine($"Successfully processed {graphDtoObject.Entities?.Count ?? 0} entities and {graphDtoObject.Relationships?.Count ?? 0} relationships");
             }
             else
             {
-                Program.ui.WriteLine("Failed to parse JSON response into GraphDto");
+                output.WriteLine("Failed to parse JSON response into GraphDto");
             }
 
-            Program.ui.WriteLine("=================================\n");
+            output.WriteLine("=================================\n");
 
             ctx.Append(Log.Data.Result, $"Extracted {GraphStoreManager.Graph.EntityCount} entities and {GraphStoreManager.Graph.RelationshipCount} relationships from {reference}");
             ctx.Succeeded();
@@ -1122,7 +1130,6 @@ For each relationship, identify:
         catch (Exception ex)
         {
             ctx.Failed($"Failed to extract entities and relationships", ex);
-            Program.ui.WriteLine($"Failed to extract entities and relationships: {ex.Message}");
         }
     });
 
@@ -1130,15 +1137,16 @@ For each relationship, identify:
     /// 🔥 THIS IS THE KEY METHOD THAT POPULATES EntityEmbeddings 🔥
     /// Called automatically when new entities are extracted from documents
     /// </summary>
-    private static async Task GenerateEntityEmbeddingsAsync(List<EntityDto> entities)
+    private static async Task GenerateEntityEmbeddingsAsync(List<EntityDto> entities, IRealtimeWriter? output)
     {
+        output = output ?? Program.ui.BeginRealtime("=== Generating Entity Embeddings ===");
         if (Engine.Provider is not IEmbeddingProvider embeddingProvider)
         {
-            Program.ui.WriteLine("Warning: No embedding provider available for entity embedding generation");
+            output.WriteLine("Warning: No embedding provider available for entity embedding generation");
             return;
         }
 
-        Program.ui.WriteLine($"Generating embeddings for {entities.Count} new entities...");
+        output.WriteLine($"Generating embeddings for {entities.Count} new entities...");
         int generated = 0;
 
         foreach (var entityDto in entities)
@@ -1146,7 +1154,7 @@ For each relationship, identify:
             // Skip if we already have an embedding for this entity
             if (EntityEmbeddings.ContainsKey(entityDto.Name))
             {
-                Program.ui.WriteLine($"  Skipping {entityDto.Name} - embedding already exists");
+                output.WriteLine($"  Skipping {entityDto.Name} - embedding already exists");
                 continue;
             }
 
@@ -1156,7 +1164,7 @@ For each relationship, identify:
                 // This combines all the entity's information into one string for embedding
                 var entityText = $"{entityDto.Name} {entityDto.Type} {entityDto.Attributes}";
 
-                Program.ui.WriteLine($"  Generating embedding for: {entityDto.Name} ({entityDto.Type})");
+                output.WriteLine($"  Generating embedding for: {entityDto.Name} ({entityDto.Type})");
 
                 // Call the embedding provider (Azure OpenAI, Ollama, etc.)
                 var embedding = await embeddingProvider.GetEmbeddingAsync(entityText);
@@ -1166,20 +1174,20 @@ For each relationship, identify:
                     // Normalize the embedding vector and store it
                     EntityEmbeddings[entityDto.Name] = Normalize(embedding);
                     generated++;
-                    //Program.ui.WriteLine($"    ✅ Generated embedding (dimension: {embedding.Length})");
+                    //output.WriteLine($"    ✅ Generated embedding (dimension: {embedding.Length})");
                 }
                 else
                 {
-                    Program.ui.WriteLine($"    ❌ Failed to generate embedding - null or empty response");
+                    output.WriteLine($"    ❌ Failed to generate embedding - null or empty response");
                 }
             }
             catch (Exception ex)
             {
-                Program.ui.WriteLine($"    ❌ Failed to generate embedding for entity {entityDto.Name}: {ex.Message}");
+                output.WriteLine($"    ❌ Failed to generate embedding for entity {entityDto.Name}: {ex.Message}");
             }
         }
 
-        Program.ui.WriteLine($"Generated {generated} new embeddings. Total embeddings: {EntityEmbeddings.Count}");
+        output.WriteLine($"Generated {generated} new embeddings. Total embeddings: {EntityEmbeddings.Count}");
     }
 
 

@@ -24,12 +24,13 @@ public static class KustoCommands
                     Description = () => "Connect/reconnect to all User-Managed Kusto configs",
                     Action = async () =>
                     {
+                        using var output = Program.ui.BeginRealtime("Refreshing Kusto connections...");
                         await Task.Yield();
                         var (failures, added) = await kusto.RefreshConnectionsAsync();
                         var connected = string.Join(", ", kusto.GetConnectedConfigNames().OrderBy(s => s));
-                        Program.ui.WriteLine($"Updated connections: {added}");
-                        Program.ui.WriteLine($"Connected: {(string.IsNullOrWhiteSpace(connected) ? "(none)" : connected)}");
-                        if (failures.Count > 0) Program.ui.WriteLine($"Failed: {string.Join(", ", failures)} (see logs)");
+                        output.WriteLine($"Updated connections: {added}");
+                        output.WriteLine($"Connected: {(string.IsNullOrWhiteSpace(connected) ? "(none)" : connected)}");
+                        if (failures.Count > 0) output.WriteLine($"Failed: {string.Join(", ", failures)} (see logs)");
                         return Command.Result.Success;
                     }
                 },
@@ -39,10 +40,16 @@ public static class KustoCommands
                     Description = () => "Show connected configs",
                     Action = async () =>
                     {
+                        using var output = Program.ui.BeginRealtime("Fetching Kusto connection status...");
                         await Task.Yield();
                         var names = kusto.GetConnectedConfigNames().OrderBy(s => s).ToList();
-                        if (names.Count == 0) { Program.ui.WriteLine("(no active connections)"); return Command.Result.Success; }
-                        foreach (var n in names) Program.ui.WriteLine($"- {n}");
+                        if (names.Count == 0)
+                        {
+                            output.WriteLine("(no active connections)");
+                            return Command.Result.Success;
+                        }
+
+                        foreach (var n in names) output.WriteLine($"- {n}");
                         return Command.Result.Success;
                     }
                 },
@@ -54,11 +61,12 @@ public static class KustoCommands
                     {
                         var cfg = PickConfig();
                         if (cfg is null) return Command.Result.Failed;
+                        using var output = Program.ui.BeginRealtime($"Fetching schema for {cfg.Name}...");
 
                         // Delegate to the configured tool which performs the introspection and caching.
                         var input = new IntrospectKustoSchemaInput { ConfigName = cfg.Name };
                         var resp = await ToolRegistry.InvokeToolAsync("tool.kusto.introspect_schema", input);
-                        Program.ui.WriteLine(resp);
+                        output.WriteLine(resp);
                         return Command.Result.Success;
                     }
                 },
@@ -70,11 +78,22 @@ public static class KustoCommands
                     {
                         await Task.Yield();
                         var cfg = PickConfig();
-                        if (cfg is null) return Command.Result.Failed;
-                        if (cfg.Queries.Count == 0) { Program.ui.WriteLine("(no saved queries)"); return Command.Result.Success; }
+                        using var output = Program.ui.BeginRealtime("List saved queries...");
+                        if (cfg is null)
+                        {
+                            output.WriteLine("No config available to be selected.");
+                            return Command.Result.Failed;
+                        }
+
+                        if (cfg.Queries.Count == 0)
+                        {
+                            output.WriteLine("No saved queries to be listed.");
+                            return Command.Result.Success;
+                        }
+
                         foreach (var q in cfg.Queries.OrderBy(q => q.Name))
                         {
-                            Program.ui.WriteLine($"- {q.Name} — {q.Description}");
+                            output.WriteLine($"- {q.Name} — {q.Description}");
                         }
                         return Command.Result.Success;
                     }
@@ -83,15 +102,16 @@ public static class KustoCommands
                 {
                     Name = "run saved",
                     Description = () => "Run a saved query under a config (optional export)",
-                    Action = async () =>
+                    Action = async () => await Log.MethodAsync(async ctx=>
                     {
+                        ctx.OnlyEmitOnFailure();
                         var cfg = PickConfig();
                         if (cfg is null) return Command.Result.Failed;
                         var q = PickQuery(cfg);
                         if (q is null) return Command.Result.Failed;
 
                         var table = await kusto.QueryAsync(cfg, q.Kql);
-                        Program.ui.WriteLine(table.ToText(Program.ui.Width));
+                        Program.ui.RenderTable(table, $"Results: {cfg.Name} / {q.Name}");
 
                         var exportForm = UiForm.Create("Export results", new ExportModel { Format = "none", Path = "results.txt" });
                         exportForm.AddChoice<ExportModel>("Format", new[]{"none","csv","json"}, m => m.Format, (m,v)=> m.Format = v);
@@ -99,6 +119,7 @@ public static class KustoCommands
                                   .WithPathMode(PathPickerMode.SaveFile)
                                   .MakeOptionalIf(true)
                                   .WithHelp("File path if exporting.");
+                        bool exportSucceed = true;
                         if (await Program.ui.ShowFormAsync(exportForm))
                         {
                             var em = (ExportModel)exportForm.Model!;
@@ -111,15 +132,18 @@ public static class KustoCommands
                                 }
                                 catch (Exception ex)
                                 {
-                                    Program.ui.WriteLine($"Export failed: {ex.Message}");
+                                    exportSucceed = false;
+                                    ctx.Append(Log.Data.Message, $"Export failed: {ex.Message}");
                                 }
                             }
                         }
 
                         Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-                        await ContextManager.AddContent(table.ToText(Program.ui.Width), $"kusto/{cfg.Name}/results/{q.Name}");
+                        Program.ui.RenderTable(table, $"Results: {cfg.Name} / {q.Name}");
+                        await ContextManager.AddContent(table.ToCsv(), $"kusto/{cfg.Name}/results/{q.Name}");
+                        ctx.Succeeded(exportSucceed);
                         return Command.Result.Success;
-                    }
+                    })
                 },
                 new Command
                 {
@@ -156,7 +180,6 @@ public static class KustoCommands
                             existing.Kql = kql;
                         }
                         Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-                        Program.ui.WriteLine("Saved.");
                         return Command.Result.Success;
                     }
                 },
@@ -176,8 +199,8 @@ public static class KustoCommands
                         var kql = ((KqlInputModel)adhocForm.Model!).Kql;
 
                         var table = await kusto.QueryAsync(cfg, kql);
-                        Program.ui.WriteLine(table.ToText(Program.ui.Width));
-                        await ContextManager.AddContent(table.ToText(Program.ui.Width), $"kusto/{cfg.Name}/results/__adhoc__");
+                        Program.ui.RenderTable(table, $"Results: {cfg.Name} / __adhoc__");
+                        await ContextManager.AddContent(table.ToCsv(), $"kusto/{cfg.Name}/results/__adhoc__");
 
                         if (await Program.ui.ConfirmAsync("Save this as a named query?", false))
                         {
@@ -225,7 +248,11 @@ public static class KustoCommands
         static KustoConfig? PickConfig()
         {
             var configs = Program.userManagedData.GetItems<KustoConfig>().OrderBy(c => c.Name).ToList();
-            if (configs.Count == 0) { Program.ui.WriteLine("No KustoConfig found. Add one in Data \u2192 Kusto Config."); return null; }
+            if (configs.Count == 0)
+            {
+                Log.Method(ctx=>ctx.Append(Log.Data.Message, "No KustoConfig found. Add one in Data > Kusto Config."));
+                return null;
+            }
 
             if (configs.Count == 1) return configs[0];
 
@@ -242,7 +269,11 @@ public static class KustoCommands
 
         static KustoQuery? PickQuery(KustoConfig cfg)
         {
-            if (cfg.Queries.Count == 0) { Program.ui.WriteLine("(no saved queries)"); return null; }
+            if (cfg.Queries.Count == 0)
+            {
+                Log.Method(ctx=>ctx.Append(Log.Data.Message, "No saved queries in this config."));
+                return null;
+            }
             var list = cfg.Queries.OrderBy(q => q.Name).ToList();
             if (list.Count == 1) return list[0];
 

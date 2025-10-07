@@ -117,18 +117,6 @@ public static class Utilities
         return new Table(hs, rs);
     }
 
-    public static string ToTable(IEnumerable<string> headers, IEnumerable<string[]> rows, int maxWidth = 140)
-    {
-        var t = ToTable(headers, rows);
-        return t.ToText(maxWidth);
-    }
-
-    public static string ToCsv(IReadOnlyList<string> headers, List<string[]> rows)
-        => ToTable(headers, rows).ToCsv();
-
-    public static string ToJson(IReadOnlyList<string> headers, List<string[]> rows)
-        => ToTable(headers, rows).ToJson();
-
     #region "RTF Stripping"
 
     /// <summary>

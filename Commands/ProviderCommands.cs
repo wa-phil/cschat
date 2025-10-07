@@ -66,7 +66,7 @@ public partial class CommandManager
                     Action = async () =>
                     {
                         var form = UiForm.Create("Change System Prompt", Program.config);
-                        form.AddString<Config>("System Prompt", c => c.SystemPrompt, (c,v) => c.SystemPrompt = v)
+                        form.AddText<Config>("System Prompt", c => c.SystemPrompt, (c,v) => c.SystemPrompt = v)
                             .WithHelp("The system prompt sets the behavior of the AI. Be clear and specific.");
 
                         if (await Program.ui.ShowFormAsync(form))

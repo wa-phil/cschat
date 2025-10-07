@@ -2,14 +2,21 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using System.Collections.Concurrent;
 
 public class Context
 {
     public bool IncludeCitationRule { get; set; } = true;
     public int MaxContextEntries { get; set; } = int.MaxValue;
+
+    [DataMember(Name = "SystemMessage")]
     protected ChatMessage _systemMessage = new ChatMessage { Role = Roles.System, Content = string.Empty };
+
+    [DataMember(Name = "Messages")]
     protected List<ChatMessage> _messages = new List<ChatMessage>();
+
+    [DataMember(Name = "Context")]
     protected List<(string Reference, string Chunk)> _context = new List<(string Reference, string Chunk)>();
     private DateTime _conversationStartTime = DateTime.Now;
 
@@ -79,11 +86,11 @@ public class Context
 
     public void Save(string filePath)
     {
-        var data = new ContextData
+        var data = new 
         {
             SystemMessage = _systemMessage,
+            Context = _context,
             Messages = _messages,
-            Context = _context
         };
 
         var json = data.ToJson();
@@ -126,7 +133,7 @@ public class Context
         };
     }
 
-    private class ContextData
+    public class ContextData
     {
         public ChatMessage? SystemMessage { get; set; }
         public List<ChatMessage>? Messages { get; set; }
@@ -312,7 +319,7 @@ public class ContextManager
         ctx.Succeeded(entries.Count > 0);
     });
 
-    public static async Task AddGraphContent(string content, string reference = "content") => await Log.MethodAsync(async ctx =>
+    public static async Task AddGraphContent(string content, string reference = "content", IRealtimeWriter? output = null) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
@@ -323,7 +330,7 @@ public class ContextManager
 
         // Use LINQ to create a list of tasks
         var tasks = chunks.Select(chunk =>
-            GraphStoreManager.ExtractAndStoreAsync(chunk.Content, chunk.Reference.ToString())
+            GraphStoreManager.ExtractAndStoreAsync(chunk.Content, chunk.Reference.ToString(), output)
         ).ToList();
         
         await Task.WhenAll(tasks); // Await all tasks at once

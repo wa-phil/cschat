@@ -119,9 +119,7 @@ public class Config
     {
         if (File.Exists(configFilePath))
         {
-            Program.ui.WriteLine($"Loading configuration from {configFilePath}");
             var json = File.ReadAllText(configFilePath);
-            Program.ui.WriteLine($"Configuration loaded: {json}");
             return json.FromJson<Config>() ?? new Config();
         }
         return new Config();
@@ -129,7 +127,6 @@ public class Config
 
     public static void Save(Config config, string configFilePath)
     {
-        Program.ui.WriteLine($"Saving configuration to {configFilePath}");
         var json = config.ToJson();
         File.WriteAllText(configFilePath, json);
     }

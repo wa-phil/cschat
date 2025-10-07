@@ -147,6 +147,7 @@ public class grep_files : ITool
 
     public static async Task<GrepResult> GrepFilesAsync(string regExPattern, string path = ".") => await Log.MethodAsync(async ctx =>
     {
+        using var output = Program.ui.BeginRealtime($"Searching for '{regExPattern}' in files...");
         const int MaxBlockAtMatch = 100; // Maximum number of lines of text to return at each match
         ctx.Append(Log.Data.Input, regExPattern);
         ctx.Append(Log.Data.Path, path);
@@ -186,11 +187,11 @@ public class grep_files : ITool
             if (matches.Count > 0)
             {
                 var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-                Program.ui.WriteLine($"Matched: {relativePath}");
+                output.WriteLine($"Matched: {relativePath}");
                 await ContextManager.AddContent(content, relativePath);
                 stopwatch.Stop();
                 var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
-                Program.ui.WriteLine($"{elapsedTime}ms required to read file '{file}' contents.");
+                output.WriteLine($"{elapsedTime}ms required to read file '{file}' contents.");
 
                 ctx.Append(Log.Data.FilePath, relativePath);
             }
@@ -258,7 +259,7 @@ public class find_file : ITool
 
             stopwatch.Stop();
             var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
-            Program.ui.WriteLine($"{elapsedTime}ms required to find files that match '{findInput.Pattern}'.");
+            ctx.Append(Log.Data.Message, $"{elapsedTime}ms required to find files that match '{findInput.Pattern}'.");
 
             if (matching.Count == 0)
             {

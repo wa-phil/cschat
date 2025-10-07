@@ -20,7 +20,9 @@ public partial class CommandManager
                     Action = () =>
                     {
                         var forked = ChatManager.CreateNewThread();
-                        Program.ui.WriteLine($"Created and switched to '{forked.Name}'.");
+                        Program.ui.Clear();
+                        using var output = Program.ui.BeginRealtime("Creating new thread...");
+                        output.WriteLine($"Switched to '{forked.Name}'.");
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -36,7 +38,8 @@ public partial class CommandManager
                         var target = items.First(x => x.Name.Equals(chosen, StringComparison.OrdinalIgnoreCase));
 
                         // Always save the current active thread if one exists
-                        if (Program.config.ChatThreadSettings.ActiveThreadName is string currentName) {
+                        var currentName = Program.config.ChatThreadSettings.ActiveThreadName ?? "";
+                        if (!string.IsNullOrEmpty(currentName)) {
                             var current = items.FirstOrDefault(x => x.Name.Equals(currentName, StringComparison.OrdinalIgnoreCase));
                             if (current != null) ChatManager.SaveActiveThread(current);
                         }
@@ -47,8 +50,9 @@ public partial class CommandManager
                         // Update config and persist
                         Program.config.ChatThreadSettings.ActiveThreadName = target.Name;
                         Config.Save(Program.config, Program.ConfigFilePath);
-
-                        Program.ui.WriteLine($"Switched to '{target.Name}'.");
+                        Program.ui.Clear();
+                        Program.ui.RenderChatHistory(Program.Context.Messages());
+                        using var output = Program.ui.BeginRealtime($"Switching from thread '{currentName}' to '{target.Name}'.");
                         return Task.FromResult(Command.Result.Success);
                     }
                 },
@@ -68,7 +72,7 @@ public partial class CommandManager
                     {
                         Program.Context.Clear();
                         Program.Context.AddSystemMessage(Program.config.SystemPrompt);
-                        Program.ui.WriteLine("Chat history cleared.");
+                        using var output = Program.ui.BeginRealtime("Clearing chat history...");
                         return Task.FromResult(Command.Result.Success);
                     }
                 },

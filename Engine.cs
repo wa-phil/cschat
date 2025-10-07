@@ -48,28 +48,29 @@ public static class Engine
         try
         {
             ctx.OnlyEmitOnFailure();
+            using var output = Program.ui.BeginRealtime("Adding content to Graph store...");
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var countItems = 0;
             var knownFiles = new StringBuilder();
 
-            Program.ui.WriteLine("Started processing files for RAG store...");
+            output.WriteLine("Started processing files for RAG store...");
 
             foreach (var (name, content) in items)
             {
-                Program.ui.WriteLine($"Processing : {name}\n");
+                output.WriteLine($"Processing : {name}\n");
                 knownFiles.AppendLine(name);
                 Program.ui.ForegroundColor = ConsoleColor.DarkGray;
-                Program.ui.Write($"Adding file '{name}' to RAG store... ");
-                await ContextManager.AddGraphContent(content, name);
+                output.Write($"Adding file '{name}' to RAG store... ");
+                await ContextManager.AddGraphContent(content, name, output);
                 Program.ui.ResetColor();
-                Program.ui.WriteLine("Done.");
+                output.WriteLine("Done.");
                 countItems++;
             }
 
             await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
 
             stopwatch.Stop();
-            Program.ui.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
+            output.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
             ctx.Succeeded();
         }
         finally
@@ -78,8 +79,13 @@ public static class Engine
         }
     });
 
-    public static string BuildCommandTreeArt(IEnumerable<Command> commands, string indent = "", bool isLast = true, bool showText = true)
+    public static string BuildCommandTreeArt(IEnumerable<Command> commands, string indent = "", bool isLast = true, bool showText = true, IRealtimeWriter? output = null)
     {
+        if (showText)
+        {
+            output = output ?? Program.ui.BeginRealtime("Building command tree...");
+        }
+
         var sb = new StringBuilder();
         var commandList = commands.ToList();
 
@@ -90,11 +96,11 @@ public static class Engine
             if (showText)
             {
                 Program.ui.ForegroundColor = ConsoleColor.DarkGray;
-                Program.ui.Write($"{indent}{(isLast ? "└── " : "├── ")}");
+                output!.Write($"{indent}{(isLast ? "└── " : "├── ")}");
                 Program.ui.ForegroundColor = ConsoleColor.Green;
-                Program.ui.Write(command.Name);
+                output!.Write(command.Name);
                 Program.ui.ForegroundColor = ConsoleColor.DarkGray;
-                Program.ui.Write(" - ");
+                output!.Write(" - ");
             }
 
             var line = $"{indent}{(isLast ? "└── " : "├── ")}{command.Name} - ";
@@ -106,7 +112,7 @@ public static class Engine
             }
             if (showText)
             {
-                Program.ui.WriteLine(description);
+                output!.WriteLine(description);
                 Program.ui.ResetColor();
             }
 
@@ -115,14 +121,14 @@ public static class Engine
             if (command.SubCommands.Any())
             {
                 var childIndent = indent + (isLastCommand ? "    " : "│   ");
-                sb.Append(BuildCommandTreeArt(command.SubCommands, childIndent, isLastCommand, showText));
+                sb.Append(BuildCommandTreeArt(command.SubCommands, childIndent, isLastCommand, showText, output));
             }
         }
 
         return sb.ToString();
     }
 
-    public static async Task AddContentItemsToVectorStore(IEnumerable<(string Name, string Content)> items) => await Log.MethodAsync(async ctx =>
+    public static async Task AddContentItemsToVectorStore(IEnumerable<(string Name, string Content)> items, string description) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
 
@@ -131,6 +137,7 @@ public static class Engine
 
         var (results, failures, canceled) =
             await AsyncProgress.For("Adding content to RAG")
+                .WithDescription(description)
                 .WithCancellation(cts)
                 .Run<(string Name, string Content), bool>(
                     items: () => list,
@@ -162,7 +169,7 @@ public static class Engine
         ctx.Succeeded(0 == failures.Count);
     });
 
-    public static async Task AddDirectoryToVectorStore(string path) => await AddContentItemsToVectorStore(ReadFilesFromDirectory(path));
+    public static async Task AddDirectoryToVectorStore(string path) => await AddContentItemsToVectorStore(ReadFilesFromDirectory(path), path);
 
     private static IEnumerable<(string Name, string Content)> ReadFilesFromDirectory(string path)
     {
@@ -180,7 +187,7 @@ public static class Engine
         }
     }
 
-    public static async Task AddZipFileToVectorStore(string zipPath) => await AddContentItemsToVectorStore(ReadFilesFromZip(zipPath));
+    public static async Task AddZipFileToVectorStore(string zipPath) => await AddContentItemsToVectorStore(ReadFilesFromZip(zipPath), zipPath);
 
     private static IEnumerable<(string Name, string Content)> ReadFilesFromZip(string zipPath)
     {
@@ -202,7 +209,7 @@ public static class Engine
         }
     }
 
-    public static async Task AddFileToVectorStore(string path) => await AddContentItemsToVectorStore(new[] { (path, File.ReadAllText(path)) });
+    public static async Task AddFileToVectorStore(string path) => await AddContentItemsToVectorStore(new[] { (path, File.ReadAllText(path)) }, path);
 
     private static bool ShouldIncludeFile(string filePath, List<RagFileType> items)
     {
@@ -289,7 +296,6 @@ public static class Engine
         ctx.OnlyEmitOnFailure();
         if (Provider == null)
         {
-            Program.ui.WriteLine("Provider is not set.");
             ctx.Failed("Provider is not set.", Error.ProviderNotConfigured);
             return null;
         }
@@ -297,7 +303,6 @@ public static class Engine
         var models = await Provider.GetAvailableModelsAsync();
         if (models == null || models.Count == 0)
         {
-            Program.ui.WriteLine($"No models available: {Error.ModelNotFound.ToString()}");
             ctx.Failed("No models available.", Error.ModelNotFound);
             return null;
         }

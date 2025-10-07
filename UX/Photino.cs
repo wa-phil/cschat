@@ -1,8 +1,10 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Linq;
 using Photino.NET;
 using System.Threading;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -30,6 +32,39 @@ public sealed class PhotinoUi : IUi
 	private ConsoleColor _fg = ConsoleColor.Gray;
 	private ConsoleColor _bg = ConsoleColor.Black;
 	private string? _lastInput;
+
+	private sealed class PhotinoRealtimeWriter : IRealtimeWriter
+	{
+		private readonly PhotinoUi _ui;
+		private readonly string _id;
+		private bool _closed;
+
+		public PhotinoRealtimeWriter(PhotinoUi ui, string title)
+		{
+			_ui = ui;
+			_id = Guid.NewGuid().ToString("n");
+			_ui.Post(new { type = "StartRealtime", id = _id, title });
+		}
+
+		public void Write(string text)
+		{
+			if (_closed) return;
+			_ui.Post(new { type = "RealtimeAppend", id = _id, text = text ?? "", newline = false });
+		}
+
+		public void WriteLine(string? text = null)
+		{
+			if (_closed) return;
+			_ui.Post(new { type = "RealtimeAppend", id = _id, text = text ?? "", newline = true });
+		}
+
+		public void Dispose()
+		{
+			if (_closed) return;
+			_closed = true;
+			_ui.Post(new { type = "RealtimeComplete", id = _id });
+		}
+	}
 
 	public Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
 	{
@@ -238,6 +273,29 @@ public sealed class PhotinoUi : IUi
 
 			switch (type)
 			{
+				case "OpenExternal":
+				{
+					var url = S("url", "href", "Url", "Href");
+					if (!string.IsNullOrWhiteSpace(url))
+					{
+						try
+						{
+							// Launch with the default handler (browser, mail client, etc.)
+							Process.Start(new ProcessStartInfo
+							{
+								FileName = url,
+								UseShellExecute = true
+							});
+						}
+						catch (Exception ex)
+						{
+							// Optional: surface a tiny error toast/log if you want
+							WriteLine($"Failed to open link: {ex.Message}");
+						}
+					}
+					break;
+				}
+
 				case "CancelProgress":
 				{
 					var pid = S("id","Id");
@@ -429,7 +487,7 @@ public sealed class PhotinoUi : IUi
 				if (k.Key == ConsoleKey.Escape)
 				{
 					var result = await commandManager.Action();
-					if (result == Command.Result.Failed) WriteLine("Command failed.");
+					// TODO: maybe find another/better way to do this...  if (result == Command.Result.Failed) WriteLine("Command failed.");
 					Post(new { type = "FocusInput" });
 				}
 				keyWait = ReadKeyInternalAsync(intercept: true);
@@ -461,12 +519,55 @@ public sealed class PhotinoUi : IUi
 		return path;
 	});
 
+	public void RenderTable(Table table, string? title = null)
+	{
+		var sb = new StringBuilder();
+
+		// headers
+		if (table.Headers.Count > 0)
+		{
+			sb.Append("| ");
+			foreach (var h in table.Headers) sb.Append(Escape(h)).Append(" | ");
+			sb.AppendLine();
+			sb.Append("| ");
+			foreach (var _ in table.Headers) sb.Append("--- | ");
+			sb.AppendLine();
+		}
+		// rows
+		foreach (var r in table.Rows)
+		{
+			sb.Append("| ");
+			foreach (var c in r) sb.Append(Escape(c)).Append(" | ");
+			sb.AppendLine();
+		}
+
+		var md = sb.ToString();
+		if (!string.IsNullOrWhiteSpace(title)) md = $"### {Escape(title)}\n\n" + md;
+		var message = new ChatMessage { Role = Roles.Tool, Content = md };
+		Program.Context.AddToolMessage(md);
+		RenderChatMessage(message);
+		return;
+		
+		string Escape(string s) => s?.Replace("\n", " ").Replace("\r", " ").Replace("|", "\\|") ?? string.Empty;
+	}
+
 	public string? RenderMenu(string header, List<string> choices, int selected = 0)
 	{
 		_tcsMenu = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		Post(new { type = "ShowMenu", header, choices, selected });
 		return _tcsMenu.Task.GetAwaiter().GetResult();
 	}
+
+	public void RenderReport(Report report)
+	{
+		// Photino renders as markdown tool bubble
+		var md = report?.ToMarkdown() ?? "";
+		var message = new ChatMessage { Role = Roles.Tool, Content = md };
+		Program.Context.AddToolMessage(md);
+		RenderChatMessage(message);
+	}
+
+	public IRealtimeWriter BeginRealtime(string title) => new PhotinoRealtimeWriter(this, title ?? "Output");
 
 	public ConsoleKeyInfo ReadKey(bool intercept)
 			=> ReadKeyInternalAsync(intercept).GetAwaiter().GetResult();

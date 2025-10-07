@@ -21,7 +21,8 @@ public static class S360Commands
                         var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.s360.fetch",
                             new FetchS360Input { ProfileName = prof.Name });
-                        Program.ui.WriteLine(resp);
+                        using var output = Program.ui.BeginRealtime("Fetching action items...");
+                        output.WriteLine(resp);
                         return Command.Result.Success;
                     }
                 },
@@ -41,7 +42,8 @@ public static class S360Commands
                         var n = (int)form.Model!;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.s360.triage",
                             new TriageS360Input { ProfileName = prof.Name, TopN = n });
-                        Program.ui.WriteLine(resp);
+                        using var output = Program.ui.BeginRealtime("Generating triage...");
+                        output.WriteLine(resp);
                         return Command.Result.Success;
                     }
                 },
@@ -58,7 +60,8 @@ public static class S360Commands
                         var lim = ((S360LimitModel)limitForm.Model!).Limit;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.s360.slice",
                             new SliceS360Input { ProfileName = prof.Name, Slice = chosen, Limit = lim });
-                        Program.ui.WriteLine(resp);
+                        using var output = Program.ui.BeginRealtime($"Fetching '{chosen}' slice...");
+                        output.WriteLine(resp);
                         return Command.Result.Success;
                     }
                 },
@@ -71,7 +74,9 @@ public static class S360Commands
             var profiles = Program.userManagedData.GetItems<S360Profile>().OrderBy(p => p.Name).ToList();
             if (profiles.Count == 0)
             {
-                Program.ui.WriteLine("No S360 Profile found. Add one in Data → S360 Profile."); return null;
+                using var output = Program.ui.BeginRealtime("Looking for S360 profiles...");
+                output.WriteLine("No S360 Profile found. Add one in Data → S360 Profile.");
+                return null;
             }
 
             if (profiles.Count == 1) return profiles[0];

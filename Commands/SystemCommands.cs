@@ -7,6 +7,8 @@ using System.Collections.Generic;
 public partial class CommandManager
 {
     private class LogSaveModel { public string Path { get; set; } = string.Empty; }
+    private class WorkingDirectoryModel { public string Directory { get; set; } = string.Empty; }
+    private class ChatRootDirectoryModel { public string Root { get; set; } = string.Empty; }
 
     private static Command CreateSystemCommands()
     {
@@ -22,7 +24,7 @@ public partial class CommandManager
                         Name = "show", Description = () => "Show the contents of the log",
                         Action = () =>
                         {
-                            Log.PrintColorizedOutput();
+                            Log.GenerateTable();
                             return Task.FromResult(Command.Result.Success);
                         }
                     },
@@ -32,35 +34,38 @@ public partial class CommandManager
                         Action = () =>
                         {
                             Log.ClearOutput();
-                            Program.ui.WriteLine("Log cleared.");
                             return Task.FromResult(Command.Result.Success);
                         }
                     },
                     new Command
                     {
                         Name = "save", Description = () => "Save the contents of the log to a file",
-                        Action = () =>
+                        Action = () => 
                         {
-                                var form = UiForm.Create("Save log", new LogSaveModel { Path = "log.txt" });
-                                form.AddPath<LogSaveModel>("File path", m => m.Path, (m,v)=> m.Path = v)
-                                    .WithPathMode(PathPickerMode.SaveFile)
-                                    .WithHelp("Destination file to write log lines.");
-                                return Program.ui.ShowFormAsync(form).ContinueWith(t => {
-                                    if (!t.Result) { return Command.Result.Cancelled; }
-                                    var path = ((LogSaveModel)form.Model!).Path;
-                                    if (string.IsNullOrWhiteSpace(path)) { return Command.Result.Cancelled; }
-                                    try
-                                    {
-                                        var logEntries = Log.GetOutput();
-                                        File.WriteAllLines(path, logEntries);
-                                        return Command.Result.Success;
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Program.ui.WriteLine($"Failed: {ex.Message}");
-                                        return Command.Result.Failed;
-                                    }
-                                });
+                            var form = UiForm.Create("Save log", new LogSaveModel { Path = "log.txt" });
+                            form.AddPath<LogSaveModel>("File path", m => m.Path, (m,v)=> m.Path = v)
+                                .WithPathMode(PathPickerMode.SaveFile)
+                                .WithHelp("Destination file to write log lines.");
+
+                            var result = Program.ui.ShowFormAsync(form).ContinueWith(t => {
+                                if (!t.Result) { return Command.Result.Cancelled; }
+                                var path = ((LogSaveModel)form.Model!).Path;
+                                if (string.IsNullOrWhiteSpace(path)) { return Command.Result.Cancelled; }
+                                try
+                                {
+                                    var logEntries = Log.GetOutput();
+                                    File.WriteAllLines(path, logEntries);
+                                    return Command.Result.Success;
+                                }
+                                catch (Exception ex)
+                                {
+                                    Log.Method(ctx=>{
+                                        ctx.Failed("Failed to save log", ex);
+                                    });
+                                    return Command.Result.Failed;
+                                }
+                            });
+                            return result;
                         }
                     }
                 }
@@ -83,8 +88,8 @@ public partial class CommandManager
                         Name = "show", Description = () => "Show current system configuration",
                         Action = () =>
                         {
-                            Program.ui.WriteLine("Current Configuration:");
-                            Program.ui.WriteLine(Program.config.ToJson());
+                            using var output = Program.ui.BeginRealtime("Current Configuration");
+                            output.WriteLine(Program.config.ToJson());
                             return Task.FromResult(Command.Result.Success);
                         }
                     },
@@ -94,7 +99,6 @@ public partial class CommandManager
                         Action = () =>
                         {
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            Program.ui.WriteLine("Configuration saved.");
                             return Task.FromResult(Command.Result.Success);
                         }
                     },
@@ -106,7 +110,6 @@ public partial class CommandManager
                             File.Delete(Program.ConfigFilePath);
                             Program.config = new Config(); // Reset to default config
                             await Program.InitProgramAsync();
-                            Program.ui.WriteLine("Configuration reset to default.");
                             return Command.Result.Success;
                         }
                     },
@@ -115,23 +118,38 @@ public partial class CommandManager
                         Name = "current working directory", Description = () => $"Show the current working directory [currently: {Environment.CurrentDirectory}]",
                         Action = async () =>
                         {
-                            Program.ui.WriteLine($"Current working directory: {Environment.CurrentDirectory}");
-                            Program.ui.Write("Enter new working directory (or leave blank to keep current): ");
-                            var input = await Program.ui.ReadPathWithAutocompleteAsync(true);
-                            if (!string.IsNullOrWhiteSpace(input) && Directory.Exists(input))
+                            // Use a UiForm to allow user to edit the working directory with path picker support
+                            var model = new WorkingDirectoryModel { Directory = Program.config.DefaultDirectory ?? Environment.CurrentDirectory };
+                            var form = UiForm.Create("Set Working Directory", model);
+                            form.AddPath<WorkingDirectoryModel>("Working directory", m => m.Directory, (m,v)=> m.Directory = v)
+                                .WithHelp("Select a folder to become the new current working directory.")
+                                .WithPlaceholder(model.Directory)
+                                .WithPathMode(PathPickerMode.OpenExisting)
+                                .MakeOptional(); // allow cancelling with blank
+
+                            if (await Program.ui.ShowFormAsync(form))
                             {
-                                try
+                                var updated = (WorkingDirectoryModel)form.Model!;
+                                var chosen = updated.Directory?.Trim();
+                                if (!string.IsNullOrWhiteSpace(chosen))
                                 {
-                                    Program.config.DefaultDirectory = input;
-                                    Environment.CurrentDirectory = Program.config.DefaultDirectory;
-                                    Config.Save(Program.config, Program.ConfigFilePath);
-                                    Program.ui.WriteLine($"Working directory changed to: {Environment.CurrentDirectory}");
-                                    return Command.Result.Success;
-                                }
-                                catch (Exception ex)
-                                {
-                                    Program.ui.WriteLine($"Failed to change directory: {ex.Message}");
-                                    return Command.Result.Failed;
+                                    if (!Directory.Exists(chosen))
+                                    {
+                                        Log.Method(ctx=> ctx.Append(Log.Data.Message, $"Directory does not exist: {chosen}"));
+                                        return Command.Result.Cancelled;
+                                    }
+                                    try
+                                    {
+                                        Program.config.DefaultDirectory = chosen;
+                                        Environment.CurrentDirectory = chosen;
+                                        Config.Save(Program.config, Program.ConfigFilePath);
+                                        return Command.Result.Success;
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Log.Method(ctx=> ctx.Failed("Failed to change directory", ex));
+                                        return Command.Result.Failed;
+                                    }
                                 }
                             }
                             return Command.Result.Cancelled;
@@ -147,8 +165,8 @@ public partial class CommandManager
                                 Name = "show", Description = () => "Show current chat thread settings",
                                 Action = () =>
                                 {
-                                    Program.ui.WriteLine("Current Chat Thread Settings:");
-                                    Program.ui.WriteLine(Program.config.ChatThreadSettings.ToJson());
+                                    using var output = Program.ui.BeginRealtime("Chat Thread Settings");
+                                    output.WriteLine(Program.config.ChatThreadSettings.ToJson());
                                     return Task.FromResult(Command.Result.Success);
                                 }
                             },
@@ -157,26 +175,44 @@ public partial class CommandManager
                                 Name = "set root directory", Description = () => $"Set the root directory for chat threads [currently: {Program.config.ChatThreadSettings.RootDirectory}]",
                                 Action = async () =>
                                 {
-                                    Program.ui.Write("Enter new root directory for chat threads (note '.threads' always appended): ");
-                                    var input = await Program.ui.ReadPathWithAutocompleteAsync(false);
-                                    if (!string.IsNullOrWhiteSpace(input))
+                                    var current = Program.config.ChatThreadSettings.RootDirectory;
+                                    // Strip trailing .threads if present so user selects parent folder; we'll append after.
+                                    string initialBase = current?.EndsWith(Path.DirectorySeparatorChar + ".threads") == true
+                                        ? Path.GetDirectoryName(current) ?? Environment.CurrentDirectory
+                                        : (current ?? Environment.CurrentDirectory);
+
+                                    var model = new ChatRootDirectoryModel { Root = initialBase };
+                                    var form = UiForm.Create("Set Chat Root Directory", model);
+                                    form.AddPath<ChatRootDirectoryModel>("Base directory", m => m.Root, (m,v)=> m.Root = v)
+                                        .WithHelp("Select the base folder where the '.threads' directory will be created/used.")
+                                        .WithPlaceholder(initialBase)
+                                        .WithPathMode(PathPickerMode.OpenExisting)
+                                        .MakeOptional();
+
+                                    if (await Program.ui.ShowFormAsync(form))
                                     {
-                                        input = Path.Combine(input, ".threads");
-                                        try
+                                        var updated = (ChatRootDirectoryModel)form.Model!;
+                                        var chosen = updated.Root?.Trim();
+                                        if (!string.IsNullOrWhiteSpace(chosen))
                                         {
-                                            if (!Directory.Exists(input))
+                                            if (!Directory.Exists(chosen))
                                             {
-                                                Directory.CreateDirectory(input);
+                                                Log.Method(ctx=> ctx.Append(Log.Data.Message, $"Directory does not exist: {chosen}"));
+                                                return Command.Result.Cancelled;
                                             }
-                                            Program.config.ChatThreadSettings.RootDirectory = input;
-                                            Config.Save(Program.config, Program.ConfigFilePath);
-                                            Program.ui.WriteLine($"Chat thread root directory set to: {input}");
-                                            return Command.Result.Success;
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            Program.ui.WriteLine($"Failed to set root directory: {ex.Message}");
-                                            return Command.Result.Failed;
+                                            var full = Path.Combine(chosen, ".threads");
+                                            try
+                                            {
+                                                if (!Directory.Exists(full)) Directory.CreateDirectory(full);
+                                                Program.config.ChatThreadSettings.RootDirectory = full;
+                                                Config.Save(Program.config, Program.ConfigFilePath);
+                                                return Command.Result.Success;
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                Log.Method(ctx=> ctx.Failed("Failed to set chat thread root directory", ex));
+                                                return Command.Result.Failed;
+                                            }
                                         }
                                     }
                                     return Command.Result.Cancelled;
@@ -237,9 +273,10 @@ public partial class CommandManager
             Name = "about", Description = () => "Show information about Console# Chat",
             Action = () =>
             {
-                Program.ui.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
-                Program.ui.WriteLine("A console-based chat application with RAG capabilities.");
-                Program.ui.WriteLine("For more information, visit: https://github.com/wa-phil/cschat");
+                using var output = Program.ui.BeginRealtime("About CSChat");
+                output.WriteLine($"CSChat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
+                output.WriteLine("A chat application with RAG capabilities.");
+                output.WriteLine("For more information, visit: https://github.com/wa-phil/cschat");
                 return Task.FromResult(Command.Result.Success);
             }
         });
