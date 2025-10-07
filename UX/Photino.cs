@@ -295,7 +295,7 @@ public sealed class PhotinoUi : IUi
 					}
 					break;
 				}
-				
+
 				case "CancelProgress":
 				{
 					var pid = S("id","Id");
@@ -487,7 +487,7 @@ public sealed class PhotinoUi : IUi
 				if (k.Key == ConsoleKey.Escape)
 				{
 					var result = await commandManager.Action();
-					if (result == Command.Result.Failed) WriteLine("Command failed.");
+					// TODO: maybe find another/better way to do this...  if (result == Command.Result.Failed) WriteLine("Command failed.");
 					Post(new { type = "FocusInput" });
 				}
 				keyWait = ReadKeyInternalAsync(intercept: true);
