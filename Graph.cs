@@ -1104,7 +1104,7 @@ For each relationship, identify:
             }
             if (null == output)
             {
-                output = Program.ui.BeginRealtime("=== Extracted from {response} ===");
+                output = Program.ui.BeginRealtime($"=== Extracted from {response} ===");
             }
             else
             {
