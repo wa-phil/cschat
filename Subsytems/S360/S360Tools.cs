@@ -26,7 +26,7 @@ public sealed class S360FetchTool : ITool
         var s360 = Program.SubsystemManager.Get<S360Client>();
         var table = await s360.FetchAsync(profile);
 
-        // filter and format the table output to soemhting more easily digested by humans.
+        // filter and format the table output to something more easily digested by humans.
         var projected = Table.FromEnumerable(table.SelectRows(a => new
         {
             Service = a("ServiceName"),
