@@ -51,9 +51,9 @@ public static class S360Commands
 
                         // Manager Briefing (numeric snapshot; LLM-free so you always get something useful)
                         var grouped = scored
-                            .GroupBy(x => x.Row.ServiceName)
+                            .GroupBy(x => x.Row.KpiTitle)
                             .Select(g => new {
-                                Service = g.Key,
+                                KPI = g.Key,
                                 Total = g.Count(),
                                 AtRisk = g.Count(x => x.Factors.ContainsKey("slaAtRisk")),
                                 MissingEta = g.Count(x => x.Factors.ContainsKey("missingEta"))
@@ -61,14 +61,14 @@ public static class S360Commands
                             .OrderByDescending(x => x.Total)
                             .ToList();
 
-                        var bulletLines = grouped.Select(x => $"{x.Service}: {x.Total} items, {x.AtRisk} at-risk, {x.MissingEta} missing ETA");
+                        var bulletLines = grouped.Select(x => $"{x.KPI}: {x.Total} items, {x.AtRisk} at-risk, {x.MissingEta} missing ETA");
 
                         // Action plan → grouped by service, items ordered by DUE (soonest first), with per-item LLM summaries/next-steps
                         var top = scored.Take(Math.Max(1, n)).ToList();
 
                         // Build tables for the report
-                        var snapshotRows = grouped.Select(g => new[] { g.Service ?? "", g.Total.ToString(), g.AtRisk.ToString(), g.MissingEta.ToString() }).ToList();
-                        var snapshotTable = new Table(new[] { "Service", "Total", "AtRisk", "MissingETA" }, snapshotRows);
+                        var snapshotRows = grouped.Select(g => new[] { g.KPI ?? "", g.Total.ToString(), g.AtRisk.ToString(), g.MissingEta.ToString() }).ToList();
+                        var snapshotTable = new Table(new[] { "KPI", "Total", "AtRisk", "MissingETA" }, snapshotRows);
 
                         // Top items table (top N) — include score and key fields
                         var topRows = top.Select(x => {
@@ -96,7 +96,6 @@ public static class S360Commands
 
                         realtime.WriteLine("Triage complete.");
                         return Command.Result.Success;
-
                     }
                 },
                 new Command {
