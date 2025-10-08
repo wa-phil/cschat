@@ -632,10 +632,8 @@ public class GraphStore
     public GraphAnalytics Analytics => new GraphAnalytics(this);
 
     // Detect and display communities using Louvain algorithm
-    public void PrintCommunityAnalysis()
+    public void PrintCommunityAnalysis(IRealtimeWriter output)
     {
-        using var output = Program.ui.BeginRealtime("=== COMMUNITY DETECTION (LOUVAIN ALGORITHM) ===");
-
         if (IsEmpty)
         {
             output.WriteLine("Graph is empty. No communities to detect.");
@@ -707,10 +705,8 @@ public class GraphStore
     }
     
     // Print detailed community information
-    public void PrintDetailedCommunityInfo(int? specificCommunityId = null)
+    public void PrintDetailedCommunityInfo(IRealtimeWriter output, int? specificCommunityId = null)
     {
-        using var output = Program.ui.BeginRealtime("=== DETAILED COMMUNITY INFORMATION ===");
-
         if (IsEmpty)
         {
             output.WriteLine("Graph is empty. No communities to analyze.");
@@ -878,10 +874,8 @@ public class GraphStore
     }
     
     // Helper method to print just a summary table of all communities
-    public void PrintCommunitySummaryTable()
+    public void PrintCommunitySummaryTable(IRealtimeWriter output)
     {
-        using var output = Program.ui.BeginRealtime("=== COMMUNITY SUMMARY TABLE ===");
-
         if (IsEmpty)
         {
             output.WriteLine("Graph is empty. No communities to display.");
@@ -1315,30 +1309,31 @@ public static class GraphStoreManager
     /// <summary>
     /// Detects communities, generates clusters, and prints each cluster's name and entity list.
     /// </summary>
-    public static void PrintClustersAndEntities()
+    public static void PrintClustersAndEntities(IRealtimeWriter? output = null)
     {
+        output = output ?? Program.ui.BeginRealtime("=== CLUSTERS AND ENTITIES ===");
         var (communities, modularity) = Graph.Analytics.DetectCommunities();
         var clusters = Graph.Analytics.GenerateClusters(communities);
-        Console.WriteLine($"Detected {clusters.Count} clusters (modularity: {modularity:F4})\n");
+        output.WriteLine($"Detected {clusters.Count} clusters (modularity: {modularity:F4})\n");
         foreach (var cluster in clusters)
         {
-            Console.WriteLine($"Cluster {cluster.Id} ({cluster.Size} entities):");
+            output.WriteLine($"Cluster {cluster.Id} ({cluster.Size} entities):");
             foreach (var entityName in cluster.EntityNames)
             {
-                Console.WriteLine($"  - {entityName}");
+                output.WriteLine($"  - {entityName}");
             }
 
             // Print relationships between entities in this cluster
-            Console.WriteLine("  Relationships:");
+            output.WriteLine("  Relationships:");
             var entitySet = new HashSet<string>(cluster.EntityNames);
             foreach (var rel in Graph.Relationships)
             {
                 if (entitySet.Contains(rel.Source.Name) && entitySet.Contains(rel.Target.Name))
                 {
-                    Console.WriteLine($"    {rel.Source.Name} --[{rel.Type}]--> {rel.Target.Name}: {rel.Description}");
+                    output.WriteLine($"    {rel.Source.Name} --[{rel.Type}]--> {rel.Target.Name}: {rel.Description}");
                 }
             }
-            Console.WriteLine();
+            output.WriteLine();
         }
     }
 
@@ -1348,6 +1343,7 @@ public static class GraphStoreManager
     public static async Task GenerateCodeAndGraphDocumentationAsync(string code, string filePath)//, List<Relationship> relatedRelations)
         => await Log.MethodAsync(async ctx =>
     {
+        using var output = Program.ui.BeginRealtime("=== CODE AND GRAPH DOCUMENTATION ===");  
         ctx.OnlyEmitOnFailure();
         try
         {
@@ -1387,28 +1383,28 @@ Add mermaid diagrams to illustrate the relationships between the code and the en
             var response = await TypeParser.GetAsync(working, typeof(string));
             if (response == null)
             {
-                Console.WriteLine($"LLM processing issue");
+                output.WriteLine($"No response from LLM");
                 return;
             }
 
             // Write output to a markdown file with a random name
             var mdFileName = $"extracted_{Guid.NewGuid().ToString().Substring(0, 8)}.md";
             var mdFilePath = Path.Combine(Directory.GetCurrentDirectory(), mdFileName);
-            File.WriteAllText(mdFilePath, response.ToString());
-            Console.WriteLine($"Documentation written to: {mdFilePath}, for {filePath}");
-            //Console.WriteLine($"\n=== Extracted from {response} ===");
-            Console.WriteLine("=================================\n");
+            File.WriteAllText(mdFilePath, response.ToString());          
+            output.WriteLine($"Documentation written to: {mdFilePath}, for {filePath}");
+            //output.WriteLine($"\n=== Extracted from {response} ===");
+            output.WriteLine("=================================\n");
             ctx.Succeeded();
         }
         catch (Exception ex)
         {
             ctx.Failed($"Failed to generate code and graph documentation", ex);
-            Console.WriteLine($"Failed to generate documentation: {ex.Message}");
+            output.WriteLine($"Failed to generate documentation: {ex.Message}");
 
             var mdFileName = $"extracted_{Guid.NewGuid().ToString().Substring(0, 8)}.md";
             var mdFilePath = Path.Combine(Directory.GetCurrentDirectory(), mdFileName);
             File.WriteAllText(mdFilePath, ex.Message.ToString());
-            Console.WriteLine($"Documentation written to: {mdFilePath}, for {filePath}");
+            output.WriteLine($"Documentation written to: {mdFilePath}, for {filePath}");
         }
     });
 
@@ -1416,13 +1412,11 @@ Add mermaid diagrams to illustrate the relationships between the code and the en
     /// Generates reference documentation for the current knowledge graph, following strict reference guide principles.
     /// Output is Markdown, neutral, factual, and structured according to the graph's machinery.
     /// </summary>
-    public static async Task GenerateReferenceDocumentationAsync(string content)
-    {
-        await Log.MethodAsync(async ctx =>
+    public static async Task GenerateReferenceDocumentationAsync(string content) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         //ctx.Append(Log.Data.Reference, content);
-
+        using var output = Program.ui.BeginRealtime("=== REFERENCE DOCUMENTATION ==="); 
         try
         {
             var working = new Context(@"""
@@ -1471,11 +1465,11 @@ Reference material provides accurate, neutral, and structured descriptions of a 
             var response = await TypeParser.GetAsync(working, typeof(string));
             if (response == null)
             {
-                Console.WriteLine($"JSON processing issue");
+                output.WriteLine($"JSON processing issue");
                 return;
             }
-            Console.WriteLine($"\n=== Extracted from {response} ===");
-            Console.WriteLine("=================================\n");
+            output.WriteLine($"\n=== Extracted from {response} ===");
+            output.WriteLine("=================================\n");
 
             //ctx.Append(Log.Data.Result, $"Extracted {GraphStoreManager.Graph.EntityCount} entities and {GraphStoreManager.Graph.RelationshipCount} relationships from {reference}");
             ctx.Succeeded();
@@ -1483,10 +1477,9 @@ Reference material provides accurate, neutral, and structured descriptions of a 
         catch (Exception ex)
         {
             ctx.Failed($"Failed to extract entities and relationships", ex);
-            Console.WriteLine($"Failed to extract entities and relationships: {ex.Message}");
+            output.WriteLine($"Failed to extract entities and relationships: {ex.Message}");
         }
     });
-    }
 
     public static GraphStore Graph { get; } = new GraphStore();
 

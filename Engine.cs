@@ -125,7 +125,7 @@ public static class Engine
                 await GraphStoreManager.GenerateCodeAndGraphDocumentationAsync(content, path);
             }
 
-            //GraphStoreManager.PrintClustersAndEntities();
+            //GraphStoreManager.PrintClustersAndEntities(output);
 
             stopwatch.Stop();
             output.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
@@ -141,50 +141,25 @@ public static class Engine
     {
         try
         {
+            using var output = Program.ui.BeginRealtime("Generating documentation...");
             ctx.OnlyEmitOnFailure();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var countItems = 0;
             var knownFiles = new StringBuilder();
 
-            Console.WriteLine("Started processing files for RAG store...");
+            output.WriteLine("Started processing files for RAG store...");
 
             await ContextManager.GenerateDocumentationFromGraphContent();
 
             //await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
 
             stopwatch.Stop();
-            Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
+            output.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
             ctx.Succeeded();
         }
         finally
         {
-            Console.ResetColor();
-        }
-    });
-*/
-
-/*    public static async Task GetDocumentation() => await Log.MethodAsync(async ctx =>
-    {
-        try
-        {
-            ctx.OnlyEmitOnFailure();
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var countItems = 0;
-            var knownFiles = new StringBuilder();
-
-            Console.WriteLine("Started processing files for RAG store...");
-
-            await ContextManager.GenerateDocumentationFromGraphContent();
-
-            //await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
-
-            stopwatch.Stop();
-            Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
-            ctx.Succeeded();
-        }
-        finally
-        {
-            Console.ResetColor();
+            Program.ui.ResetColor();
         }
     });
 */
