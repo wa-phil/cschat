@@ -83,13 +83,11 @@ RAG enhances language model responses by retrieving information from a knowledge
 - **`rag clear`**: Clear all data from the RAG store.
 - **`rag search`**: Query the RAG store with a search string to retrieve relevant matched chunks.
 
-**Configuring RAG:**
-- **`rag config embedding model`**: Set the embedding model (used to generate vector representations of text).
-- **`rag config query`**: Customize the query prompt for searching the RAG store.
-- **`rag config chunking method`**: Select a text chunking method for breaking documents into smaller pieces.
-- **`rag config chunksize`**: Set the number of tokens in each chunk (to control the size of document fragments).
-- **`rag config overlap`**: Define the overlap between chunks (to ensure smooth transitions in content).
-- **`rag config TopK`**: Specify the number of top results to return from searches.
+**Configuring RAG (Grouped Forms):**
+- **`rag config core settings`**: Edit embeddings on/off, embedding model, TopK, TopKForParsing, embedding + ingest concurrency.
+- **`rag config chunking`**: Edit chunking strategy, chunk size, max tokens per chunk, max line length, overlap.
+- **`rag config mmr`**: Edit MMR use, lambda, pool multiplier, minimum extra candidates.
+- **`rag config file types`**: Manage supported file extensions (add/edit/delete) with include/exclude regex lists (UserManagedData backed).
 
 ### Usage Example:
 1. **Add data to the store:**
@@ -129,11 +127,9 @@ RAG enhances language model responses by retrieving information from a knowledge
 |                          | `rag status`                      | Show the RAG store's status.                 |
 |                          | `rag clear`                       | Clear the RAG store.                         |
 |                          | `rag search`                      | Search the RAG store with a query.           |
-|                          | `rag config embedding model`      | Set the embedding model.                     |
-|                          | `rag config query`                | Customize the query prompt.                  |
-|                          | `rag config chunking method`      | Choose a chunking strategy.                  |
-|                          | `rag config chunksize`            | Set the chunk size in tokens.                |
-|                          | `rag config overlap`              | Set overlap between chunks.                  |
-|                          | `rag config TopK`                 | Specify the number of top results to return. |
+|                          | `rag config core settings`        | Edit core embedding + retrieval settings.    |
+|                          | `rag config chunking`             | Edit chunking strategy and sizes.            |
+|                          | `rag config mmr`                  | Edit MMR settings.                           |
+|                          | `rag config file types`           | Manage supported file types (UMD).           |
 
 ---

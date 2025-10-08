@@ -112,8 +112,8 @@ public static class AdoInsights
     {
         var sb = new StringBuilder();
         sb.AppendLine("You are an EM preparing a triage action plan for the following items (ranked).");
-        sb.AppendLine("For each item, give: 1) Assign to (junior/senior + discipline), 2) Next concrete step, 3) Likely resolution (fix/duplicate/transfer), 4) Preventative investment.");
-        sb.AppendLine("Finish with 3-5 'big rocks' bullets for the team.");
+        sb.AppendLine("For each item, give: 1) Assign to (junior/senior + discipline) but do not name the engineer, 2) Next concrete step, 3) Likely resolution (fix/duplicate/transfer), 4) Preventative investment.");
+        sb.AppendLine("Finish with 3-5 'big rocks' bullets for the team to focus on for the time being.");
         sb.AppendLine();
         foreach (var s in top)
         {

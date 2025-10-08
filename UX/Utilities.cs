@@ -109,6 +109,14 @@ public static class Utilities
 
     internal static string StripRTF(string inputRtf) => RichTextStripper.StripRichTextFormat(inputRtf);
 
+    // Renderer helpers are now on the Table class. Provide compatibility wrappers.
+    public static Table ToTable(IEnumerable<string> headers, IEnumerable<string[]> rows)
+    {
+        var hs = headers?.ToList() ?? new List<string>();
+        var rs = rows?.ToList() ?? new List<string[]>();
+        return new Table(hs, rs);
+    }
+
     #region "RTF Stripping"
 
     /// <summary>

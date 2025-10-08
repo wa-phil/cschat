@@ -1,19 +1,19 @@
 using System;
 
-[UserManagedAttribute("User Selected Query", "Stores user-selected ADO queries with their names and GUIDs")]
+[UserManagedAttribute("User Selected Queries", "Stores user-selected ADO queries with their names and GUIDs")]
 public class UserSelectedQuery
 {
     [UserKey] // use ID as the logical key for updates
     [UserField(required: true)]
     public Guid Id { get; set; }
     
-    [UserField(required: true)]
+    [UserField(required: true, FieldKind = UiFieldKind.String)]
     public string Name { get; set; } = string.Empty;
     
-    [UserField(required: true)]
+    [UserField(required: true, FieldKind = UiFieldKind.String)]
     public string Project { get; set; } = string.Empty;
     
-    [UserField(required: true)]
+    [UserField(required: true, FieldKind = UiFieldKind.String)]
     public string Path { get; set; } = string.Empty;
 
     public UserSelectedQuery() { }

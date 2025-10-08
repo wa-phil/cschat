@@ -42,7 +42,6 @@ public class AdoClient : ISubsystem
     private GitHttpClient _gitClient = null!;
     private bool _connected = false;
 
-    public Type ConfigType => typeof(AdoConfig);
     public bool IsAvailable { get; } = true;
     public bool IsEnabled
     {
@@ -156,16 +155,11 @@ public class AdoClient : ISubsystem
         return summaries;
     });
 
-    private async Task<string> GetProjectIdByNameAsync(string projectName, CancellationToken ct = default)
-    {
-        var url = $"{GetOrganizationUrl()}/_apis/projects/{Uri.EscapeDataString(projectName)}?api-version=7.1";
-        using var res = await _http.GetAsync(url, ct);
-        res.EnsureSuccessStatusCode();
-        var json = await res.Content.ReadAsStringAsync(ct);
-        var root = json.FromJson<Dictionary<string, object>>() ?? new();
-        if (root.TryGetValue("id", out var v) && v is string id && Guid.TryParse(id, out _)) return id;
-        throw new InvalidOperationException($"Could not resolve project id for '{projectName}'.");
-    }
+    public static string BuildPullRequestUrl(string org, string project, string repo, int prId)
+        => $"https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{prId}";
+
+    public static string BuildDiscussionUrl(string org, string project, string repo, int prId, int threadId)
+        => $"{BuildPullRequestUrl(org, project, repo, prId)}?_a=overview&discussionId={threadId}";
 
     /// <summary>
     /// Get the full query hierarchy (My Queries and Shared Queries) for a project,
@@ -273,7 +267,7 @@ public class AdoClient : ISubsystem
 
     public async Task<List<AdoQueryRow>> GetQueryChildrenAsync(string project, string path, int depth)
     {
-        var item = await _witClient.GetQueryAsync(project, path, QueryExpand.All, depth: 2);
+        var item = await _witClient.GetQueryAsync(project, path, QueryExpand.Minimal, depth: 2);
         var list = new List<AdoQueryRow>();
         if (item?.Children == null) return list;
 
@@ -283,6 +277,18 @@ public class AdoClient : ISubsystem
             list.Add(new AdoQueryRow(c.Id, c.Name ?? "", p, c.IsFolder == true, depth + 1));
         }
         return list.OrderBy(x => x.IsFolder ? 0 : 1).ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    public async Task<List<GitPullRequestCommentThread>> GetPullRequestThreadsAsync(
+        string project, string repositoryName, int pullRequestId, CancellationToken ct = default)
+    {
+        // Resolve repo by name to get its Guid
+        var repo = await _gitClient.GetRepositoryAsync(project, repositoryName, cancellationToken: ct);
+        if (repo == null) return new List<GitPullRequestCommentThread>();
+
+        // NOTE: Signature is (repositoryId, pullRequestId, project, ...)
+        var threads = await _gitClient.GetThreadsAsync(project, repo.Id, pullRequestId, cancellationToken: ct);
+        return threads?.ToList() ?? new List<GitPullRequestCommentThread>();
     }
 
     public sealed record QueryFavorite(Guid Id, string Name, string? Project, string? Url);
@@ -383,17 +389,7 @@ public static class AdoCredentialHelper
             return azPat;
         }
 
-        // 3. Prompt user interactively
-        Console.Write("Enter your Azure DevOps Personal Access Token (PAT): ");
-        var pat = ReadPasswordMasked();
-        if (string.IsNullOrWhiteSpace(pat))
-        {
-            ctx.Failed("No PAT provided.", Error.InvalidInput);
-            return null;
-        }
-        ctx.Append(Log.Data.Message, "ADO PAT provided by user.");
-        ctx.Succeeded();
-        return pat;
+        throw new NotImplementedException("Interactive PAT input is not implemented.");
     });
 
     private static string? TryGetTokenFromAzCli() => Log.Method(ctx =>
@@ -431,36 +427,4 @@ public static class AdoCredentialHelper
         ctx.Succeeded();
         return output.Trim();
     });
-
-    private static string ReadPasswordMasked()
-    {
-        Console.Write("Enter your Azure DevOps Personal Access Token (PAT)\nInput will be masked, press Enter when done, ESC to cancel.");
-        var password = new StringBuilder();
-        while (true)
-        {
-            var key = Console.ReadKey(intercept: true);
-            if (key.Key == ConsoleKey.Enter)
-            {
-                Console.WriteLine();
-                break;
-            }
-            else if (key.Key == ConsoleKey.Backspace && password.Length > 0)
-            {
-                Console.Write("\b \b");
-                password.Length--;
-            }
-            else if (key.Key == ConsoleKey.Escape)
-            {
-                Console.WriteLine("\nInput cancelled.");
-                return string.Empty; // Allow cancellation
-            }
-            else if (!char.IsControl(key.KeyChar))
-            {
-                Console.Write("*");
-                password.Append(key.KeyChar);
-            }
-
-        }
-        return password.ToString();
-    }
 }

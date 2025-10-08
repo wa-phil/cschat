@@ -9,61 +9,37 @@ public partial class CommandManager
     {
         return new Command
         {
-            Name = "subsystem", Description = () => "Subsystem management commands",
-            SubCommands = new List<Command>
+            Name = "Subsystem", Description = () => "Enable/disable subsystem state",    
+            Action = () => Log.Method(ctx =>
             {
-                new Command
+                ctx.OnlyEmitOnFailure();
+                // use menu to select subsystem
+                var subsystems = Program.SubsystemManager.Names.ToList();
+                if (!subsystems.Any())
                 {
-                    Name = "list", Description = () => "List all available subsystems",
-                    Action = () =>
-                    {
-                        var subsystems = Program.SubsystemManager.Names.ToList();
-                        if (!subsystems.Any())
-                        {
-                            Console.WriteLine("No subsystems available.");
-                            return Task.FromResult(Command.Result.Success);
-                        }
-                        Console.WriteLine("Available subsystems:");
-                        foreach (var subsystem in subsystems)
-                        {
-                            Console.WriteLine($"- {subsystem} : Type:{Program.SubsystemManager.GetType(subsystem).ToString()} [{(Program.SubsystemManager.IsEnabled(subsystem) ? "enabled" : "disabled")}]");
-                        }
-                        return Task.FromResult(Command.Result.Success);
-                    }
-                },
-                new Command
-                {
-                    Name = "enable/disable", Description = () => "Toggle a subsystem's enabled/disabled state",
-                    Action = () =>
-                    {
-                        // use menu to select subsystem
-                        var subsystems = Program.SubsystemManager.Names.ToList();
-                        if (!subsystems.Any())
-                        {
-                            Console.WriteLine("No subsystems available to toggle.");
-                            return Task.FromResult(Command.Result.Success);
-                        }
-                        Console.WriteLine("Select a subsystem to toggle:");
-
-                        var selected = User.RenderMenu("select subsystem to toggle",subsystems.Select(s => $"{s} : [{(Program.SubsystemManager.IsEnabled(s)?"enabled":"disabled")}]").ToList());
-                        if (string.IsNullOrWhiteSpace(selected))
-                        {
-                            Console.WriteLine("No subsystem selected.");
-                            return Task.FromResult(Command.Result.Cancelled);
-                        }
-                        var name = selected.Split(':').FirstOrDefault()?.Trim();
-                        if (string.IsNullOrWhiteSpace(name))
-                        {
-                            Console.WriteLine("Invalid subsystem name.");
-                            return Task.FromResult(Command.Result.Cancelled);
-                        }
-                        Program.SubsystemManager.SetEnabled(name, !Program.SubsystemManager.IsEnabled(name));
-                        Config.Save(Program.config, Program.ConfigFilePath);
-                        Console.WriteLine($"Subsystem '{name}' is now {(Program.SubsystemManager.IsEnabled(name) ? "enabled" : "disabled")}.");
-                        return Task.FromResult(Command.Result.Success);
-                    }
+                    ctx.Append(Log.Data.Message, "No subsystems available to toggle.");
+                    return Task.FromResult(Command.Result.Success);
                 }
-            }
+
+                var selected = Program.ui.RenderMenu("select subsystem to toggle",subsystems.Select(s => $"{s} : [{(Program.SubsystemManager.IsEnabled(s)?"enabled":"disabled")}]").ToList());
+                if (string.IsNullOrWhiteSpace(selected))
+                {
+                    ctx.Append(Log.Data.Message, "No subsystem selected.");
+                    ctx.Succeeded();
+                    return Task.FromResult(Command.Result.Cancelled);
+                }
+                var name = selected.Split(':').FirstOrDefault()?.Trim();
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    ctx.Append(Log.Data.Message, "Invalid subsystem name.");
+                    return Task.FromResult(Command.Result.Cancelled);
+                }
+                Program.SubsystemManager.SetEnabled(name, !Program.SubsystemManager.IsEnabled(name));
+                Config.Save(Program.config, Program.ConfigFilePath);
+                ctx.Append(Log.Data.Message, $"Subsystem '{name}' is now {(Program.SubsystemManager.IsEnabled(name) ? "enabled" : "disabled")}.");
+                ctx.Succeeded();
+                return Task.FromResult(Command.Result.Success);
+            })
         };
     }
 }

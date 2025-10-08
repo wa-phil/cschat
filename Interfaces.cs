@@ -3,6 +3,86 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using ModelContextProtocol.Protocol;
 
+/// <summary>
+/// Chat message roles
+/// </summary> 
+public enum Roles
+{
+    System,
+    User,
+    Assistant,
+    Tool,
+    Progress,
+}
+
+public enum ChatMessageState { Normal, EphemeralActive, Finalized }
+
+public class ChatMessage
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("n");
+    public ChatMessageState State { get; set; } = ChatMessageState.Normal;
+    public Roles Role { get; set; }
+    public string Content { get; set; } = string.Empty; // Ensure non-nullable property is initialized
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public Dictionary<string, object>? Meta { get; set; } // optional metadata for UI
+}
+
+// field types for user input forms
+public enum UiFieldKind
+{
+    String,     // tracks with a single line of text
+    Text,       // tracks with multi-line text
+    Number,     // integer
+    Decimal,    // floating point
+    Long,       // long integer
+    Guid,       // GUID: globally unique identifier
+    Enum,       // enumeration
+    Bool,       // boolean value
+    Date,       // date value
+    Time,       // time value
+    Path,       // file system path
+    Password,   // password input
+    Array       // list/array of values
+}
+
+public enum PathPickerMode
+{
+    OpenExisting,
+    SaveFile
+}
+
+public interface IUiField
+{
+    string Key { get; } // stable identity for roundtrips
+    string Label { get; }
+    UiFieldKind Kind { get; }
+    bool Required { get; }
+    string? Help { get; }
+
+    string? Placeholder { get; }
+    string? Pattern { get; }
+    string? PatternMessage { get; }
+
+    PathPickerMode PathMode { get; }
+
+    Func<object?, string> Formatter { get; }
+
+    IEnumerable<string>? EnumChoices();
+    int? MinInt(); int? MaxInt();
+
+    // For Array fields (simple element types), the UI sends JSON text; for others a plain string
+    bool TrySetFromString(object model, string? value, out string? error);
+
+    IUiField WithHelp(string? help);
+    IUiField IntBounds(int? min = null, int? max = null);
+    IUiField FormatWith(Func<object?, string> format);
+    IUiField MakeOptional();
+    IUiField WithPlaceholder(string? placeholder);
+    IUiField WithRegex(string pattern, string? message = null);
+    IUiField MakeOptionalIf(bool cond);
+    IUiField WithPathMode(PathPickerMode mode);
+}
+
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
 public class IsConfigurable : Attribute
 {
@@ -31,17 +111,36 @@ public class UserManagedAttribute : Attribute
     }
 }
 
+// Attribute to express subsystem dependencies. Apply on ISubsystem implementations.
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
+public class DependsOnAttribute : Attribute
+{
+    public string Name { get; }
+    public DependsOnAttribute(string name) => Name = name;
+}
+
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
 public sealed class UserFieldAttribute : Attribute
 {
     public bool Required { get; }
-    public string? Display { get; }
-    public string? Hint { get; }
+    public bool Hidden { get; }
+    public string? Display { get; set; }
+    public string? Hint { get; set; }
 
-    public UserFieldAttribute(bool required = false, string? display = null, string? hint = null)
+    // Allow specifying the desired UI field kind and extra metadata.
+    // These are optional named properties so existing attribute usages remain valid.
+    public UiFieldKind FieldKind { get; set; } = UiFieldKind.Text; // default to Text to preserve prior behavior
+    public string? Placeholder { get; set; }
+    public int? Min { get; set; }
+    public int? Max { get; set; }
+    public string? Pattern { get; set; }
+    public string[]? Choices { get; set; }
+
+    public UserFieldAttribute(bool required = false, string? display = null, bool hidden = false, string? hint = null)
     {
         Required = required;
         Display = display;
+        Hidden = hidden;
         Hint = hint;
     }
 }
@@ -62,6 +161,7 @@ public interface IChatProvider
 public interface IEmbeddingProvider
 {
     Task<float[]> GetEmbeddingAsync(string text);
+    Task<IReadOnlyList<float[]>> GetEmbeddingsAsync(IEnumerable<string> texts, CancellationToken ct);
 }
 
 public record Reference(string Source, int? Start, int? End)
@@ -117,7 +217,7 @@ public interface ITool
 
 public interface ISubsystem
 {
-    Type ConfigType { get; }
     bool IsAvailable { get; }
     bool IsEnabled { get; set; }
 }
+

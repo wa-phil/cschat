@@ -1,13 +1,22 @@
 using System;
-using System.Text.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
+using System.Collections.Concurrent;
 
 public class Context
 {
+    public bool IncludeCitationRule { get; set; } = true;
+    public int MaxContextEntries { get; set; } = int.MaxValue;
+
+    [DataMember(Name = "SystemMessage")]
     protected ChatMessage _systemMessage = new ChatMessage { Role = Roles.System, Content = string.Empty };
+
+    [DataMember(Name = "Messages")]
     protected List<ChatMessage> _messages = new List<ChatMessage>();
+
+    [DataMember(Name = "Context")]
     protected List<(string Reference, string Chunk)> _context = new List<(string Reference, string Chunk)>();
     private DateTime _conversationStartTime = DateTime.Now;
 
@@ -15,18 +24,6 @@ public class Context
     {
         _conversationStartTime = DateTime.Now;
         AddSystemMessage(systemPrompt ?? Program.config.SystemPrompt);
-    }
-
-    public Context(IEnumerable<ChatMessage> messages)
-    {
-        _conversationStartTime = DateTime.Now;
-        foreach (var msg in messages)
-        {
-            if (msg.Role == Roles.System)
-                AddSystemMessage(msg.Content);
-            else
-                _messages.Add(msg);
-        }
     }
 
     public IEnumerable<ChatMessage> Messages(bool InluceSystemMessage = true)
@@ -74,21 +71,26 @@ public class Context
     public ChatMessage GetSystemMessage()
     {
         var result = new ChatMessage { Role = Roles.System, Content = _systemMessage.Content };
+
         if (_context.Count > 0)
         {
-            result.Content += "\nWhat follows is content to help answer your next question.\n" + string.Join("\n", _context.Select(c => $"--- BEGIN CONTEXT: {c.Reference} ---\n{c.Chunk}\n--- END CONTEXT ---"));
-            result.Content += "\nWhen referring to the provided context in your answer, explicitly state which content you are referencing in the form 'as per [reference], [your answer]'.";
+            var chosen = _context.Take(MaxContextEntries); // see §2
+            result.Content += "\nWhat follows is content to help answer your next question.\n"
+                + string.Join("\n", chosen.Select(c => $"--- BEGIN CONTEXT: {c.Reference} ---\n{c.Chunk}\n--- END CONTEXT ---"));
+
+            if (IncludeCitationRule)
+                result.Content += "\nWhen referring to the provided context in your answer, explicitly state which content you are referencing in the form 'as per [reference], [your answer]'.";
         }
         return result;
     }
 
     public void Save(string filePath)
     {
-        var data = new ContextData
+        var data = new 
         {
             SystemMessage = _systemMessage,
+            Context = _context,
             Messages = _messages,
-            Context = _context
         };
 
         var json = data.ToJson();
@@ -131,7 +133,7 @@ public class Context
         };
     }
 
-    private class ContextData
+    public class ContextData
     {
         public ChatMessage? SystemMessage { get; set; }
         public List<ChatMessage>? Messages { get; set; }
@@ -141,6 +143,15 @@ public class Context
 
 public class ContextManager
 {
+    public static void ClearCaches() => _embedCache.Clear();
+    
+    private static readonly ConcurrentDictionary<string, float[]> _embedCache = new();
+    private static string HashUtf8(string s)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(s);
+        var hash = System.Security.Cryptography.SHA256.HashData(bytes);
+        return Convert.ToHexString(hash); // 64-char hex
+    }
     public static GraphStore GraphStore { get; } = new GraphStore();
     
     public static List<(Reference Reference, string MergedContent)> Flatten(List<(Reference Reference, string Content)> entries)
@@ -220,34 +231,95 @@ public class ContextManager
         return;
     });
 
-    public static async Task AddContent(string content, string reference = "content") => await Log.MethodAsync(async ctx =>
+    public static Task AddContent(string content, string reference = "content")
+        => AddContent(content, reference, CancellationToken.None, _ => { }, (_, __) => { });
+
+    public static async Task AddContent(
+        string content,
+        string reference,
+        CancellationToken ct,
+        Action<int> setTotalSteps,
+        Action<int, string?> advance) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");        
+        Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
         IEmbeddingProvider embeddingProvider = Engine.Provider as IEmbeddingProvider ?? throw new InvalidOperationException("Current configured provider does not support embeddings.");
-
-        var GetEmbeddingAsync = Program.config.RagSettings.UseEmbeddings
-            ? embeddingProvider!.GetEmbeddingAsync
-            : (Func<string, Task<float[]>>) (text => Task.FromResult(new float[0])); // Return empty embedding if embeddings are not used
+        ct.ThrowIfCancellationRequested();
 
         ctx.Append(Log.Data.Reference, reference.Substring(0, Math.Min(reference.Length, 50)));
-        var embeddings = new List<(Reference Reference, string Chunk, float[] Embedding)>();
+
+        // Chunk the text once
         var chunks = Engine.TextChunker!.ChunkText(reference, content);
         ctx.Append(Log.Data.Count, chunks.Count);
+        setTotalSteps(chunks.Count); // tell UI how many steps we’ll report against
 
-        await Task.WhenAll(chunks.Select(async chunk =>
-            embeddings.Add((
-                Reference: chunk.Reference,
-                Chunk: chunk.Content,
-                Embedding: await GetEmbeddingAsync(chunk.Content)
-            ))
-        ));
+        // If embeddings are disabled, just add empty vectors
+        if (!Program.config.RagSettings.UseEmbeddings)
+        {
+            var noVecEntries = chunks.Select(c => (c.Reference, c.Content, Embedding: Array.Empty<float>())).ToList();
+            Engine.VectorStore.Add(noVecEntries);
+            advance(chunks.Count, "indexed"); // 100%
+            ctx.Succeeded(noVecEntries.Count > 0);
+            return;
+        }
 
-        Engine.VectorStore.Add(embeddings);
-        ctx.Succeeded(embeddings.Count > 0);
+        // Prepare cache lookups
+        var texts = chunks.Select(c => c.Content).ToList();
+        var hashes = texts.Select(HashUtf8).ToList();
+
+        // Gather cached hits and misses
+        var embeddings = new float[texts.Count][];
+        var missIndices = new List<int>();
+        for (int i = 0; i < texts.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_embedCache.TryGetValue(hashes[i], out var v) && v.Length > 0)
+            {
+                embeddings[i] = v;
+                advance(1, "cached");
+            }
+            else
+            {
+                missIndices.Add(i);
+            }
+        }
+
+        // Batch request for cache misses (preserving order)
+        if (missIndices.Count > 0)
+        {
+            var missTexts = missIndices.Select(i => texts[i]).ToList();
+            int batch = Program.config.RagSettings.MaxEmbeddingConcurrency;
+            for (int offset = 0; offset < missIndices.Count; offset += batch)
+            {
+                var slice = missIndices.Skip(offset).Take(batch).ToList();
+                var sliceTexts = slice.Select(i => texts[i]).ToList();
+                var sliceVectors = await embeddingProvider.GetEmbeddingsAsync(sliceTexts, ct);
+
+                for (int k = 0; k < slice.Count; k++)
+                {
+                    var idx = slice[k];
+                    var vec = sliceVectors[k] ?? Array.Empty<float>();
+                    embeddings[idx] = vec;
+                    _embedCache[hashes[idx]] = vec;
+                }
+
+                advance(slice.Count, $"embedded {Math.Min(offset + slice.Count, missIndices.Count)}/{missIndices.Count}");
+            }
+        }
+
+        // Assemble entries for the vector store
+        var entries = new List<(Reference Reference, string Chunk, float[] Embedding)>(chunks.Count);
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            entries.Add((chunks[i].Reference, chunks[i].Content, embeddings[i] ?? Array.Empty<float>()));
+        }
+
+        Engine.VectorStore.Add(entries);
+        ctx.Succeeded(entries.Count > 0);
     });
 
-    public static async Task AddGraphContent(string content, string reference = "content") => await Log.MethodAsync(async ctx =>
+    public static async Task AddGraphContent(string content, string reference = "content", IRealtimeWriter? output = null) => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
         Engine.TextChunker.ThrowIfNull("Text chunker is not set. Please configure a text chunker before adding files to the vector store.");
@@ -258,7 +330,7 @@ public class ContextManager
 
         // Use LINQ to create a list of tasks
         var tasks = chunks.Select(chunk =>
-            GraphStoreManager.ExtractAndStoreAsync(chunk.Content, chunk.Reference.ToString())
+            GraphStoreManager.ExtractAndStoreAsync(chunk.Content, chunk.Reference.ToString(), output)
         ).ToList();
         
         await Task.WhenAll(tasks); // Await all tasks at once
@@ -294,6 +366,7 @@ public class ContextManager
 
     public static async Task<List<SearchResult>> SearchVectorDB(string userMessage) => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         var empty = new List<SearchResult>();
         if (string.IsNullOrEmpty(userMessage) || null == Engine.VectorStore || Engine.VectorStore.IsEmpty) { return empty; }
 

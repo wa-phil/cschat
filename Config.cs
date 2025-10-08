@@ -2,6 +2,19 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 
+public enum UiMode
+{
+    Terminal,
+    Gui
+}
+
+public class ChatThreadSettings
+{
+    public string RootDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, ".threads");
+    public string DefaultNewThreadName { get; set; } = "New chat";
+    public string? ActiveThreadName { get; set; }
+}
+
 public class FileFilterRules
 {
     public List<string> Exclude { get; set; } = new();
@@ -18,8 +31,17 @@ public class RagSettings
     public bool UseEmbeddings { get; set; } = true; // whether to use embeddings for RAG
     public string EmbeddingModel { get; set; } = "nomic-embed-text"; // Default embedding model
     public int MaxTokensPerChunk { get; set; } = 8000;
+    public int MaxEmbeddingConcurrency { get; set; } = 8; // Maximum number of concurrent embedding requests
+    public int MaxIngestConcurrency { get; set; } = 10; // Maximum number of concurrent ingestion tasks
     public int MaxLineLength { get; set; } = 1600; // because there should be a limit, approximately 400 tokens in a line is a LOT.
-    public List<string> SupportedFileTypes { get; set; } = new List<string>
+    public bool UseMmr { get; set; } = true;      // toggle on/off
+    public double MmrLambda { get; set; } = 0.55;  // relevance vs. diversity
+    public float MmrPoolMultiplier { get; set; } = 4; // candidate pool = topK * multiplier
+    public int MmrMinExtra { get; set; } = 4;       // at least +4 candidates
+    public int TopKForParsing { get; set; } = 2; // how many top results to use for parsing
+
+    [Obsolete("Use UserManagedData RagFileType entries instead. This legacy list is only used during migration if no RagFileType entries exist.")]
+    public List<string> SupportedFileTypes { get; set; } = new List<string> // TODO: remove in subsequent change as part of wrapping up migration to RagFileType.
     {
         ".bash", ".bat",
         ".c", ".cpp", ".cs", ".csproj", ".csv",
@@ -34,6 +56,7 @@ public class RagSettings
         ".xml",
         ".yml"
     };
+    [Obsolete("Use Include/Exclude lists on RagFileType (UserManagedData) instead.")]
     public Dictionary<string, FileFilterRules> FileFilters { get; set; } = new();
 }
 
@@ -42,8 +65,16 @@ public class UserManagedDataConfig
     public Dictionary<string, List<Dictionary<string, object>>> TypedData { get; set; } = new();
 }
 
+public class MailSettings
+{
+    public int MaxEmailsToProcess { get; set; } = 25; // Maximum number of emails to process in one go
+    public int LookbackWindow { get; set; } = 30; // Default lookback window for fetching emails (in days)
+    public int LookbackCount { get; set; } = 100; // Default maximum number of emails to fetch in one go
+}
+
 public class Config
 {
+    public UiMode UiMode { get; set; } = UiMode.Terminal;
     public string Provider { get; set; } = "Ollama";
     public string Model { get; set; } = string.Empty; // Ensure non-nullable property is initialized
     public string Host { get; set; } = "http://localhost:11434";
@@ -51,11 +82,16 @@ public class Config
     public float Temperature { get; set; } = 0.7f;
     public string SystemPrompt { get; set; } = "You are a helpful system agent.  When answering questions, if you do not know the answer, tell the user as much. Always strive to be honest and truthful.  You have access to an array of tools that you can use to get the information you need to help the user. These tools can list the contents of a directory, read metadata about files, read file contents, etc...";
 
-    public RagSettings RagSettings { get; set; } = new RagSettings();
-    public string McpServerDirectory { get; set; } = "./mcp_servers";
+    public string DefaultDirectory { get; set; } = Directory.GetCurrentDirectory();
+
+    public RagSettings RagSettings { get; set; } = new RagSettings(); 
+
     public bool VerboseEventLoggingEnabled { get; set; } = false;
     public int MaxSteps { get; set; } = 25; // Maximum number of steps for planning
     public int MaxMenuItems { get; set; } = 10; // Maximum number of menu items to display at once
+
+    public ChatThreadSettings ChatThreadSettings { get; set; } = new ChatThreadSettings();
+    public MailSettings MailSettings { get; set; } = new MailSettings();
 
     public Dictionary<string, bool> EventSources { get; set; } = new Dictionary<string, bool>
     {
@@ -72,7 +108,8 @@ public class Config
     public Dictionary<string, bool> Subsystems { get; set; } = new Dictionary<string, bool>
     {
         { "Ado", false },
-        { "UserManagedData", true },
+        { "Mcp", true },
+        { "Kusto", true},
     };
 
     public AdoConfig Ado { get; set; } = new AdoConfig();
@@ -82,9 +119,7 @@ public class Config
     {
         if (File.Exists(configFilePath))
         {
-            Console.WriteLine($"Loading configuration from {configFilePath}");
             var json = File.ReadAllText(configFilePath);
-            Console.WriteLine($"Configuration loaded: {json}");
             return json.FromJson<Config>() ?? new Config();
         }
         return new Config();
@@ -92,7 +127,6 @@ public class Config
 
     public static void Save(Config config, string configFilePath)
     {
-        Console.WriteLine($"Saving configuration to {configFilePath}");
         var json = config.ToJson();
         File.WriteAllText(configFilePath, json);
     }

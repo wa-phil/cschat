@@ -27,9 +27,10 @@ public class file_list : ITool
             return ToolResult.Failure($"ERROR: Directory not found: {path}", Context);
         }
 
-        var supportedTypes = Engine.SupportedFileTypes;
+        Engine.RefreshSupportedFileTypesFromUserManaged();
+        var allowed = Engine.SupportedFileTypes; // already filtered for Enabled
         var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
-            .Where(f => supportedTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+            .Where(f => allowed.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
             .ToList();
 
         var list = string.Join("\n", files.Select(f => Path.GetRelativePath(path, f)));
@@ -146,6 +147,7 @@ public class grep_files : ITool
 
     public static async Task<GrepResult> GrepFilesAsync(string regExPattern, string path = ".") => await Log.MethodAsync(async ctx =>
     {
+        using var output = Program.ui.BeginRealtime($"Searching for '{regExPattern}' in files...");
         const int MaxBlockAtMatch = 100; // Maximum number of lines of text to return at each match
         ctx.Append(Log.Data.Input, regExPattern);
         ctx.Append(Log.Data.Path, path);
@@ -185,11 +187,11 @@ public class grep_files : ITool
             if (matches.Count > 0)
             {
                 var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-                Console.WriteLine($"Matched: {relativePath}");
+                output.WriteLine($"Matched: {relativePath}");
                 await ContextManager.AddContent(content, relativePath);
                 stopwatch.Stop();
                 var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
-                Console.WriteLine($"{elapsedTime}ms required to read file '{file}' contents.");
+                output.WriteLine($"{elapsedTime}ms required to read file '{file}' contents.");
 
                 ctx.Append(Log.Data.FilePath, relativePath);
             }
@@ -257,7 +259,7 @@ public class find_file : ITool
 
             stopwatch.Stop();
             var elapsedTime = stopwatch.ElapsedMilliseconds.ToString("N0");
-            Console.WriteLine($"{elapsedTime}ms required to find files that match '{findInput.Pattern}'.");
+            ctx.Append(Log.Data.Message, $"{elapsedTime}ms required to find files that match '{findInput.Pattern}'.");
 
             if (matching.Count == 0)
             {

@@ -36,6 +36,28 @@ public static class JSONParser
         json = json.Trim();
         if (json == "null") return null;
 
+        // Handle enum types (parse by name or numeric value)
+        if (type.IsEnum)
+        {
+            var s = json;
+            if (s.Length >= 2 && s[0] == '"' && s[s.Length - 1] == '"')
+                s = Unescape(s.Substring(1, s.Length - 2));
+            // Try parse by name (case-insensitive)
+            try
+            {
+                var parsed = Enum.Parse(type, s, ignoreCase: true);
+                return parsed;
+            }
+            catch
+            {
+                // try numeric
+                if (int.TryParse(s, out var ival))
+                    return Enum.ToObject(type, ival);
+                // fallback to default enum value
+                return Activator.CreateInstance(type)!;
+            }
+        }
+
         if (type == typeof(string))
         {
             // Check if the string is properly quoted and has enough length
@@ -271,8 +293,11 @@ public static class JSONParser
 
     static List<string> Split(string json)
     {
-        var result = (splitArrayPool.Count > 0) ? splitArrayPool.Pop() : new List<string>();
-        result.Clear();
+    // If there's no content, return an empty list (important for parsing '[]' -> zero elements)
+    if (string.IsNullOrEmpty(json)) return new List<string>();
+
+    var result = (splitArrayPool != null && splitArrayPool.Count > 0) ? splitArrayPool.Pop() : new List<string>();
+    result.Clear();
         int depth = 0;
         int start = 0;
         bool inQuotes = false;

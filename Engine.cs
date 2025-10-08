@@ -2,33 +2,42 @@ using System;
 using System.Text;
 using System.Linq;
 using System.Reflection;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 
 public static class Engine
 {
+    private static readonly object _consoleLock = new();
     public static IVectorStore VectorStore = new SimpleVectorStore();
     public static IChatProvider? Provider = null;
     public static ITextChunker? TextChunker = null;
     public static Planner Planner = new Planner();
 
-    public static List<string> SupportedFileTypes = new List<string>
+    // Backing list retained for performance; kept in sync from UserManagedData RagFileType entries.
+    public static List<string> SupportedFileTypes = new List<string>();
+
+    public static void RefreshSupportedFileTypesFromUserManaged()
     {
-        ".bash", ".bat",
-        ".c", ".cpp", ".cs", ".csproj", ".csv",
-        ".h", ".html",
-        ".ignore",
-        ".js",
-        ".log",
-        ".md",
-        ".py",
-        ".sh", ".sln",
-        ".ts", ".txt",
-        ".xml",
-        ".yml"
-    };
+        try
+        {
+            var items = Program.userManagedData.GetItems<RagFileType>()
+                .Where(r => r.Enabled && !string.IsNullOrWhiteSpace(r.Extension))
+                .Select(r => r.Extension.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(s => s)
+                .ToList();
+            SupportedFileTypes = items;
+        }
+        catch
+        {
+            // On early startup (before userManagedData connected) fall back to config
+            SupportedFileTypes = Program.config.RagSettings.SupportedFileTypes.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
+        }
+    }
     
     public static async Task AddFileToGraphStore(string path) => await AddContentItemsToGraphStore(new[] { (path, File.ReadAllText(path)) });
 
@@ -39,46 +48,47 @@ public static class Engine
         try
         {
             ctx.OnlyEmitOnFailure();
+            using var output = Program.ui.BeginRealtime("Adding content to Graph store...");
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var countItems = 0;
             var knownFiles = new StringBuilder();
 
-            Console.WriteLine("Started processing files for RAG store...");
+            output.WriteLine("Started processing files for RAG store...");
 
             foreach (var (name, content) in items)
             {
-                Console.WriteLine($"Processing : {name}\n");
+                output.WriteLine($"Processing : {name}\n");
                 knownFiles.AppendLine(name);
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write($"Adding file '{name}' to RAG store... ");
-                await ContextManager.AddGraphContent(content, name);
-                Console.ResetColor();
-                Console.WriteLine("Done.");
+                Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+                output.Write($"Adding file '{name}' to RAG store... ");
+                await ContextManager.AddGraphContent(content, name, output);
+                Program.ui.ResetColor();
+                output.WriteLine("Done.");
                 countItems++;
             }
 
             await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
 
             stopwatch.Stop();
-            Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
+            output.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
             ctx.Succeeded();
         }
         finally
         {
-            Console.ResetColor();
+            Program.ui.ResetColor();
         }
     });
-
     public static async Task GenerateCodeAndGraphDocumentationAsync(string path) => await Log.MethodAsync(async ctx =>
     {
         try
         {
+            using var output = Program.ui.BeginRealtime("Generating code and graph documentation...");
             ctx.OnlyEmitOnFailure();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var countItems = 0;
             var knownFiles = new StringBuilder();
 
-            Console.WriteLine("Started processing files for RAG store...");
+            output.WriteLine("Started processing files for RAG store...");
 
             string content;
             /*if (Directory.Exists(path))
@@ -103,14 +113,14 @@ public static class Engine
                 var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
                 foreach (var file in files)
                 {
-                    Console.WriteLine($"Processing file: {file}");
+                    output.WriteLine($"Processing file: {file}");
                     content = File.ReadAllText(file);
                     await GraphStoreManager.GenerateCodeAndGraphDocumentationAsync(content, Path.GetFileName(file));
                 }
             }
             else
             {
-                Console.WriteLine($"Processing file: {path}");
+                output.WriteLine($"Processing file: {path}");
                 content = File.ReadAllText(path);
                 await GraphStoreManager.GenerateCodeAndGraphDocumentationAsync(content, path);
             }
@@ -118,12 +128,12 @@ public static class Engine
             //GraphStoreManager.PrintClustersAndEntities();
 
             stopwatch.Stop();
-            Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
+            output.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
             ctx.Succeeded();
         }
         finally
         {
-            Console.ResetColor();
+            Program.ui.ResetColor();
         }
     });
 
@@ -153,51 +163,7 @@ public static class Engine
     });
 */
 
-    public static string BuildCommandTreeArt(IEnumerable<Command> commands, string indent = "", bool isLast = true, bool showText = true)
-    {
-        var sb = new StringBuilder();
-        var commandList = commands.ToList();
-
-        for (int i = 0; i < commandList.Count; i++)
-        {
-            var command = commandList[i];
-            bool isLastCommand = i == commandList.Count - 1;
-            if (showText)
-            {
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write($"{indent}{(isLast ? "└── " : "├── ")}");
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write(command.Name);
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write(" - ");
-            }
-
-            var line = $"{indent}{(isLast ? "└── " : "├── ")}{command.Name} - ";
-            var description = command.Description() ?? string.Empty;
-            var maxWidth = Console.WindowWidth - line.Length - 4; // 4 for ellipses
-            if (description.Length > maxWidth)
-            {
-                description = description.Substring(0, maxWidth) + "...";
-            }
-            if (showText)
-            {
-                Console.WriteLine(description);
-                Console.ResetColor();
-            }
-
-            sb.Append(line);
-            sb.AppendLine(description);
-            if (command.SubCommands.Any())
-            {
-                var childIndent = indent + (isLastCommand ? "    " : "│   ");
-                sb.Append(BuildCommandTreeArt(command.SubCommands, childIndent, isLastCommand, showText));
-            }
-        }
-
-        return sb.ToString();
-    }
-
-    public static async Task AddContentItemsToVectorStore(IEnumerable<(string Name, string Content)> items) => await Log.MethodAsync(async ctx =>
+/*    public static async Task GetDocumentation() => await Log.MethodAsync(async ctx =>
     {
         try
         {
@@ -206,18 +172,11 @@ public static class Engine
             var countItems = 0;
             var knownFiles = new StringBuilder();
 
-            foreach (var (name, content) in items)
-            {
-                knownFiles.AppendLine(name);
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write($"Adding file '{name}' to RAG store... ");
-                await ContextManager.AddContent(content, name);
-                Console.ResetColor();
-                Console.WriteLine("Done.");
-                countItems++;
-            }
+            Console.WriteLine("Started processing files for RAG store...");
 
-            await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
+            await ContextManager.GenerateDocumentationFromGraphContent();
+
+            //await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
 
             stopwatch.Stop();
             Console.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
@@ -228,16 +187,110 @@ public static class Engine
             Console.ResetColor();
         }
     });
+*/
 
-    public static async Task AddDirectoryToVectorStore(string path) => await AddContentItemsToVectorStore(ReadFilesFromDirectory(path));
+    public static string BuildCommandTreeArt(IEnumerable<Command> commands, string indent = "", bool isLast = true, bool showText = true, IRealtimeWriter? output = null)
+
+    {
+        if (showText)
+        {
+            output = output ?? Program.ui.BeginRealtime("Building command tree...");
+        }
+
+        var sb = new StringBuilder();
+        var commandList = commands.ToList();
+
+        for (int i = 0; i < commandList.Count; i++)
+        {
+            var command = commandList[i];
+            bool isLastCommand = i == commandList.Count - 1;
+            if (showText)
+            {
+                Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+                output!.Write($"{indent}{(isLast ? "└── " : "├── ")}");
+                Program.ui.ForegroundColor = ConsoleColor.Green;
+                output!.Write(command.Name);
+                Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+                output!.Write(" - ");
+            }
+
+            var line = $"{indent}{(isLast ? "└── " : "├── ")}{command.Name} - ";
+            var description = command.Description() ?? string.Empty;
+            var maxWidth = Program.ui.Width - line.Length - 4; // 4 for ellipses
+            if (description.Length > maxWidth)
+            {
+                description = description.Substring(0, maxWidth) + "...";
+            }
+            if (showText)
+            {
+                output!.WriteLine(description);
+                Program.ui.ResetColor();
+            }
+
+            sb.Append(line);
+            sb.AppendLine(description);
+            if (command.SubCommands.Any())
+            {
+                var childIndent = indent + (isLastCommand ? "    " : "│   ");
+                sb.Append(BuildCommandTreeArt(command.SubCommands, childIndent, isLastCommand, showText, output));
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    public static async Task AddContentItemsToVectorStore(IEnumerable<(string Name, string Content)> items, string description) => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+
+        var list = items?.ToList() ?? new();
+        using var cts = new CancellationTokenSource();
+
+        var (results, failures, canceled) =
+            await AsyncProgress.For("Adding content to RAG")
+                .WithDescription(description)
+                .WithCancellation(cts)
+                .Run<(string Name, string Content), bool>(
+                    items: () => list,
+                    nameOf: x => x.Name,
+                    processAsync: async (tuple, pi, ct) =>
+                    {
+                        await ContextManager.AddContent(
+                            tuple.Content, tuple.Name, ct,
+                            setTotalSteps: total => pi.SetTotal(total),
+                            advance: (delta, note) => pi.Advance(delta, note)
+                        );
+                        return true; // returning a result value for the caller
+                    });
+
+        // optional: persist "known files" context if not canceled
+        if (!canceled && list.Count > 0)
+        {
+            await ContextManager.AddContent("Known files:\n" + string.Join("\n", list.Select(x => x.Name).OrderBy(x => x)), "known_files");
+        }
+
+        // If you want an extra assistant message beyond the artifact:
+        if (failures.Count > 0)
+        {
+            Program.ui.RenderChatMessage(new ChatMessage {
+                Role = Roles.Assistant,
+                Content = $"Finished with {failures.Count} failures."
+            });
+        }
+        ctx.Succeeded(0 == failures.Count);
+    });
+
+    public static async Task AddDirectoryToVectorStore(string path) => await AddContentItemsToVectorStore(ReadFilesFromDirectory(path), path);
 
     private static IEnumerable<(string Name, string Content)> ReadFilesFromDirectory(string path)
     {
         if (!Directory.Exists(path))
             yield break;
-
+        RefreshSupportedFileTypesFromUserManaged();
+        var rftItems = new List<RagFileType>();
+        try { rftItems = Program.userManagedData.GetItems<RagFileType>(); } catch { }
         var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
-            .Where(f => SupportedFileTypes.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase));
+            .Where(f => ShouldIncludeFile(f, rftItems));
 
         foreach (var file in files)
         {
@@ -245,18 +298,20 @@ public static class Engine
         }
     }
 
-    public static async Task AddZipFileToVectorStore(string zipPath) => await AddContentItemsToVectorStore(ReadFilesFromZip(zipPath));
+    public static async Task AddZipFileToVectorStore(string zipPath) => await AddContentItemsToVectorStore(ReadFilesFromZip(zipPath), zipPath);
 
     private static IEnumerable<(string Name, string Content)> ReadFilesFromZip(string zipPath)
     {
         if (!File.Exists(zipPath))
             yield break;
-
+        RefreshSupportedFileTypesFromUserManaged();
+        var rftItems = new List<RagFileType>();
+        try { rftItems = Program.userManagedData.GetItems<RagFileType>(); } catch { }
         using var archive = ZipFile.OpenRead(zipPath);
         foreach (var entry in archive.Entries)
         {
             var ext = Path.GetExtension(entry.FullName);
-            if (string.IsNullOrWhiteSpace(ext) || !SupportedFileTypes.Contains(ext, StringComparer.OrdinalIgnoreCase))
+            if (!ShouldIncludePath(ext, entry.FullName, rftItems))
                 continue;
 
             using var stream = entry.Open();
@@ -265,7 +320,35 @@ public static class Engine
         }
     }
 
-    public static async Task AddFileToVectorStore(string path) => await AddContentItemsToVectorStore(new[] { (path, File.ReadAllText(path)) });
+    public static async Task AddFileToVectorStore(string path) => await AddContentItemsToVectorStore(new[] { (path, File.ReadAllText(path)) }, path);
+
+    private static bool ShouldIncludeFile(string filePath, List<RagFileType> items)
+    {
+        var ext = Path.GetExtension(filePath);
+        return ShouldIncludePath(ext, filePath, items);
+    }
+
+    private static bool ShouldIncludePath(string ext, string relativePath, List<RagFileType> items)
+    {
+        if (string.IsNullOrWhiteSpace(ext)) return false;
+        var match = items.FirstOrDefault(i => i.Enabled && i.Extension.Equals(ext, StringComparison.OrdinalIgnoreCase));
+        if (match == null) return false;
+        // If include patterns exist, path must match one
+        if (match.Include.Any())
+        {
+            bool included = match.Include.Any(p => SafeRegexIsMatch(relativePath, p));
+            if (!included) return false;
+        }
+        // Exclude patterns override
+        if (match.Exclude.Any(p => SafeRegexIsMatch(relativePath, p))) return false;
+        return true;
+    }
+
+    private static bool SafeRegexIsMatch(string input, string pattern)
+    {
+        if (string.IsNullOrWhiteSpace(pattern)) return false;
+        try { return Regex.IsMatch(input, pattern); } catch { return false; }
+    }
 
     public static void SetTextChunker(string chunkerName) => Log.Method(ctx =>
     {
@@ -324,7 +407,6 @@ public static class Engine
         ctx.OnlyEmitOnFailure();
         if (Provider == null)
         {
-            Console.WriteLine("Provider is not set.");
             ctx.Failed("Provider is not set.", Error.ProviderNotConfigured);
             return null;
         }
@@ -332,12 +414,11 @@ public static class Engine
         var models = await Provider.GetAvailableModelsAsync();
         if (models == null || models.Count == 0)
         {
-            Console.WriteLine("No models available.", Error.ModelNotFound);
             ctx.Failed("No models available.", Error.ModelNotFound);
             return null;
         }
 
-        var selected = User.RenderMenu("Available models:", models, models.IndexOf(Program.config.Model));
+        var selected = Program.ui.RenderMenu("Available models:", models, models.IndexOf(Program.config.Model));
         ctx.Append(Log.Data.Model, selected ?? "<nothing>");
         ctx.Succeeded();
         return selected;

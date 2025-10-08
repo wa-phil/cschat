@@ -38,6 +38,9 @@ Determine: Is the goal now complete? Respond ONLY with JSON matching the PlanPro
 
 {(references.Count > 0 ? $"\nAdditional context:\n{string.Join("\n", references)}" : "")}
 """);
+        working.IncludeCitationRule = false;
+        working.MaxContextEntries = Program.config.RagSettings.TopKForParsing;
+
         // marshal Context context into working Context
         context.GetContext().ForEach(c => working.AddContext(c.Reference, c.Chunk));
         working.AddUserMessage("Have we achieved the goal?");
@@ -80,6 +83,8 @@ Generate the appropriate input for this tool in JSON format.
 The JSON should match the structure of the {tool.InputType.Name} class.
 Respond with ONLY the JSON object that matches {tool.InputType.Name}.
 """);
+        Context.IncludeCitationRule = false;
+        Context.MaxContextEntries = Program.config.RagSettings.TopKForParsing;
 
         Context.AddUserMessage("Create the inputs JSON for this tool based on the goal and context.");
 
@@ -99,8 +104,8 @@ Respond with ONLY the JSON object that matches {tool.InputType.Name}.
 You are a tool selection agent.
 Your task is to determine which tool to use based on the following:
 1. The user's goal: {goal}
-{(results.Count >0 ? 
-    $"2. Recent steps taken: {string.Join("\n", results.TakeLast(5))}" : 
+{(results.Count > 0 ?
+    $"2. Recent steps taken: {string.Join("\n", results.TakeLast(5))}" :
     "2. No steps taken yet."
 )}
 3. The available tools:
@@ -112,6 +117,9 @@ Your task is to determine which tool to use based on the following:
 - Your output will be parsed as JSON. Do NOT include markdown, commentary, or explanations.
 - Do NOT include any additional text or explanations.
 """);
+        Context.IncludeCitationRule = false;
+        Context.MaxContextEntries = Program.config.RagSettings.TopKForParsing;
+
         // marshal Context context into working Context
         history.GetContext().ForEach(c => Context.AddContext(c.Reference, c.Chunk));
         Context.AddToolMessage($"Progress so far:\n{string.Join("\n", results)}");
@@ -140,7 +148,8 @@ Your task is to decide if a tool should be used to answer the user's question in
 If the user's query depends on realtime or runtime data (see tool_names for list of available tools) assume action is required, and that you will be able to complete it.
 You do not need to summarize the user's question, or comment on it, or explain your answer, just decide if a tool is needed to answer the question.
 """);
-
+        working.IncludeCitationRule = false;
+        working.MaxContextEntries = Program.config.RagSettings.TopKForParsing;
         context.GetContext().ForEach(c => working.AddContext(c.Reference, c.Chunk));
         working.AddUserMessage("---ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE---");
         working.AddUserMessage(input);
@@ -178,17 +187,18 @@ You do not need to summarize the user's question, or comment on it, or explain y
             return (finalResult, context); // context is unchanged
         }
 
+        using var output = Program.ui.BeginRealtime("Planning...");
         var input = context.Messages().LastOrDefault(m => m.Role == Roles.User)?.Content ?? "";
         int stepsTaken = 0, maxAllowedSteps = Program.config.MaxSteps;
-        Console.ForegroundColor = ConsoleColor.DarkYellow;
-        Console.WriteLine($"working on: {objective.Goal}");
-        Console.ResetColor();
+        Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
+        output.WriteLine($"working on: {objective.Goal}");
+        Program.ui.ResetColor();
 
         ctx.Append(Log.Data.Message, "Taking steps to achieve the goal.");
         // Conversation implies action on the part of the planner.
         int duplicatesAllowed = 3;
         bool planningFailed = false;
-        await foreach (var step in Steps(objective.Goal, context, input, onPlanningFailure: reason =>
+        await foreach (var step in Steps(output, objective.Goal, context, input, onPlanningFailure: reason =>
         {
             planningFailed = true;
             ctx.Append(Log.Data.Reason, reason);
@@ -205,9 +215,9 @@ You do not need to summarize the user's question, or comment on it, or explain y
             var key = $"{step.ToolName}:{step.ToolInput.ToJson() ?? ""}";
             if (actionsTaken.Contains(key))
             {
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine($"Skipping duplicate step: {step.ToolName ?? "<unknown>"} with already attempted input.");
-                Console.ResetColor();
+                Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+                output.WriteLine($"Skipping duplicate step: {step.ToolName ?? "<unknown>"} with already attempted input.");
+                Program.ui.ResetColor();
 
                 if (0 == --duplicatesAllowed)
                 {
@@ -224,9 +234,9 @@ You do not need to summarize the user's question, or comment on it, or explain y
             actionsTaken.Add(key);
 
             ctx.Append(Log.Data.Count, stepsTaken);
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.Write($"Step {stepsTaken}: {step.ToolName}...");
-            Console.ResetColor();
+            Program.ui.ForegroundColor = ConsoleColor.Yellow;
+            output.Write($"Step {stepsTaken}: {step.ToolName}...");
+            Program.ui.ResetColor();
 
             var result = await ToolRegistry.InvokeInternalAsync(step!.ToolName!, step!.ToolInput!, context);
             var status = result.Succeeded ? "✅" : "❌";
@@ -251,9 +261,9 @@ You do not need to summarize the user's question, or comment on it, or explain y
             context.AddToolMessage(stepSummaryForPlanner);
             results.Add(stepSummaryForPlanner);
 
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine($"{status}\n{summary}"); // show what user would see
-            Console.ResetColor();
+            Program.ui.ForegroundColor = ConsoleColor.DarkGray;
+            output.WriteLine($"{status}\n{summary}"); // show what user would see
+            Program.ui.ResetColor();
 
             // check progress towards the goal
             var progress = await GetPlanProgress(context, objective.Goal, input);
@@ -313,12 +323,12 @@ Use the following context to inform your response to the user's statement.
 
     private enum State { failed, success, noFurtherActionRequired };
 
-    public async IAsyncEnumerable<PlanStep> Steps(string goal, Context Context, string userInput, Action<string> onPlanningFailure = null!) 
+    public async IAsyncEnumerable<PlanStep> Steps(IRealtimeWriter output, string goal, Context Context, string userInput, Action<string> onPlanningFailure = null!) 
     {
         while (!done)
         {
             // Get the next step based on the goal and current context
-            string reason = string.Empty;            
+            string reason = string.Empty;
             State state = State.success;
             PlanStep? step = null;
             try
@@ -349,7 +359,7 @@ Use the following context to inform your response to the user's statement.
                     state = State.failed;
                     reason = "ERROR: Planner returned a step with null tool input; check logs for further details.";
                 }
-            } 
+            }
             catch (Exception ex)
             {
                 state = State.failed;
@@ -359,17 +369,17 @@ Use the following context to inform your response to the user's statement.
             if (State.failed == state)
             {
                 onPlanningFailure?.Invoke(reason);
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine(reason);
-                Console.ResetColor();
+                Program.ui.ForegroundColor = ConsoleColor.Red;
+                output.WriteLine(reason);
+                Program.ui.ResetColor();
                 yield break;
             }
 
             if (State.noFurtherActionRequired == state)
             {
-                Console.ForegroundColor = ConsoleColor.DarkYellow;
-                Console.WriteLine("Done.");
-                Console.ResetColor();
+                Program.ui.ForegroundColor = ConsoleColor.DarkYellow;
+                output.WriteLine("Done.");
+                Program.ui.ResetColor();
                 yield break;
             }
 

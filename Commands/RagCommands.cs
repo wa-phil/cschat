@@ -2,6 +2,12 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.IO;
+
+class ExportFilterModel { public string Filter { get; set; } = string.Empty; }
+class RagSearchModel { public string Query { get; set; } = string.Empty; }
+class GraphWalkModel { public string Query { get; set; } = string.Empty; public int Hops { get; set; } = 2; }
+class CommunityInfoModel { public bool All { get; set; } = true; public int CommunityId { get; set; } = 0; }
 
 public partial class CommandManager
 {
@@ -17,18 +23,18 @@ public partial class CommandManager
                     Name = "add file", Description = () => "Add a single file's contents to the RAG store",
                     Action = async () =>
                     {
-                        Console.Write("Enter file path: ");
-                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: false);
+                        Program.ui.Write("Enter file path: ");
+                        var input = await Program.ui.ReadPathWithAutocompleteAsync(isDirectory: false);
                         if (!string.IsNullOrWhiteSpace(input))
                         {
                             if (!File.Exists(input))
                             {
-                                Console.WriteLine($"File '{input}' does not exist.");
+                                Program.ui.WriteLine($"File '{input}' does not exist.");
                                 return Command.Result.Failed;
                             }
                             
                             await Engine.AddFileToVectorStore(input);
-                            Console.WriteLine($"Added file '{input}' to RAG.");
+                            Program.ui.WriteLine($"Added file '{input}' to RAG.");
                         }
                         return Command.Result.Success;
                     }
@@ -38,12 +44,12 @@ public partial class CommandManager
                     Name = "Graph Add File", Description = () => "Add a file to the Graph RAG store",
                     Action = async () =>
                     {
-                        Console.Write("Enter graph file path: ");
-                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: false);
+                        Program.ui.Write("Enter graph file path: ");
+                        var input = await Program.ui.ReadPathWithAutocompleteAsync(isDirectory: false);
                         if (!string.IsNullOrWhiteSpace(input))
                         {
                             await Engine.AddFileToGraphStore(input);
-                            Console.WriteLine($"Added file '{input}' to RAG.");
+                            Program.ui.WriteLine($"Added file '{input}' to RAG.");
                         }
                         return Command.Result.Success;
                     }
@@ -53,12 +59,12 @@ public partial class CommandManager
                     Name = "add directory", Description = () => "Add a directory to the RAG store",
                     Action = async () =>
                     {
-                        Console.Write("Enter directory path: ");
-                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: true);
+                        Program.ui.Write("Enter directory path: ");
+                        var input = await Program.ui.ReadPathWithAutocompleteAsync(isDirectory: true);
                         if (!string.IsNullOrWhiteSpace(input))
                         {
                             await Engine.AddDirectoryToVectorStore(input);
-                            Console.WriteLine($"Added directory '{input}' to RAG.");
+                            Program.ui.WriteLine($"Added directory '{input}' to RAG.");
                         }
                         return Command.Result.Success;
                     }
@@ -68,12 +74,12 @@ public partial class CommandManager
                     Name = "Graph Add Directory", Description = () => "Add a directory to the Graph RAG store",
                     Action = async () =>
                     {
-                        Console.Write("Enter directory path: ");
-                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: true);
+                        Program.ui.Write("Enter directory path: ");
+                        var input = await Program.ui.ReadPathWithAutocompleteAsync(isDirectory: true);
                         if (!string.IsNullOrWhiteSpace(input))
                         {
                             await Engine.AddDirectoryToGraphStore(input);
-                            Console.WriteLine($"Added directory '{input}' to RAG.");
+                            Program.ui.WriteLine($"Added directory '{input}' to RAG.");
                         }
                         return Command.Result.Success;
                     }
@@ -83,12 +89,12 @@ public partial class CommandManager
                     Name = "Graph Generate Documentation for Code Directory", Description = () => "Generate documentation for a code directory",
                     Action = async () =>
                     {
-                        Console.Write("Enter code directory path: ");
-                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: true);
+                        Program.ui.Write("Enter code directory path: ");
+                        var input = await Program.ui.ReadPathWithAutocompleteAsync(isDirectory: true);
                         if (!string.IsNullOrWhiteSpace(input))
                         {
                             await Engine.AddDirectoryToGraphStore(input);
-                            Console.WriteLine($"Added directory '{input}' to RAG.");
+                            Program.ui.WriteLine($"Added directory '{input}' to RAG.");
                             await Engine.GenerateCodeAndGraphDocumentationAsync(input);
                         }
                         return Command.Result.Success;
@@ -109,12 +115,12 @@ public partial class CommandManager
                     Name = "add zip contents", Description = () => "Add contents of a zip file to the RAG store",
                     Action = async () =>
                     {
-                        Console.Write("Enter zip file path: ");
-                        var input = await User.ReadPathWithAutocompleteAsync(isDirectory: false);
+                        Program.ui.Write("Enter zip file path: ");
+                        var input = await Program.ui.ReadPathWithAutocompleteAsync(isDirectory: false);
                         if (!string.IsNullOrWhiteSpace(input))
                         {
                             await Engine.AddZipFileToVectorStore(input);
-                            Console.WriteLine($"Added contents of zip file '{input}' to RAG.");
+                            Program.ui.WriteLine($"Added contents of zip file '{input}' to RAG.");
                         }
                         return Command.Result.Success;
                     }
@@ -126,30 +132,30 @@ public partial class CommandManager
                     {
                         if (Engine.VectorStore.IsEmpty)
                         {
-                            Console.WriteLine("RAG store is empty. Please add files or directories first.");
+                            Program.ui.WriteLine("RAG store is empty. Please add files or directories first.");
                             return Task.FromResult(Command.Result.Success);
                         }
 
-                        Console.WriteLine("Select an entry to display:");
+                        Program.ui.WriteLine("Select an entry to display:");
                         var entries = Engine.VectorStore.GetEntries();
                         var choices = entries.Select((entry, index) => $"{index}: {entry.Reference}").ToList();
 
-                        var selected = User.RenderMenu($"Select one of {Engine.VectorStore.Count} RAG Store Entries", choices);
+                        var selected = Program.ui.RenderMenu($"Select one of {Engine.VectorStore.Count} RAG Store Entries", choices);
                         if (selected == null)
                         {
-                            Console.WriteLine("No entry selected.");
+                            Program.ui.WriteLine("No entry selected.");
                             return Task.FromResult(Command.Result.Cancelled);
                         }
 
                         int selectedIndex = int.Parse(selected.Split(':')[0]);
                         if (selectedIndex < 0 || selectedIndex >= entries.Count)
                         {
-                            Console.WriteLine("Invalid selection.");
+                            Program.ui.WriteLine("Invalid selection.");
                             return Task.FromResult(Command.Result.Failed);
                         }
 
                         var entry = entries[selectedIndex];
-                        Console.WriteLine($"--- start {entry.Reference} ---\n{entry.Content}\n--- end {entry.Reference} ---");
+                        Program.ui.WriteLine($"--- start {entry.Reference} ---\n{entry.Content}\n--- end {entry.Reference} ---");
 
                         return Task.FromResult(Command.Result.Success);
                     }
@@ -157,21 +163,15 @@ public partial class CommandManager
                 new Command
                 {
                     Name = "Graph Walk", Description = () => "do a n-hop node walk on the Knowledge Graph",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Console.Write("Enter search query: ");
-                        var query = Console.ReadLine();
-                        
-                        Console.WriteLine("Enter the number of hops to walk (default is 2): ");
-                        var hopsInput = Console.ReadLine();
-
-                        int hops = 2;
-                        if (int.TryParse(hopsInput, out int parsedHops))
-                        {
-                            hops = parsedHops;
-                        }
-                        GraphStoreManager.Graph.PrintEntitiesWithinHops(query ?? string.Empty, hops);
-                        return Task.FromResult(Command.Result.Success);
+                        var form = UiForm.Create("Graph Walk", new GraphWalkModel());
+                        form.AddString<GraphWalkModel>("Query", m => m.Query, (m,v)=> m.Query = v).WithHelp("Node search text.");
+                        form.AddInt<GraphWalkModel>("Hops", m => m.Hops, (m,v)=> m.Hops = v).IntBounds(1,10).WithHelp("Number of hops (1-10).");
+                        if (!await Program.ui.ShowFormAsync(form)) { return Command.Result.Cancelled; }
+                        var model = (GraphWalkModel)form.Model!;
+                        GraphStoreManager.Graph.PrintEntitiesWithinHops(model.Query ?? string.Empty, model.Hops);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
@@ -186,32 +186,25 @@ public partial class CommandManager
                 new Command
                 {
                     Name = "Graph Community Info", Description = () => "Show detailed information about graph communities",
-                    Action = () =>
+                    Action = async () =>
                     {
                         if (GraphStoreManager.Graph.IsEmpty)
                         {
-                            Console.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
-                            return Task.FromResult(Command.Result.Failed);
+                            Program.ui.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
+                            return Command.Result.Failed;
                         }
-
-                        Console.Write("Enter community ID (leave blank for all communities): ");
-                        var input = Console.ReadLine();
-                        
-                        if (string.IsNullOrWhiteSpace(input))
+                        var form = UiForm.Create("Community Info", new CommunityInfoModel());
+                        form.AddBool<CommunityInfoModel>("All", m => m.All, (m,v)=> m.All = v).WithHelp("Show all communities?");
+                        form.AddInt<CommunityInfoModel>("CommunityId", m => m.CommunityId, (m,v)=> m.CommunityId = v).MakeOptional();
+                        if (!await Program.ui.ShowFormAsync(form)) { return Command.Result.Cancelled; }
+                        var model = (CommunityInfoModel)form.Model!;
+                        if (model.All)
                         {
                             GraphStoreManager.Graph.PrintDetailedCommunityInfo();
+                        } else {
+                            GraphStoreManager.Graph.PrintDetailedCommunityInfo(model.CommunityId);
                         }
-                        else if (int.TryParse(input, out int communityId))
-                        {
-                            GraphStoreManager.Graph.PrintDetailedCommunityInfo(communityId);
-                        }
-                        else
-                        {
-                            Console.WriteLine("Invalid community ID. Please enter a number or leave blank for all communities.");
-                            return Task.FromResult(Command.Result.Failed);
-                        }
-                        
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
@@ -221,7 +214,7 @@ public partial class CommandManager
                     {
                         if (GraphStoreManager.Graph.IsEmpty)
                         {
-                            Console.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
+                            Program.ui.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
                             return Task.FromResult(Command.Result.Failed);
                         }
                         
@@ -236,7 +229,7 @@ public partial class CommandManager
                     {
                         if (GraphStoreManager.Graph.IsEmpty)
                         {
-                            Console.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
+                            Program.ui.WriteLine("Graph store is empty. Please add graph data first using 'rag fileForGraph'.");
                             return Task.FromResult(Command.Result.Failed);
                         }
 
@@ -249,26 +242,28 @@ public partial class CommandManager
                     Description = () => "Filter entries by reference and export a de-duped summary",
                     Action = () =>
                     {
-                        Console.Write("Enter filter (substring or prefix of reference): ");
-                        var filter = User.ReadLineWithHistory();
-                        if (string.IsNullOrEmpty(filter))
-                        {
-                            Console.WriteLine("No filter provided. Export cancelled.");
-                            return Task.FromResult(Command.Result.Cancelled);
-                        }
+                        var form = UiForm.Create("Export summary", new ExportFilterModel { Filter = string.Empty });
+                        form.AddString<ExportFilterModel>("Filter", m => m.Filter, (m,v)=> m.Filter = v)
+                            .WithHelp("Substring or prefix of reference; required.");
+                        return Program.ui.ShowFormAsync(form).ContinueWith(t => {
+                            if (!t.Result) { return Command.Result.Cancelled; }
+                            var filter = ((ExportFilterModel)form.Model!).Filter;
+                            if (string.IsNullOrWhiteSpace(filter)) { return Command.Result.Cancelled; }
 
-                        var entries = Engine.VectorStore.GetEntries((refStr, content) =>
-                            refStr.Source.Contains(filter, StringComparison.OrdinalIgnoreCase));
+                            var entries = Engine.VectorStore.GetEntries((refStr, content) =>
+                                refStr.Source.Contains(filter, StringComparison.OrdinalIgnoreCase));
 
-                        var merged = ContextManager.Flatten(entries);
+                            var merged = ContextManager.Flatten(entries);
 
-                        var mdPath = $"summary_{filter.Replace(':','_').Replace('\\','_').Replace('/','_').Replace('.','_')}.md";
-                        File.WriteAllText(
-                            Path.Combine(Directory.GetCurrentDirectory(), mdPath),
-                            string.Join("\n\n", merged.Select(e => $"--- start {e.Reference} ---\n{e.MergedContent}\n--- end {e.Reference} ---")));
+                            var safe = filter.Replace(':','_').Replace('/', '_').Replace('.', '_').Replace('\\', '_');
+                            var mdPath = $"summary_{safe}.md";
+                            File.WriteAllText(
+                                Path.Combine(Directory.GetCurrentDirectory(), mdPath),
+                                string.Join("\n\n", merged.Select(e => $"--- start {e.Reference} ---\n{e.MergedContent}\n--- end {e.Reference} ---")));
 
-                        Console.WriteLine($"Wrote de-duped summary to: {mdPath}");
-                        return Task.FromResult(Command.Result.Success);
+                            Program.ui.WriteLine($"Wrote de-duped summary to: {mdPath}");
+                            return Command.Result.Success;
+                        });
                     }
                 },
                 new Command
@@ -278,24 +273,27 @@ public partial class CommandManager
                     {
                         if (Engine.VectorStore.IsEmpty)
                         {
-                            Console.WriteLine("RAG store is empty. Please add files or directories first.");
+                            Program.ui.WriteLine("RAG store is empty. Please add files or directories first.");
                             return Command.Result.Failed;
                         }
 
-                        Console.Write("Enter search query: ");
-                        var query = User.ReadLineWithHistory();
-                        if (!string.IsNullOrWhiteSpace(query))
+                        var qform = UiForm.Create("RAG search", new RagSearchModel { Query = string.Empty });
+                        qform.AddString<RagSearchModel>("Query", m => m.Query, (m,v)=> m.Query = v)
+                             .WithHelp("Enter search text; required.");
+                        if (await Program.ui.ShowFormAsync(qform))
                         {
+                            var query = ((RagSearchModel)qform.Model!).Query;
+                            if (string.IsNullOrWhiteSpace(query)) { return Command.Result.Cancelled; }
                             var embeddingProvider = Engine.Provider as IEmbeddingProvider;
                             if (embeddingProvider == null)
                             {
-                                Console.WriteLine("Current provider does not support embeddings.");
+                                Program.ui.WriteLine("Current provider does not support embeddings.");
                                 return Command.Result.Failed;
                             }
                             float[] queryEmbedding = await embeddingProvider.GetEmbeddingAsync(query);
                             if (queryEmbedding.Length == 0)
                             {
-                                Console.WriteLine("Failed to get embedding for test query.");
+                                Program.ui.WriteLine("Failed to get embedding for test query.");
                                 return Command.Result.Failed;
                             }
 
@@ -303,24 +301,24 @@ public partial class CommandManager
                             
                             if (results.Any())
                             {
-                                Console.WriteLine("Search Results:");
+                                Program.ui.WriteLine("Search Results:");
                                 foreach (var result in results)
                                 {
-                                    Console.WriteLine($"[{result.Score:F4}] {result.Reference}");
+                                    Program.ui.WriteLine($"[{result.Score:F4}] {result.Reference}");
                                 }
 
                                 var scores = results.Select(x => x.Score).ToList();
                                 float mean = scores.Average();
                                 float stddev = (float)Math.Sqrt(scores.Average(x => Math.Pow(x - mean, 2)));
 
-                                Console.WriteLine($"\nEmbedding dimensions: {queryEmbedding.Length}");
-                                Console.WriteLine($"Total entries: {Engine.VectorStore.Count}");
-                                Console.WriteLine($"Average similarity score: {mean:F4}");
-                                Console.WriteLine($"Standard deviation: {stddev:F4}");
+                                Program.ui.WriteLine($"\nEmbedding dimensions: {queryEmbedding.Length}");
+                                Program.ui.WriteLine($"Total entries: {Engine.VectorStore.Count}");
+                                Program.ui.WriteLine($"Average similarity score: {mean:F4}");
+                                Program.ui.WriteLine($"Standard deviation: {stddev:F4}");
                             }
                             else
                             {
-                                Console.WriteLine("No results found.");
+                                Program.ui.WriteLine("No results found.");
                             }
                         }
                         return Command.Result.Success;
@@ -332,7 +330,7 @@ public partial class CommandManager
                     Action = () =>
                     {
                         Engine.VectorStore.Clear();
-                        Console.WriteLine("RAG store cleared.");
+                        Program.ui.WriteLine("RAG store cleared.");
                         return Task.FromResult(Command.Result.Success);
                     }
                 }

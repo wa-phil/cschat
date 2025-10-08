@@ -8,7 +8,6 @@ using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text;
 
-
 static class Program
 {
     public static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
@@ -20,6 +19,8 @@ static class Program
     public static CommandManager commandManager = null!;
     public static ServiceProvider serviceProvider = null!;
     public static SubsystemManager SubsystemManager = null!;
+    public static UserManagedData userManagedData = null!;
+    public static IUi ui = new Terminal();
 
     static Dictionary<string, Type> DictionaryOfTypesToNamesForInterface<T>(ServiceCollection serviceCollection, IEnumerable<Type> types)
         where T : class
@@ -38,7 +39,19 @@ static class Program
         {
             if (typeof(ISubsystem).IsAssignableFrom(item))
             {
-                serviceCollection.AddSingleton(item);
+                // Some subsystems (e.g. McpManager) use private constructors and expose a public static Instance property.
+                // Try to register the existing Instance if present; otherwise register a factory that can create non-public ctors.
+                var instanceProp = item.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                if (instanceProp != null && item.IsAssignableFrom(instanceProp.PropertyType))
+                {
+                    // Register the singleton using the static Instance property
+                    serviceCollection.AddSingleton(item, sp => instanceProp.GetValue(null)!);
+                }
+                else
+                {
+                    // Fallback: register a singleton factory that can create non-public constructors
+                    serviceCollection.AddSingleton(item, sp => Activator.CreateInstance(item, nonPublic: true)!);
+                }
             }
             else
             {
@@ -65,8 +78,9 @@ static class Program
         Chunkers = DictionaryOfTypesToNamesForInterface<ITextChunker>(serviceCollection, types);
         Tools = DictionaryOfTypesToNamesForInterface<ITool>(serviceCollection, types);
         SubsystemManager.Register(DictionaryOfTypesToNamesForInterface<ISubsystem>(serviceCollection, types));
-
+        userManagedData = new UserManagedData();
         serviceProvider = serviceCollection.BuildServiceProvider(); // Build the service provider
+        Environment.CurrentDirectory = Program.config.DefaultDirectory;
     }
 
     public static async Task InitProgramAsync()
@@ -74,17 +88,66 @@ static class Program
         Context = new Context(config.SystemPrompt);
         ToolRegistry.Initialize();
 
-        // Initialize MCP manager and load servers
-        await McpManager.Instance.LoadAllServersAsync();
-
-        // Create command manager after all tools are registered
-        commandManager = CommandManager.CreateDefaultCommands();
-
+        // Initial legacy list (will be replaced by RagFileType user-managed entries after migration)
         Engine.SupportedFileTypes = config.RagSettings.SupportedFileTypes;
         Engine.SetProvider(config.Provider);
         Engine.SetTextChunker(config.RagSettings.ChunkingStrategy);
         Engine.VectorStore.Clear();
+
+        // Create command manager before connecting subsystems so subsystems can register/unregister commands (ADO needs this)
+        commandManager = CommandManager.CreateDefaultCommands();
+
+        // Connect user-managed data first so annotated types are discovered
+        // before subsystems query or load items from it.
+        userManagedData.Connect();
+
+        // Migration: if no RagFileType entries yet, populate from legacy config
+        try
+        {
+            var existing = userManagedData.GetItems<RagFileType>();
+            if (existing.Count == 0 && config.RagSettings.SupportedFileTypes.Count > 0)
+            {
+                foreach (var ext in config.RagSettings.SupportedFileTypes.Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    var rft = new RagFileType { Extension = ext, Enabled = true };
+                    if (config.RagSettings.FileFilters.TryGetValue(ext, out var rules))
+                    {
+                        rft.Include = rules.Include.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+                        rft.Exclude = rules.Exclude.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+                    }
+                    userManagedData.AddItem(rft);
+                }
+                // Persist migration by clearing legacy filters (optional: keep for backward compatibility)
+                Config.Save(config, ConfigFilePath);
+            }
+        }
+        catch { /* ignore migration issues */ }
+
+        // Ensure Engine has up-to-date list
+        Engine.RefreshSupportedFileTypesFromUserManaged();
         SubsystemManager.Connect();
+
+        // initialize chat manager to monitor thread deletions, load last active thread or create a new one
+        Directory.CreateDirectory(Program.config.ChatThreadSettings.RootDirectory);
+        ChatManager.Initialize(userManagedData);
+        var activeName = config.ChatThreadSettings.ActiveThreadName;
+        var threads = userManagedData.GetItems<ChatThread>().ToList();
+        ChatThread? active = null;
+
+        if (!string.IsNullOrWhiteSpace(activeName))
+        {
+            active = threads.FirstOrDefault(t => t.Name.Equals(activeName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (active == null)
+        {
+            active = new ChatThread { Name = Program.config.ChatThreadSettings.DefaultNewThreadName };
+            userManagedData.AddItem(active);
+        }
+
+        ChatManager.LoadThread(active);
+        Program.config.ChatThreadSettings.ActiveThreadName = active.Name;
+        Config.Save(Program.config, Program.ConfigFilePath);
 
         // Add all the tools to the context
         var toolNames = $"You can use the following tools to help the user:\n{ToolRegistry.GetRegisteredTools()
@@ -97,7 +160,10 @@ static class Program
         }
         else
         {
-            Console.WriteLine("No tools registered. Please check your configuration.");
+            Log.Method(ctx =>
+            {
+                ctx.Warn("No tools registered. Please check your configuration.");
+            });
         }
 
         foreach (var tool in ToolRegistry.GetRegisteredTools())
@@ -107,9 +173,11 @@ static class Program
         }
     }
 
+    [STAThread]
     static async Task Main(string[] args)
     {
         Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
+
         Startup();
 
         bool showHelp = false;
@@ -119,6 +187,7 @@ static class Program
             { "s|system=", "System prompt", v => { if (v != null) config.SystemPrompt = v; } },
             { "p|provider=", "Provider name (default: ollama)", v => { if (v != null) config.Provider = v; } },
             { "e|embedding_model=", "Embedding model for RAG (default: nomic-embed-text)", v => { if (v != null) config.RagSettings.EmbeddingModel = v; } },
+            { "u|ui=", "UI mode: terminal|gui", v => { if (!string.IsNullOrWhiteSpace(v)) config.UiMode = Enum.TryParse<UiMode>(v, true, out var mode) ? mode : UiMode.Terminal; } },
             { "?|help", "Show help", v => showHelp = v != null }
         };
         options.Parse(args);
@@ -128,40 +197,69 @@ static class Program
             return;
         }
 
+        // choose UI
+        switch (config.UiMode)
+        {
+            case UiMode.Terminal:
+                Console.WriteLine("Using terminal UI mode.");
+                ui = new Terminal();
+                break;
+            case UiMode.Gui:
+                ui = new PhotinoUi();
+                break;
+            default:
+                ui = new Terminal();
+                break;
+        }
+
         try
         {
-            await InitProgramAsync();
-
-            if (string.IsNullOrWhiteSpace(config.Model))
+            // ----- Run the application loop via the UI -----
+            await ui.RunAsync(async () =>
             {
-                var selected = await Engine.SelectModelAsync();
-                if (selected == null) return;
-                config.Model = selected;
-            }
+                await InitProgramAsync();
 
-            Config.Save(config, ConfigFilePath);
+                if (string.IsNullOrWhiteSpace(config.Model))
+                {
+                    var selected = await Engine.SelectModelAsync();
+                    if (selected == null) return;
+                    config.Model = selected;
+                }
 
-            Console.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-            Console.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
-            Console.WriteLine();
+                Config.Save(config, ConfigFilePath);
 
-            while (true)
-            {
-                Console.Write("> ");
-                var userInput = await User.ReadInputWithFeaturesAsync(commandManager);
-                if (string.IsNullOrWhiteSpace(userInput)) continue;
+                {
+                    using var output = ui.BeginRealtime("Chat Session");
+                    output.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
+                    output.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
+                    output.WriteLine();
+                }
 
-                // Add and render user message with proper formatting
-                Context.AddUserMessage(userInput);
-                var userMessage = Context.Messages().Last(); // Get the message we just added
-                User.RenderChatMessage(userMessage);
+                // Render existing chat history from the loaded thread
+                ui.RenderChatHistory(Context.Messages());
 
-                var (response, updatedContext) = await Engine.PostChatAsync(Context);
-                var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
-                User.RenderChatMessage(assistantMessage);
-                Context = updatedContext;
-                Context.AddAssistantMessage(response);
-            }
+                while (true)
+                {
+                    if (UiMode.Terminal == config.UiMode) ui.Write("> ");
+                    var userInput = await ui.ReadInputWithFeaturesAsync(commandManager);
+
+                    // IMPORTANT: when the Photino window closes, ReadInput... returns null -> exit loop
+                    if (userInput is null) break;
+
+                    if (string.IsNullOrWhiteSpace(userInput)) continue;
+
+                    // Add and render user message with proper formatting
+                    Context.AddUserMessage(userInput);
+                    var userMessage = Context.Messages().Last(); // Get the message we just added
+                    ui.RenderChatMessage(userMessage);
+
+                    var (response, updatedContext) = await Engine.PostChatAsync(Context);
+                    var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
+                    ui.RenderChatMessage(assistantMessage);
+                    Context = updatedContext;
+                    Context.AddAssistantMessage(response);
+                }
+            });
         }
         catch (Exception ex)
         {
@@ -171,8 +269,8 @@ static class Program
             Console.WriteLine($"Log Entries [{entries.Count}]:");
             entries.ToList().ForEach(entry => Console.WriteLine(entry));
             Console.WriteLine("Chat History:");
-            User.RenderChatHistory(Context.Messages());
-            throw; // unhandled exceptions result in a stack trace in the console.
+            ui.RenderChatHistory(Context.Messages());
+            throw; // unhandled exceptions result in a stack trace in the Program.ui.
         }
         finally
         {

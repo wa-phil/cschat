@@ -5,6 +5,8 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
+class ToolInputModel { public string Text { get; set; } = string.Empty; }
+
 public class Command
 {
     public enum Result
@@ -29,15 +31,16 @@ public class Command
     public string Name { get; set; } = string.Empty; // Ensure non-nullable property is initialized
     public Func<string> Description { get; set; } = () => string.Empty; // Ensure non-nullable property is initialized
 
-    private async Task<Result> DefaultAction()
+    private async Task<Result> DefaultAction() => await Log.MethodAsync(async ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         Result result = Result.Cancelled;
 
         while (Result.Cancelled == result)
         {
             // render the menu of subcommands, the text passed in should be a concatenation of the subcommand names with their descriptions,
             // formatted such that the descriptions are aligned with the command names
-            var selected = User.RenderMenu($"{GetFullPath()} commands", SubCommands.Select(c => $"{c.Name} - {c.Description()}").ToList());
+            var selected = Program.ui.RenderMenu($"{GetFullPath()} commands", SubCommands.Select(c => $"{c.Name} - {c.Description()}").ToList());
             if (string.IsNullOrEmpty(selected))
             {
                 return Result.Cancelled;
@@ -48,14 +51,15 @@ public class Command
             var command = SubCommands.FirstOrDefault(c => c.Name.Equals(selected, StringComparison.OrdinalIgnoreCase));
             if (command == null)
             {
-                Console.WriteLine($"Command '{selected}' not found.");
+                ctx.Append(Log.Data.Message, $"Command '{selected}' not found.");
                 return Result.Failed;
             }
             // Execute the command's action
             result = await command.Action.Invoke();
         }
+        ctx.Succeeded(Result.Success == result);
         return result;
-    }
+    });
 
     public Command()
     {
@@ -147,10 +151,11 @@ public partial class CommandManager : Command
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error parsing tool input: {ex.Message}");
-            Console.WriteLine($"Expected type: {tool.InputType.Name}");
-            Console.WriteLine($"Tool usage: {tool.Usage}");
-            
+            using var output = Program.ui.BeginRealtime($"Error parsing tool input...");
+            output.WriteLine($"Error parsing tool input: {ex.Message}");
+            output.WriteLine($"Expected type: {tool.InputType.Name}");
+            output.WriteLine($"Tool usage: {tool.Usage}");
+
             // Return a default instance if parsing fails
             return Activator.CreateInstance(tool.InputType) ?? new NoInput();
         }
@@ -174,17 +179,19 @@ public partial class CommandManager : Command
                 Name = "restart", Description = () => "Reset chat history, RAG state, logs, and clear the console",
                 Action = async () =>
                 {
-                    Console.ResetColor();
-                    Console.Clear();
+                    using var output = Program.ui.BeginRealtime("Restarting and resetting state...");
+                    Program.ui.ResetColor();
+                    Program.ui.Clear();
                     Program.Context.Clear();
                     Program.Context.AddSystemMessage(Program.config.SystemPrompt);
                     Engine.VectorStore.Clear();
+                    ContextManager.ClearCaches();
                     GraphStoreManager.Graph.Clear();
                     Log.ClearOutput();
                     await Program.InitProgramAsync();
-                    Console.WriteLine("Chat history, RAG state, and logs have been reset.");
-                    Console.WriteLine("Current Configuration:");
-                    Console.WriteLine(Program.config.ToJson());
+                    output.WriteLine("Chat history, RAG state, and logs have been reset.");
+                    output.WriteLine("Current Configuration:");
+                    output.WriteLine(Program.config.ToJson());
                     return Command.Result.Success;
                 }
             },
@@ -194,25 +201,36 @@ public partial class CommandManager : Command
                 Description = () => "Explain the program and generate summary of available commands",
                 Action = async () =>
                 {
-                    Console.WriteLine("Menu structure and layout:");
-                    var menuTree = Engine.BuildCommandTreeArt(Program.commandManager.SubCommands);
+                    using var output = Program.ui.BeginRealtime("Generating helptext...");
+                    output.WriteLine("Menu structure and layout:");
+                    var menuTree = Engine.BuildCommandTreeArt(Program.commandManager.SubCommands, output : output);
                     var summary = await ToolRegistry.InvokeToolAsync("summarize_text", new SummarizeText {
                         Prompt = "Confidently summarize and explain the cschat program's command and layout to a user.",
                         Text = menuTree });
                     if (string.IsNullOrEmpty(summary))
                     {
-                        Console.WriteLine("Failed to generate summary.");
+                        output.WriteLine("Failed to generate summary.");
                         return Command.Result.Failed;
                     }
-                    Console.WriteLine("Generated helptext:");
-                    Console.WriteLine(summary);
+                    output.WriteLine("Generated helptext:");
+                    output.WriteLine(summary);
                     return Command.Result.Success;
                 }
             },
             new Command
             {
                 Name = "exit", Description = () => "Quit the application",
-                Action = () => { Environment.Exit(0); return Task.FromResult(Command.Result.Success); }
+                Action = () =>
+                {
+                    var activeName = Program.config.ChatThreadSettings.ActiveThreadName;
+                    var active = Program.userManagedData.GetItems<ChatThread>().FirstOrDefault(t => t.Name.Equals(activeName, StringComparison.OrdinalIgnoreCase));
+                    if (active != null)
+                    {
+                        ChatManager.SaveActiveThread(active);
+                    }
+                    Environment.Exit(0);
+                    return Task.FromResult(Command.Result.Success);
+                }
             }
         });
 
@@ -221,65 +239,70 @@ public partial class CommandManager : Command
 
     private static Command CreateToolsCommands()
     {
-        var toolSubcommands = ToolRegistry.GetRegisteredTools().Select(tool =>
-            new Command
-            {
-                Name = tool.Name,
-                Description = () => tool.Description,
-                Action = async () =>
-                {
-                    Console.WriteLine($"Using tool: {tool.Name}");
-                    Console.WriteLine($"Description: {tool.Description}");
-                    Console.WriteLine($"Usage: {tool.Usage}");
-                    Console.WriteLine();
-
-                    var toolInstance = ToolRegistry.GetTool(tool.Name);
-                    if (toolInstance == null)
-                    {
-                        Console.WriteLine($"Tool '{tool.Name}' not found.");
-                        return Command.Result.Failed;
-                    }
-
-                    // Show input format guidance
-                    object toolInput = new NoInput(); // Default to NoInput
-                    string? input = null;
-                    var (guidance, isRequired) = GetInputFormatGuidance(toolInstance);
-                    if (isRequired)
-                    {
-                        Console.WriteLine(guidance);
-                        Console.WriteLine();
-                        Console.Write("Enter input: ");
-                                                            
-                        // Get user input
-                        input = User.ReadLineWithHistory();
-                        try
-                        {
-                            // Parse input based on the tool's expected input type
-                            toolInput = ParseToolInput(toolInstance, input ?? string.Empty);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Error parsing input: {ex.Message}");
-                            return Command.Result.Failed;
-                        }
-                    }
-
-                    var tempContext = new Context(string.Empty); // Create temporary Context for command execution
-                    var result = await ToolRegistry.InvokeToolAsync(tool.Name, toolInput, tempContext) ?? string.Empty;
-                    Console.WriteLine($"Tool result: {result}");
-                    Console.WriteLine("Tool Context:");
-                    User.RenderChatHistory(tempContext.Messages());
-                    return Command.Result.Success;
-                }
-            }).ToList();
-
+        // Build the tools submenu dynamically when invoked so newly-registered tools (e.g. from MCP servers)
+        // appear without restarting the application.
         return new Command
         {
             Name = "tools",
             Description = () => "Invoke/run tools",
-            SubCommands = toolSubcommands,
+            SubCommands = new List<Command>(),
             Action = async () =>
             {
+                var toolSubcommands = ToolRegistry.GetRegisteredTools().Select(tool =>
+                    new Command
+                    {
+                        Name = tool.Name,
+                        Description = () => tool.Description,
+                        Action = async () =>
+                        {
+                            using var output = Program.ui.BeginRealtime($"Invoking tool: {tool.Name}");
+                            output.WriteLine($"Using tool: {tool.Name}");
+                            output.WriteLine($"Description: {tool.Description}");
+                            output.WriteLine($"Usage: {tool.Usage}");
+                            output.WriteLine();
+
+                            var toolInstance = ToolRegistry.GetTool(tool.Name);
+                            if (toolInstance == null)
+                            {
+                                output.WriteLine($"Tool '{tool.Name}' not found.");
+                                return Command.Result.Failed;
+                            }
+
+                            // Show input format guidance
+                            object toolInput = new NoInput(); // Default to NoInput
+                            string? input = null;
+                            var (guidance, isRequired) = GetInputFormatGuidance(toolInstance);
+                            if (isRequired)
+                            {
+                                var form = UiForm.Create($"Tool Input: {tool.Name}", new ToolInputModel { Text = string.Empty });
+                                form.AddString<ToolInputModel>("Input", m => m.Text, (m,v)=> m.Text = v)
+                                    .WithHelp(guidance);
+                                if (!await Program.ui.ShowFormAsync(form)) { return Command.Result.Cancelled; }
+                                try
+                                {
+                                    input = ((ToolInputModel)form.Model!).Text;
+                                    toolInput = ParseToolInput(toolInstance, input ?? string.Empty);
+                                }
+                                catch (Exception ex)
+                                {
+                                    output.WriteLine($"Error parsing input: {ex.Message}");
+                                    return Command.Result.Failed;
+                                }
+                            }
+
+                            var tempContext = new Context(string.Empty); // Create temporary Context for command execution
+                            var result = await ToolRegistry.InvokeToolAsync(tool.Name, toolInput, tempContext) ?? string.Empty;
+                            output.WriteLine($"Tool result: {result}");
+                            output.WriteLine("Tool Context:");
+                            foreach (var msg in tempContext.Messages())
+                            {
+                                output.WriteLine($"- {msg.Role}: {msg.Content}");
+                            }
+
+                            return Command.Result.Success;
+                        }
+                    }).ToList();
+
                 return await new Command
                 {
                     Name = "tools",
