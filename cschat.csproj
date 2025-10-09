@@ -84,5 +84,8 @@
   </None>  
 </ItemGroup>
 
+<ItemGroup>
+  <Compile Remove="agent\\*.cs" />
+</ItemGroup>
 
 </Project>

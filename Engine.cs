@@ -78,8 +78,94 @@ public static class Engine
             Program.ui.ResetColor();
         }
     });
+    public static async Task GenerateCodeAndGraphDocumentationAsync(string path) => await Log.MethodAsync(async ctx =>
+    {
+        try
+        {
+            using var output = Program.ui.BeginRealtime("Generating code and graph documentation...");
+            ctx.OnlyEmitOnFailure();
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var countItems = 0;
+            var knownFiles = new StringBuilder();
+
+            output.WriteLine("Started processing files for RAG store...");
+
+            string content;
+            /*if (Directory.Exists(path))
+            {
+                var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
+                var sb = new StringBuilder();
+                foreach (var file in files)
+                {
+                    sb.AppendLine($"--- File: {Path.GetFileName(file)} ---");
+                    sb.AppendLine(File.ReadAllText(file));
+                }
+                content = sb.ToString();
+            }
+            else
+            {
+                content = File.ReadAllText(path);
+            }*/
+
+            // Generate code and graph documentation
+            if (Directory.Exists(path))
+            {
+                var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
+                foreach (var file in files)
+                {
+                    output.WriteLine($"Processing file: {file}");
+                    content = File.ReadAllText(file);
+                    await GraphStoreManager.GenerateCodeAndGraphDocumentationAsync(content, Path.GetFileName(file));
+                }
+            }
+            else
+            {
+                output.WriteLine($"Processing file: {path}");
+                content = File.ReadAllText(path);
+                await GraphStoreManager.GenerateCodeAndGraphDocumentationAsync(content, path);
+            }
+
+            //GraphStoreManager.PrintClustersAndEntities(output);
+
+            stopwatch.Stop();
+            output.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
+            ctx.Succeeded();
+        }
+        finally
+        {
+            Program.ui.ResetColor();
+        }
+    });
+
+/*    public static async Task GetDocumentation() => await Log.MethodAsync(async ctx =>
+    {
+        try
+        {
+            using var output = Program.ui.BeginRealtime("Generating documentation...");
+            ctx.OnlyEmitOnFailure();
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var countItems = 0;
+            var knownFiles = new StringBuilder();
+
+            output.WriteLine("Started processing files for RAG store...");
+
+            await ContextManager.GenerateDocumentationFromGraphContent();
+
+            //await ContextManager.AddContent($"Known files:\n{knownFiles.ToString()}", "known_files");
+
+            stopwatch.Stop();
+            output.WriteLine($"{stopwatch.ElapsedMilliseconds:N0}ms required to process {countItems} items.");
+            ctx.Succeeded();
+        }
+        finally
+        {
+            Program.ui.ResetColor();
+        }
+    });
+*/
 
     public static string BuildCommandTreeArt(IEnumerable<Command> commands, string indent = "", bool isLast = true, bool showText = true, IRealtimeWriter? output = null)
+
     {
         if (showText)
         {

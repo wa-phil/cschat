@@ -34,6 +34,7 @@ public class Command
     private async Task<Result> DefaultAction() => await Log.MethodAsync(async ctx =>
     {
         ctx.OnlyEmitOnFailure();
+        ctx.Append(Log.Data.Name, $"Executing command: {GetFullPath()}");
         Result result = Result.Cancelled;
 
         while (Result.Cancelled == result)
@@ -43,6 +44,7 @@ public class Command
             var selected = Program.ui.RenderMenu($"{GetFullPath()} commands", SubCommands.Select(c => $"{c.Name} - {c.Description()}").ToList());
             if (string.IsNullOrEmpty(selected))
             {
+                ctx.Succeeded();
                 return Result.Cancelled;
             }
             // strip the description part to get just the command name

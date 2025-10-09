@@ -369,6 +369,126 @@ public class GraphStore
         output.WriteLine("============================\n");
     }
 
+    public string GetGraphData0()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("\nEntities with Directional Relationships:");
+        foreach (var entity in Entities.Values)
+        {
+            var counts = entity.GetRelationshipCounts();
+            sb.AppendLine($"- {entity} [Out: {counts.OutgoingCount}, In: {counts.IncomingCount}, Total: {counts.TotalCount}]");
+
+            // Show outgoing relationships
+            var outgoingTypes = entity.GetOutgoingRelationshipTypes();
+            if (outgoingTypes.Count > 0)
+            {
+                sb.AppendLine($"  Outgoing Relationships ({counts.OutgoingCount}):");
+                foreach (var relType in outgoingTypes)
+                {
+                    var targets = entity.GetOutgoingNeighborsByType(relType);
+                    sb.AppendLine($"    --[{relType}]--> {string.Join(", ", targets.Select(n => n.Name))}");
+                }
+            }
+
+            // Show incoming relationships
+            var incomingTypes = entity.GetIncomingRelationshipTypes();
+            if (incomingTypes.Count > 0)
+            {
+                sb.AppendLine($"  Incoming Relationships ({counts.IncomingCount}):");
+                foreach (var relType in incomingTypes)
+                {
+                    var sources = entity.GetIncomingNeighborsByType(relType);
+                    sb.AppendLine($"    <--[{relType}]-- {string.Join(", ", sources.Select(n => n.Name))}");
+                }
+            }
+
+            if (counts.TotalCount == 0)
+            {
+                sb.AppendLine("  No relationships");
+            }
+        }
+
+        sb.AppendLine("\nDirect Relationships:");
+        foreach (var rel in Relationships)
+            sb.AppendLine($"- {rel}");
+
+        return sb.ToString();
+    }    
+
+    public string GetGraphData()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Knowledge Graph Summary:\n");
+
+        foreach (var entity in Entities.Values)
+        {
+            sb.AppendLine($"**{entity.Name}** ({entity.Type})");
+
+            // Optional: Add description if available
+            if (!string.IsNullOrWhiteSpace(entity.Attributes))
+            {
+                sb.AppendLine($"{entity.Attributes}");
+            }
+
+            // Outgoing relationships
+            if (entity.OutgoingRelationships.Any())
+            {
+                sb.AppendLine($"\n{entity.Name} has the following outgoing relationships:");
+                foreach (var kvp in entity.OutgoingRelationships)
+                {
+                    string relationType = kvp.Key;
+                    foreach (var (targetEntity, _, description) in kvp.Value)
+                    {
+                        sb.AppendLine($"- {entity.Name} {ToVerb(relationType)} {targetEntity.Name}: {description}");
+                    }
+                }
+            }
+
+            // Incoming relationships
+            if (entity.IncomingRelationships.Any())
+            {
+                sb.AppendLine($"\n{entity.Name} is involved in the following incoming relationships:");
+                foreach (var kvp in entity.IncomingRelationships)
+                {
+                    string relationType = kvp.Key;
+                    foreach (var (sourceEntity, _, description) in kvp.Value)
+                    {
+                        sb.AppendLine($"- {sourceEntity.Name} {ToVerb(relationType)} {entity.Name}: {description}");
+                    }
+                }
+            }
+
+            sb.AppendLine("\n---\n");
+        }
+
+        return sb.ToString();
+    }
+
+    // Helper to convert relationship types to natural verbs
+    private string ToVerb(string relationshipType)
+    {
+        return relationshipType switch
+        {
+            "works_for" => "works for",
+            "located_in" => "is located in",
+            "part_of" => "is part of",
+            "uses" => "uses",
+            "consumes" => "consumes",
+            "orchestrates" => "orchestrates",
+            "developed_in" => "is developed in",
+            "packaged_as" => "is packaged as",
+            "tests" => "tests",
+            "depends_on" => "depends on",
+            "permission_required_for" => "requires permission for",
+            "created_by" => "is created by",
+            "edited_in" => "is edited in",
+            "supports" => "supports",
+            "used_by" => "is used by",
+            "used_for" => "is used for",
+            _ => $"has a '{relationshipType}' relationship with"
+        };
+    }
+
     // Print detailed graph analysis
     public void PrintGraphAnalysis()
     {
@@ -512,10 +632,8 @@ public class GraphStore
     public GraphAnalytics Analytics => new GraphAnalytics(this);
 
     // Detect and display communities using Louvain algorithm
-    public void PrintCommunityAnalysis()
+    public void PrintCommunityAnalysis(IRealtimeWriter output)
     {
-        using var output = Program.ui.BeginRealtime("=== COMMUNITY DETECTION (LOUVAIN ALGORITHM) ===");
-
         if (IsEmpty)
         {
             output.WriteLine("Graph is empty. No communities to detect.");
@@ -587,10 +705,8 @@ public class GraphStore
     }
     
     // Print detailed community information
-    public void PrintDetailedCommunityInfo(int? specificCommunityId = null)
+    public void PrintDetailedCommunityInfo(IRealtimeWriter output, int? specificCommunityId = null)
     {
-        using var output = Program.ui.BeginRealtime("=== DETAILED COMMUNITY INFORMATION ===");
-
         if (IsEmpty)
         {
             output.WriteLine("Graph is empty. No communities to analyze.");
@@ -758,10 +874,8 @@ public class GraphStore
     }
     
     // Helper method to print just a summary table of all communities
-    public void PrintCommunitySummaryTable()
+    public void PrintCommunitySummaryTable(IRealtimeWriter output)
     {
-        using var output = Program.ui.BeginRealtime("=== COMMUNITY SUMMARY TABLE ===");
-
         if (IsEmpty)
         {
             output.WriteLine("Graph is empty. No communities to display.");
@@ -800,73 +914,110 @@ public class GraphStore
 public class GraphAnalytics
 {
     private readonly GraphStore graph;
-    
-    public GraphAnalytics(GraphStore graphStore)
+    // Resolution (gamma) parameter: Controls community size. 
+    // Lower values (e.g., 0.01) lead to fewer, larger communities.
+    private readonly double resolution; 
+
+    public GraphAnalytics(GraphStore graphStore, double resolution = 0.00000001)
     {
         graph = graphStore;
+        this.resolution = resolution;
     }
-    
-    // Louvain algorithm for community detection
+
+    // --------------------------------------------------------------------
+    // LEIDEN CORE IMPLEMENTATION (Modeled after two-phase modularity optimization)
+    // --------------------------------------------------------------------
     public (Dictionary<string, int> communities, double modularity) DetectCommunities()
     {
         var entities = graph.Entities.Keys.ToList();
-        var communities = new Dictionary<string, int>();
+        var currentCommunities = new Dictionary<string, int>();
         
-        // Initialize each node in its own community
+        // Phase 0: Initialization (Each entity is its own community)
         for (int i = 0; i < entities.Count; i++)
         {
-            communities[entities[i]] = i;
+            currentCommunities[entities[i]] = i;
         }
         
-        double totalWeight = graph.Relationships.Count;
-        if (totalWeight == 0) return (communities, 0.0);
+        // Total Weight (m) Calculation for UNWEIGHTED Graph
+        double totalWeight = graph.Relationships.Count; 
+        if (totalWeight == 0) return (currentCommunities, 0.0);
         
-        bool improvement = true;
-        
-        while (improvement)
+        double currentModularity = -1.0;
+        double previousModularity = -2.0;
+        bool globalImprovement = true;
+
+        // Outer Loop: Multi-Level Refinement
+        while (globalImprovement && currentModularity - previousModularity > 1e-6)
         {
-            improvement = false;
-            
-            foreach (var entity in entities)
+            previousModularity = currentModularity;
+            bool phase1Improvement = true;
+
+            // Phase 1: Local Optimization (Node Movement)
+            while (phase1Improvement)
             {
-                int currentCommunity = communities[entity];
-                var neighborCommunities = new Dictionary<int, double>();
-                
-                // Calculate the weight of connections to each neighboring community
-                var neighbors = GetNeighbors(entity);
-                foreach (var neighbor in neighbors)
+                phase1Improvement = false;
+                var shuffledEntities = entities.OrderBy(x => Guid.NewGuid()).ToList(); 
+
+                foreach (var entity in shuffledEntities)
                 {
-                    int neighborCommunity = communities[neighbor];
-                    if (!neighborCommunities.ContainsKey(neighborCommunity))
-                        neighborCommunities[neighborCommunity] = 0;
-                    neighborCommunities[neighborCommunity] += 1.0; // Weight of edge
-                }
-                
-                // Find the community that gives the best modularity gain
-                double bestGain = 0;
-                int bestCommunity = currentCommunity;
-                
-                foreach (var kvp in neighborCommunities)
-                {
-                    int targetCommunity = kvp.Key;
-                    if (targetCommunity == currentCommunity) continue;
+                    int initialCommunity = currentCommunities[entity];
                     
-                    double gain = CalculateModularityGain(entity, currentCommunity, targetCommunity, communities, totalWeight);
-                    if (gain > bestGain)
+                    // Temporarily remove node from community for gain calculation
+                    currentCommunities[entity] = -1; 
+                    
+                    double bestGain = 0;
+                    int bestCommunity = initialCommunity;
+                    
+                    var neighborCommunities = GetNeighborCommunitiesWeighted(entity, currentCommunities);
+                    
+                    foreach (var kvp in neighborCommunities)
                     {
-                        bestGain = gain;
-                        bestCommunity = targetCommunity;
+                        int targetCommunity = kvp.Key;
+                        
+                        // Calculate modularity gain (ΔQ) for moving 'entity' to 'targetCommunity'
+                        double gain = CalculateModularityGain(entity, initialCommunity, targetCommunity, currentCommunities, totalWeight);
+                        
+                        if (gain > bestGain)
+                        {
+                            bestGain = gain;
+                            bestCommunity = targetCommunity;
+                        }
+                    }
+                    
+                    // Restore or move the node
+                    currentCommunities[entity] = bestCommunity;
+                    
+                    // If a beneficial move was found, flag for another pass
+                    if (bestCommunity != initialCommunity && bestGain > 1e-6)
+                    {
+                        phase1Improvement = true;
                     }
                 }
+            }
+            
+            // --- Leiden Refinement / Aggregation Trigger ---
+            // After local moves, check global modularity
+            currentModularity = CalculateModularity(currentCommunities, totalWeight);
+
+            if (currentModularity > previousModularity + 1e-6)
+            {
+                globalImprovement = true;
                 
-                // Move to the best community if there's an improvement
-                if (bestCommunity != currentCommunity)
-                {
-                    communities[entity] = bestCommunity;
-                    improvement = true;
-                }
+                // In a full Leiden implementation, the communities would be aggregated 
+                // into super-nodes (Phase 2) here, and the process would repeat on the 
+                // aggregated graph. Since we don't recreate the GraphStore, we rely on 
+                // the continuous refinement of the outer loop, which is driven by the 
+                // improved modularity calculated above.
+            }
+            else
+            {
+                globalImprovement = false;
             }
         }
+        
+        // --------------------------------------------------------------------
+        // FINALIZATION
+        // --------------------------------------------------------------------
         
         // Relabel communities to be consecutive integers starting from 0
         var communityMapping = new Dictionary<int, int>();
@@ -875,7 +1026,7 @@ public class GraphAnalytics
         
         foreach (var entity in entities)
         {
-            int oldCommunity = communities[entity];
+            int oldCommunity = currentCommunities[entity];
             if (!communityMapping.ContainsKey(oldCommunity))
             {
                 communityMapping[oldCommunity] = newCommunityId++;
@@ -883,12 +1034,15 @@ public class GraphAnalytics
             finalCommunities[entity] = communityMapping[oldCommunity];
         }
         
-        double modularity = CalculateModularity(finalCommunities, totalWeight);
-        return (finalCommunities, modularity);
+        return (finalCommunities, currentModularity);
     }
+
+    // --------------------------------------------------------------------
+    // HELPER METHODS
+    // --------------------------------------------------------------------
     
     // Generate clusters based on community detection
-    public List<GraphCluster> GenerateClusters(Dictionary<string, int> communities)
+    public List<GraphCluster> GenerateClusters(Dictionary<string, int> communities, int maxClusters = 0)
     {
         var clusters = new List<GraphCluster>();
         var communityGroups = communities.GroupBy(kvp => kvp.Value);
@@ -900,6 +1054,12 @@ public class GraphAnalytics
                 Id = group.Key,
                 EntityNames = group.Select(kvp => kvp.Key).ToList()
             };
+            
+            // Filtering Logic: Skip small communities (size < 3)
+            if (cluster.EntityNames.Count < 3) 
+            {
+                continue; 
+            }
             
             // Calculate entity type distribution
             cluster.EntityTypes = new Dictionary<string, int>();
@@ -921,50 +1081,73 @@ public class GraphAnalytics
             clusters.Add(cluster);
         }
         
-        return clusters.OrderByDescending(c => c.Size).ToList();
-    }
-    
-    // Helper methods
-    private List<string> GetNeighbors(string entityName)
-    {
-        var neighbors = new HashSet<string>();
+        // Order by descending size
+        var orderedClusters = clusters.OrderByDescending(c => c.EntityNames.Count);
         
-        if (graph.Entities.ContainsKey(entityName))
+        // Limit the number of returned clusters
+        if (maxClusters > 0)
         {
-            var entity = graph.Entities[entityName];
-            
-            foreach (var relationshipList in entity.OutgoingRelationships.Values)
-            {
-                foreach (var (neighborEntity, _, _) in relationshipList)
-                {
-                    neighbors.Add(neighborEntity.Name);
-                }
-            }
-            
-            foreach (var relationshipList in entity.IncomingRelationships.Values)
-            {
-                foreach (var (neighborEntity, _, _) in relationshipList)
-                {
-                    neighbors.Add(neighborEntity.Name);
-                }
-            }
+            return orderedClusters.Take(maxClusters).ToList();
         }
         
-        return neighbors.ToList();
+        return orderedClusters.ToList(); 
+    }
+
+    // k_i: Total degree of entity i (count for unweighted)
+    private double GetEntityDegree(string entityName)
+    {
+        if (graph.Entities.ContainsKey(entityName))
+        {
+            // For an unweighted graph, degree is the number of unique neighbors
+            return graph.Entities[entityName].GetAllNeighbors().Count;
+        }
+        return 0;
     }
     
-    private double CalculateModularityGain(string entity, int currentCommunity, int targetCommunity, 
+    // Returns a list of all neighbor names (used for calculating internal connections)
+    private List<string> GetNeighbors(string entityName)
+    {
+        if (graph.Entities.ContainsKey(entityName))
+        {
+            return graph.Entities[entityName].GetAllNeighbors().Select(e => e.Name).ToList();
+        }
+        return new List<string>();
+    }
+
+    // NOTE: This uses the resolution parameter stored in the class.
+    private double CalculateModularityGain(string entity, int oldCommunity, int targetCommunity,
         Dictionary<string, int> communities, double totalWeight)
     {
-        // Simplified modularity gain calculation
+        // k_i: Total degree of entity i (sum of connected edge weights)
+        double k_i = GetEntityDegree(entity); 
+        
+        // k_i_in_target: Sum of edge weights (count) from 'entity' to nodes in 'targetCommunity'
+        double k_i_in_target = 0;
+        
         var neighbors = GetNeighbors(entity);
+        foreach (var neighbor in neighbors)
+        {
+            // Count connections where the neighbor is in the target community
+            if (communities.ContainsKey(neighbor) && communities.GetValueOrDefault(neighbor, -1) == targetCommunity)
+                k_i_in_target += 1.0; 
+        }
+
+        // Σ_tot_target: Sum of degrees (weights) of all nodes currently in targetCommunity
+        double sigma_tot_target = communities
+            .Where(kvp => kvp.Value == targetCommunity)
+            .Sum(kvp => GetEntityDegree(kvp.Key));
         
-        double currentConnections = neighbors.Count(n => communities[n] == currentCommunity);
-        double targetConnections = neighbors.Count(n => communities[n] == targetCommunity);
+        double m = totalWeight;
         
-        return (targetConnections - currentConnections) / totalWeight;
+        // Modularity Gain Formula (incorporating resolution γ):
+        // ΔQ = (k_i,in / m) - (γ * k_i * Σ_tot) / (2 * m^2)
+        
+        double gain_new = (k_i_in_target / m) - (this.resolution * k_i * sigma_tot_target / (2 * m * m));
+        
+        return gain_new; 
     }
-    
+
+    // --- Original Modularity Calculation (Updated with Resolution) ---
     private double CalculateModularity(Dictionary<string, int> communities, double totalWeight)
     {
         if (totalWeight == 0) return 0;
@@ -975,25 +1158,48 @@ public class GraphAnalytics
         foreach (var group in communityGroups)
         {
             var communityNodes = group.Select(kvp => kvp.Key).ToList();
-            double internalEdges = 0;
-            double totalDegree = 0;
+            double internalEdges = 0; // Sum of weights of internal edges (Σ_in)
+            double totalDegree = 0; // Sum of weights of all edges incident to nodes in the community (Σ_tot)
             
             foreach (var node in communityNodes)
             {
+                totalDegree += GetEntityDegree(node); 
+                
                 var neighbors = GetNeighbors(node);
-                totalDegree += neighbors.Count;
+                // Count connections *within* the community
                 internalEdges += neighbors.Count(n => communityNodes.Contains(n));
             }
             
-            internalEdges /= 2; // Each edge counted twice
-            double expectedInternalEdges = (totalDegree * totalDegree) / (4 * totalWeight);
+            internalEdges /= 2; // Each edge was counted twice
             
+            // Expected Internal Edges (using resolution γ): γ * (Σ_tot * Σ_tot) / (4 * m)
+            double expectedInternalEdges = this.resolution * (totalDegree * totalDegree) / (4 * totalWeight);
+            
+            // Final community modularity contribution
             modularity += (internalEdges / totalWeight) - (expectedInternalEdges / totalWeight);
         }
         
         return modularity;
     }
     
+    // Returns a dictionary of neighboring community IDs and the sum of weights (1.0 for unweighted) connecting to them.
+    private Dictionary<int, double> GetNeighborCommunitiesWeighted(string entity, Dictionary<string, int> communities)
+    {
+        var neighborCommunities = new Dictionary<int, double>();
+        var neighbors = GetNeighbors(entity);
+
+        foreach (var neighborName in neighbors)
+        {
+            if (neighborName == entity || !communities.ContainsKey(neighborName) || communities[neighborName] == -1) continue; 
+            
+            int neighborCommunity = communities[neighborName];
+            neighborCommunities[neighborCommunity] = neighborCommunities.GetValueOrDefault(neighborCommunity, 0) + 1.0;
+        }
+
+        return neighborCommunities;
+    }
+    
+    // --- Helper Methods (Stubs kept for compilation) ---
     private double CalculateClusterDensity(List<string> clusterNodes)
     {
         if (clusterNodes.Count < 2) return 0;
@@ -1007,7 +1213,7 @@ public class GraphAnalytics
             actualEdges += neighbors.Count(n => clusterNodes.Contains(n));
         }
         
-        actualEdges /= 2; // Each edge counted twice
+        actualEdges /= 2; 
         return possibleEdges > 0 ? (double)actualEdges / possibleEdges : 0;
     }
     
@@ -1015,11 +1221,23 @@ public class GraphAnalytics
     {
         var relationshipTypes = new Dictionary<string, int>();
         
-        foreach (var relationship in graph.Relationships)
+        foreach (var entityName in clusterNodes)
         {
-            if (clusterNodes.Contains(relationship.Source.Name) && clusterNodes.Contains(relationship.Target.Name))
+            if (graph.Entities.ContainsKey(entityName))
             {
-                relationshipTypes[relationship.Type] = relationshipTypes.GetValueOrDefault(relationship.Type, 0) + 1;
+                var entity = graph.Entities[entityName];
+                
+                // Check outgoing relationships to entities within the cluster
+                foreach (var outgoingList in entity.OutgoingRelationships.Values)
+                {
+                    foreach (var (targetEntity, relationType, _) in outgoingList)
+                    {
+                        if (clusterNodes.Contains(targetEntity.Name))
+                        {
+                            relationshipTypes[relationType] = relationshipTypes.GetValueOrDefault(relationType, 0) + 1;
+                        }
+                    }
+                }
             }
         }
         
@@ -1038,9 +1256,9 @@ public class GraphCluster
     public Dictionary<string, int> EntityTypes { get; set; } = new Dictionary<string, int>();
     public double Density { get; set; }
     public List<string> TopRelationshipTypes { get; set; } = new List<string>();
-    
+
     public int Size => EntityNames.Count;
-    
+
     public override string ToString() => $"Cluster {Id}: {Size} entities, Density: {Density:F3}";
 }
 
@@ -1057,6 +1275,212 @@ public class GraphMetrics
 
 public static class GraphStoreManager
 {
+    /// <summary>
+    /// Returns clusters and their entities/relationships as a string (instead of printing).
+    /// </summary>
+    public static string GetClustersAndEntitiesString()
+    {
+        var (communities, modularity) = Graph.Analytics.DetectCommunities();
+        var clusters = Graph.Analytics.GenerateClusters(communities);
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Detected {clusters.Count} clusters (modularity: {modularity:F4})\n");
+        foreach (var cluster in clusters)
+        {
+            sb.AppendLine($"Cluster {cluster.Id} ({cluster.Size} entities):");
+            foreach (var entityName in cluster.EntityNames)
+            {
+                sb.AppendLine($"  - {entityName}");
+            }
+
+            // Add relationships between entities in this cluster
+            sb.AppendLine("  Relationships:");
+            var entitySet = new HashSet<string>(cluster.EntityNames);
+            foreach (var rel in Graph.Relationships)
+            {
+                if (entitySet.Contains(rel.Source.Name) && entitySet.Contains(rel.Target.Name))
+                {
+                    sb.AppendLine($"    {rel.Source.Name} --[{rel.Type}]--> {rel.Target.Name}: {rel.Description}");
+                }
+            }
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+    /// <summary>
+    /// Detects communities, generates clusters, and prints each cluster's name and entity list.
+    /// </summary>
+    public static void PrintClustersAndEntities(IRealtimeWriter? output = null)
+    {
+        output = output ?? Program.ui.BeginRealtime("=== CLUSTERS AND ENTITIES ===");
+        var (communities, modularity) = Graph.Analytics.DetectCommunities();
+        var clusters = Graph.Analytics.GenerateClusters(communities);
+        output.WriteLine($"Detected {clusters.Count} clusters (modularity: {modularity:F4})\n");
+        foreach (var cluster in clusters)
+        {
+            output.WriteLine($"Cluster {cluster.Id} ({cluster.Size} entities):");
+            foreach (var entityName in cluster.EntityNames)
+            {
+                output.WriteLine($"  - {entityName}");
+            }
+
+            // Print relationships between entities in this cluster
+            output.WriteLine("  Relationships:");
+            var entitySet = new HashSet<string>(cluster.EntityNames);
+            foreach (var rel in Graph.Relationships)
+            {
+                if (entitySet.Contains(rel.Source.Name) && entitySet.Contains(rel.Target.Name))
+                {
+                    output.WriteLine($"    {rel.Source.Name} --[{rel.Type}]--> {rel.Target.Name}: {rel.Description}");
+                }
+            }
+            output.WriteLine();
+        }
+    }
+
+    /// <summary>
+    /// Generates documentation for a specific code snippet and its related graph relations using LLM.
+    /// </summary>
+    public static async Task GenerateCodeAndGraphDocumentationAsync(string code, string filePath)//, List<Relationship> relatedRelations)
+        => await Log.MethodAsync(async ctx =>
+    {
+        using var output = Program.ui.BeginRealtime("=== CODE AND GRAPH DOCUMENTATION ===");  
+        ctx.OnlyEmitOnFailure();
+        try
+        {
+            var working = new Context(@"""
+You are a senior developer writing internal documentation for new team members.
+
+Given the following code snippets and related knowledge graph relationships along with community information, write a developer-friendly guide that explains what the code does, how it fits into the system, and how it interacts with other components/entities.
+
+There will be multiple code snippets, each representing a different part of the system. Your task is to provide a comprehensive overview of how these pieces work together.
+
+Ignore commented lines that are not relevant to the code's functionality.
+
+Avoid technical jargon unless necessary, and don't use ontology-style formatting like arrows or relationship labels.
+Instead, explain how the code and related entities fit into the overall workflow, what they’re used for, and how they interact.
+
+For each related entity or relationship, describe its significance in the context of the code.
+
+Output should be in markdown format, well-structured, and suitable for both technical and non-technical audiences.
+
+Add mermaid diagrams to illustrate the relationships between the code and the entities in the graph, as appropriate for documentation.
+""");
+
+            // Add the code snippet
+            working.AddUserMessage($"Code Snippet:\n\n```csharp\n{code}\n```");
+
+
+            // Add related relationships as context
+            /*if (relatedRelations != null && relatedRelations.Count > 0)
+            {
+                var relDescriptions = string.Join("\n", relatedRelations.Select(r =>
+                    $"- **{r.Source.Name}** --[{r.Type}]--> **{r.Target.Name}**: {r.Description}"));
+                working.AddUserMessage($"\nRelated Graph Relationships:\n{relDescriptions}");
+            }*/
+            string content = GraphStoreManager.GetClustersAndEntitiesString();
+            working.AddUserMessage(content);
+
+            var response = await TypeParser.GetAsync(working, typeof(string));
+            if (response == null)
+            {
+                output.WriteLine($"No response from LLM");
+                return;
+            }
+
+            // Write output to a markdown file with a random name
+            var mdFileName = $"extracted_{Guid.NewGuid().ToString().Substring(0, 8)}.md";
+            var mdFilePath = Path.Combine(Directory.GetCurrentDirectory(), mdFileName);
+            File.WriteAllText(mdFilePath, response.ToString());          
+            output.WriteLine($"Documentation written to: {mdFilePath}, for {filePath}");
+            //output.WriteLine($"\n=== Extracted from {response} ===");
+            output.WriteLine("=================================\n");
+            ctx.Succeeded();
+        }
+        catch (Exception ex)
+        {
+            ctx.Failed($"Failed to generate code and graph documentation", ex);
+            output.WriteLine($"Failed to generate documentation: {ex.Message}");
+
+            var mdFileName = $"extracted_{Guid.NewGuid().ToString().Substring(0, 8)}.md";
+            var mdFilePath = Path.Combine(Directory.GetCurrentDirectory(), mdFileName);
+            File.WriteAllText(mdFilePath, ex.Message.ToString());
+            output.WriteLine($"Documentation written to: {mdFilePath}, for {filePath}");
+        }
+    });
+
+    /// <summary>
+    /// Generates reference documentation for the current knowledge graph, following strict reference guide principles.
+    /// Output is Markdown, neutral, factual, and structured according to the graph's machinery.
+    /// </summary>
+    public static async Task GenerateReferenceDocumentationAsync(string content) => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        //ctx.Append(Log.Data.Reference, content);
+        using var output = Program.ui.BeginRealtime("=== REFERENCE DOCUMENTATION ==="); 
+        try
+        {
+            var working = new Context(@"""
+You are a senior developer writing internal documentation for new team members.
+
+Using the following knowledge graph, write a developer-friendly guide that introduces each tool, repository, and process in natural language.
+
+Avoid technical jargon unless necessary, and don't use ontology-style formatting like arrows or relationship labels.
+
+Instead, explain how each entity fits into the overall build and deployment workflow, what it’s used for, and how it interacts with other components.
+
+Use a conversational tone, like you're walking a teammate through the system.
+
+Here's an example of the style I want:
+
+Forge is our main build orchestration tool. It handles over 30 actions during the Click-to-Run (C2R) deployment process, including packaging and telemetry. It pulls configuration from DeployTools and relies on RepoMan to create Unity packages. We distribute Forge as a NuGet package, and all changes go through CloudBuild for testing before release.
+
+Now, write similar descriptions for the rest of the entities in the graph consisting of entities and relationships.
+Each entity contains:
+- Entity name
+- Entity type (Person, Organization, Location, Concept, etc.)
+- Key attributes or descriptions
+- List of incoming and outgoing relationships
+
+Each relationship contains:
+- Source entity
+- Target entity  
+- Relationship type (works_for, located_in, part_of, etc.)
+- Relationship description
+
+Given the context of the knowledge graph, generate comprehensive reference documentation that includes:
+
+1. An overview of the graph structure, including key entities and their relationships.
+2. Detailed descriptions of each entity, including attributes, types, and relationships.
+3. Explanations of the significance of each relationship within the graph.
+
+The output should be well-structured, easy to navigate, and suitable for both technical audiences. Generate it in markdown format.
+
+Use the following philosphy:
+Reference material provides accurate, neutral, and structured descriptions of a product—especially software—serving as an authoritative source users consult for clarity and certainty in their work. Unlike tutorials or how-to guides, it avoids explanation or instruction, focusing solely on describing the product’s components (e.g., APIs, functions) in alignment with its internal structure. The tone should be objective and austere, using standard patterns for consistency, and may include concise examples to illustrate usage without drifting into teaching. Good reference material is essential for confident, informed use of a system.
+""");
+            string graph = GraphStoreManager.Graph.GetGraphData();
+            working.AddUserMessage(graph);
+            working.AddUserMessage(content);
+
+            var response = await TypeParser.GetAsync(working, typeof(string));
+            if (response == null)
+            {
+                output.WriteLine($"JSON processing issue");
+                return;
+            }
+            output.WriteLine($"\n=== Extracted from {response} ===");
+            output.WriteLine("=================================\n");
+
+            //ctx.Append(Log.Data.Result, $"Extracted {GraphStoreManager.Graph.EntityCount} entities and {GraphStoreManager.Graph.RelationshipCount} relationships from {reference}");
+            ctx.Succeeded();
+        }
+        catch (Exception ex)
+        {
+            ctx.Failed($"Failed to extract entities and relationships", ex);
+            output.WriteLine($"Failed to extract entities and relationships: {ex.Message}");
+        }
+    });
+
     public static GraphStore Graph { get; } = new GraphStore();
 
     // Add embeddings storage for entities
@@ -1082,6 +1506,8 @@ public static class GraphStoreManager
             var working = new Context(@"""
 You are an expert at extracting entities and relationships from text and code.
 Extract all important entities (people, places, organizations, concepts, functions, variables etc.) and their relationships from the provided text.
+If it's code, focus on the entities and relationships that are relevant to the code's functionality and its context within the system.
+Ignore comments and irrelevant lines. Ignore import statements and using directives.
 
 For each entity, identify:
 - Entity name
@@ -1114,7 +1540,8 @@ For each relationship, identify:
             if (graphDtoObject != null)
             {
                 GraphStoreManager.ParseGraphFromJson(graphDtoObject);
-                await GenerateEntityEmbeddingsAsync(graphDtoObject.Entities, output);
+
+                //await GenerateEntityEmbeddingsAsync(graphDtoObject.Entities, output);
                 output.WriteLine($"Successfully processed {graphDtoObject.Entities?.Count ?? 0} entities and {graphDtoObject.Relationships?.Count ?? 0} relationships");
             }
             else
@@ -1134,7 +1561,7 @@ For each relationship, identify:
     });
 
     /// <summary>
-    /// 🔥 THIS IS THE KEY METHOD THAT POPULATES EntityEmbeddings 🔥
+    /// THIS IS THE KEY METHOD THAT POPULATES EntityEmbeddings
     /// Called automatically when new entities are extracted from documents
     /// </summary>
     private static async Task GenerateEntityEmbeddingsAsync(List<EntityDto> entities, IRealtimeWriter? output)
