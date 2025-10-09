@@ -107,9 +107,10 @@ public partial class CommandManager
                         Name = "factory reset", Description = () => "Delete the current configuration and reset everything to defaults",
                         Action = async () =>
                         {
+                            using var output = Program.ui.BeginRealtime("Resetting back to factory...");
                             File.Delete(Program.ConfigFilePath);
                             Program.config = new Config(); // Reset to default config
-                            await Program.InitProgramAsync();
+                            await Program.InitProgramAsync(output);
                             return Command.Result.Success;
                         }
                     },

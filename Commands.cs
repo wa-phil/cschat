@@ -190,7 +190,7 @@ public partial class CommandManager : Command
                     ContextManager.ClearCaches();
                     GraphStoreManager.Graph.Clear();
                     Log.ClearOutput();
-                    await Program.InitProgramAsync();
+                    await Program.InitProgramAsync(output);
                     output.WriteLine("Chat history, RAG state, and logs have been reset.");
                     output.WriteLine("Current Configuration:");
                     output.WriteLine(Program.config.ToJson());

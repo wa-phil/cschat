@@ -83,7 +83,7 @@ static class Program
         Environment.CurrentDirectory = Program.config.DefaultDirectory;
     }
 
-    public static async Task InitProgramAsync()
+    public static async Task InitProgramAsync(IRealtimeWriter output)
     {
         Context = new Context(config.SystemPrompt);
         ToolRegistry.Initialize();
@@ -125,7 +125,7 @@ static class Program
 
         // Ensure Engine has up-to-date list
         Engine.RefreshSupportedFileTypesFromUserManaged();
-        SubsystemManager.Connect();
+        SubsystemManager.Connect(output);
 
         // initialize chat manager to monitor thread deletions, load last active thread or create a new one
         Directory.CreateDirectory(Program.config.ChatThreadSettings.RootDirectory);
@@ -176,8 +176,6 @@ static class Program
     [STAThread]
     static async Task Main(string[] args)
     {
-        Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
-
         Startup();
 
         bool showHelp = false;
@@ -201,7 +199,6 @@ static class Program
         switch (config.UiMode)
         {
             case UiMode.Terminal:
-                Console.WriteLine("Using terminal UI mode.");
                 ui = new Terminal();
                 break;
             case UiMode.Gui:
@@ -211,13 +208,15 @@ static class Program
                 ui = new Terminal();
                 break;
         }
+        
+        using IRealtimeWriter output = ui.BeginRealtime($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
 
         try
         {
             // ----- Run the application loop via the UI -----
             await ui.RunAsync(async () =>
             {
-                await InitProgramAsync();
+                await InitProgramAsync(output);
 
                 if (string.IsNullOrWhiteSpace(config.Model))
                 {
@@ -229,7 +228,6 @@ static class Program
                 Config.Save(config, ConfigFilePath);
 
                 {
-                    using var output = ui.BeginRealtime("Chat Session");
                     output.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
                     output.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
                     output.WriteLine();
@@ -263,12 +261,12 @@ static class Program
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Exception: {ex.Message}");
-            Console.WriteLine("Log Entries:");
+            output.WriteLine($"Exception: {ex.Message}");
+            output.WriteLine("Log Entries:");
             var entries = Log.GetOutput().ToList();
-            Console.WriteLine($"Log Entries [{entries.Count}]:");
-            entries.ToList().ForEach(entry => Console.WriteLine(entry));
-            Console.WriteLine("Chat History:");
+            output.WriteLine($"Log Entries [{entries.Count}]:");
+            entries.ToList().ForEach(entry => output.WriteLine(entry));
+            output.WriteLine("Chat History:");
             ui.RenderChatHistory(Context.Messages());
             throw; // unhandled exceptions result in a stack trace in the Program.ui.
         }
