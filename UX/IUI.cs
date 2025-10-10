@@ -315,6 +315,28 @@ public interface IRealtimeWriter : IDisposable
     void WriteLine(string? text = null);
 }
 
+/// <summary>
+/// Backend-agnostic input routing: converts ControlEvent (Photino) or key sequences (Terminal)
+/// into unified input submission. Bridges enter/click on "composer.input" or "send-btn" into input text.
+/// </summary>
+public interface IInputRouter
+{
+    /// <summary>
+    /// Binds to IUi to receive ControlEvent / key events
+    /// </summary>
+    void Attach(IUi ui);
+
+    /// <summary>
+    /// Returns user-submitted text (null on close/exit)
+    /// </summary>
+    Task<string?> ReadLineAsync(CommandManager commands);
+
+    /// <summary>
+    /// Optional: propagate TextBox onChange to callers
+    /// </summary>
+    event Action<string>? OnInputChanged;
+}
+
 public interface IUi
 {
     // high-level I/O
@@ -326,7 +348,7 @@ public interface IUi
 
     void RenderTable(Table table, string? title = null);
     void RenderReport(Report report);
-    
+
     IRealtimeWriter BeginRealtime(string title);
 
     // progress reporting
@@ -335,8 +357,8 @@ public interface IUi
     void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown);
 
     // input
-    Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory);
     Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager);
+    IInputRouter GetInputRouter();
     string? RenderMenu(string header, List<string> choices, int selected = 0);
     ConsoleKeyInfo ReadKey(bool intercept);
 

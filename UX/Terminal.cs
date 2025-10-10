@@ -1,11 +1,14 @@
 using System;
+using System.Text;
 using System.Linq;
 using System.Diagnostics;
+using System.Threading.Tasks;
 using System.Collections.Generic;
-using System.Text;
 
 public class Terminal : IUi
 {
+    private TerminalInputRouter? _inputRouter;
+
     public sealed class Progress
     {
         public enum ProgressState { Queued, Running, Failed, Canceled, Completed }
@@ -287,11 +290,11 @@ public class Terminal : IUi
         var topN = Program.config.MaxMenuItems;
         static int Rank(ProgressState s) => s switch
         {
-            ProgressState.Running  => 3,
-            ProgressState.Queued   => 2,
-            ProgressState.Failed   => 1,   // keep failed items visible
+            ProgressState.Running => 3,
+            ProgressState.Queued => 2,
+            ProgressState.Failed => 1,   // keep failed items visible
             ProgressState.Canceled => 0,   // hide from main list (shown in footer stats)
-            ProgressState.Completed=> -1,  // hide from main list
+            ProgressState.Completed => -1,  // hide from main list
             _ => 0
         };
 
@@ -348,7 +351,7 @@ public class Terminal : IUi
         RenderChatMessage(new ChatMessage { Role = Roles.Tool, Content = artifactMarkdown });
     }
 
-    public async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
+    private async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
     {
         await Task.CompletedTask; // Simulate asynchronous behavior
         var buffer = new List<char>();
@@ -491,6 +494,16 @@ public class Terminal : IUi
         return string.IsNullOrWhiteSpace(input) ? null : input;
     }
 
+    public IInputRouter GetInputRouter()
+    {
+        if (_inputRouter == null)
+        {
+            _inputRouter = new TerminalInputRouter();
+            _inputRouter.Attach(this);
+        }
+        return _inputRouter;
+    }
+
     public void RenderTable(Table table, string? title = null)
     {
         int maxWidth = Width - 1;
@@ -584,9 +597,9 @@ public class Terminal : IUi
 
         foreach (var line in lines) sb.AppendLine(line);
         var text = sb.ToString().TrimEnd();
-		var message = new ChatMessage { Role = Roles.Tool, Content = text };
-		Program.Context.AddToolMessage(text);
-		RenderChatMessage(message);
+        var message = new ChatMessage { Role = Roles.Tool, Content = text };
+        Program.Context.AddToolMessage(text);
+        RenderChatMessage(message);
     }
 
     public void RenderReport(Report report)
@@ -614,317 +627,38 @@ public class Terminal : IUi
             WriteLine(new string('-', Math.Min(title.Length, Math.Max(10, Width - 1))));
         }
         return new TermRealtimeWriter();
-    }    
+    }
 
     // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
     public string? RenderMenu(string header, List<string> choices, int selected = 0)
     {
-        // Store original choices for scrolling
-        var originalChoices = new List<string>(choices);
-        int actualMaxVisibleItems = Program.config.MaxMenuItems, originalSelected = selected;
-
-        // always position the menu at the top, and print the header
-        Clear();
-        SetCursorPosition(0, 0);
-        ForegroundColor = ConsoleColor.Green;
-        WriteLine(header);
-        ResetColor();
-
-        // Calculate scrolling parameters
-        int scrollOffset = 0, visibleItems = Math.Min(originalChoices.Count, actualMaxVisibleItems);
-        bool hasMoreAbove = false, hasMoreBelow = false;
-
-        // Reserve space for menu lines, indicators, and input
-        int indicatorLines = 2; // up to 2 lines for "more above/below" indicators
-        int inputLines = 1; // input line
-        int menuLines = visibleItems + indicatorLines;
-
-        // Print placeholder lines for the menu area
-        for (int i = 0; i < menuLines + inputLines; i++)
-        {
-            WriteLine();
-        }
-
-        int menuStartRow = CursorTop - (menuLines + inputLines);
-        int inputTop = CursorTop - inputLines;
-
-        string filter = "";
-        List<string> filteredChoices = new List<string>(originalChoices);
-        int filteredSelected = originalSelected;
-
-        void DrawMenu() => Log.Method(ctx =>
-        {
-            ctx.OnlyEmitOnFailure();
-            ctx.Append(Log.Data.ConsoleHeight, Height);
-            ctx.Append(Log.Data.ConsoleWidth, Width);
-
-            // NEW: clamp everything we draw to the usable width
-            int usable = Math.Max(1, Width - 1);
-            string Fit(string s)
-            {
-                // Hard-truncate including the ellipsis so we never exceed 'usable'
-                var clipped = Utilities.TruncatePlainHard(s ?? string.Empty, usable);
-                // Pad to paint over any leftovers from previous longer lines
-                return clipped.PadRight(usable);
-            }
-
-            // Calculate which items to show and update scroll indicators
-            visibleItems = Math.Min(filteredChoices.Count, actualMaxVisibleItems);
-
-            // Adjust scroll offset to keep selected item visible
-            if (filteredSelected < scrollOffset) scrollOffset = filteredSelected;
-            else if (filteredSelected >= scrollOffset + visibleItems)
-                scrollOffset = filteredSelected - visibleItems + 1;
-
-            // Ensure scroll offset is within bounds
-            scrollOffset = Math.Max(0, Math.Min(scrollOffset, Math.Max(0, filteredChoices.Count - visibleItems)));
-            hasMoreAbove = scrollOffset > 0;
-            hasMoreBelow = scrollOffset + visibleItems < filteredChoices.Count;
-
-            // Ensure we don't exceed console buffer bounds
-            int maxRow = Height - 1;
-            int currentRow = menuStartRow;
-
-            // Draw "more above" indicator if needed
-            if (hasMoreAbove && currentRow < maxRow)
-            {
-                SetCursorPosition(0, currentRow);
-                ForegroundColor = ConsoleColor.DarkGray;
-                var countAbove = Math.Min(scrollOffset, filteredChoices.Count);
-                Write(Fit($"^^^ {countAbove} items above ^^^"));
-                ResetColor();
-                currentRow++;
-            }
-
-            // Draw visible menu items
-            for (int i = 0; i < visibleItems && currentRow < maxRow; i++)
-            {
-                int choiceIndex = scrollOffset + i;
-                if (choiceIndex >= filteredChoices.Count) break;
-
-                ctx.Append(Log.Data.MenuTop, currentRow);
-                SetCursorPosition(0, currentRow);
-                string line;
-
-                bool isSelected = choiceIndex == filteredSelected;
-                if (isSelected)
-                {
-                    ForegroundColor = ConsoleColor.Black;
-                    BackgroundColor = ConsoleColor.White;
-                    line = (filteredChoices.Count <= 9)
-                        ? $"> [{choiceIndex + 1}] {filteredChoices[choiceIndex]} "
-                        : $"> {filteredChoices[choiceIndex]} ";
-                }
-                else
-                {
-                    ForegroundColor = ConsoleColor.Gray;
-                    BackgroundColor = ConsoleColor.Black;
-                    line = (filteredChoices.Count <= 9)
-                        ? $"  [{choiceIndex + 1}] {filteredChoices[choiceIndex]} "
-                        : $"  {filteredChoices[choiceIndex]} ";
-                }
-
-                Write(Fit(line));
-                ResetColor();
-                currentRow++;
-            }
-
-            // Draw "more below" indicator if needed
-            if (hasMoreBelow && currentRow < maxRow)
-            {
-                SetCursorPosition(0, currentRow);
-                ForegroundColor = ConsoleColor.DarkGray;
-                var countBelow = Math.Max(0, filteredChoices.Count - (scrollOffset + visibleItems));
-                Write(Fit($"vvv {countBelow} items below vvv"));
-                ResetColor();
-                currentRow++;
-            }
-
-            // Clear any leftover lines in the menu area
-            while (currentRow < inputTop && currentRow < maxRow)
-            {
-                SetCursorPosition(0, currentRow);
-                Write(new string(' ', usable));
-                currentRow++;
-            }
-
-            // Draw input header only if it fits in the buffer
-            if (inputTop < maxRow)
-            {
-                ctx.Append(Log.Data.InputTop, inputTop);
-                SetCursorPosition(0, inputTop);
-                var inputHeader = "[filter]> ";
-                Write(Fit($"{inputHeader}{filter}"));
-                // place cursor at end of filter if it fits
-                int caret = Math.Min(inputHeader.Length + filter.Length, usable);
-                SetCursorPosition(caret, inputTop);
-            }
-            ctx.Succeeded();
-        });
-
-        DrawMenu();
-        ConsoleKeyInfo key;
-        while (true)
-        {
-            key = ReadKey(true);
-            if (key.Key == ConsoleKey.UpArrow)
-            {
-                if (filteredSelected > 0) filteredSelected--;
-                DrawMenu();
-            }
-            else if (key.Key == ConsoleKey.PageUp || (key.Key == ConsoleKey.UpArrow && key.Modifiers.HasFlag(ConsoleModifiers.Shift)))
-            {
-                if (filteredSelected > 0)
-                {
-                    filteredSelected -= Math.Min(actualMaxVisibleItems, filteredSelected);
-                }
-                DrawMenu();
-            }
-            else if (key.Key == ConsoleKey.Home)
-            {
-                filteredSelected = 0;
-                scrollOffset = 0; // Reset scroll when going to home
-                DrawMenu();
-            }
-            else if (key.Key == ConsoleKey.End)
-            {
-                filteredSelected = Math.Max(0, filteredChoices.Count - 1);
-                scrollOffset = Math.Max(0, filteredChoices.Count - actualMaxVisibleItems); // Reset scroll when going to end
-                DrawMenu();
-            }
-            else if (key.Key == ConsoleKey.DownArrow)
-            {
-                if (filteredSelected < filteredChoices.Count - 1) filteredSelected++;
-                DrawMenu();
-            }
-            else if (key.Key == ConsoleKey.PageDown || (key.Key == ConsoleKey.DownArrow && key.Modifiers.HasFlag(ConsoleModifiers.Shift)))
-            {
-                if (filteredSelected < filteredChoices.Count - 1)
-                {
-                    filteredSelected += Math.Min(actualMaxVisibleItems, filteredChoices.Count - 1 - filteredSelected);
-                }
-                DrawMenu();
-            }
-            else if (key.Key == ConsoleKey.Enter)
-            {
-                // Safe cursor positioning for exit
-                int exitRow = Math.Min(inputTop + 1, Height - 1);
-                SetCursorPosition(0, exitRow);
-                if (filteredChoices.Count > 0)
-                    return filteredChoices[filteredSelected];
-                else
-                    return null;
-            }
-            else if (key.Key == ConsoleKey.Escape)
-            {
-                // Safe cursor positioning for exit
-                int exitRow = Math.Min(inputTop + 1, Height - 1);
-                SetCursorPosition(0, exitRow);
-                WriteLine("Selection cancelled.");
-                return null;
-            }
-            else if (filteredChoices.Count <= 10 && key.KeyChar >= '1' && key.KeyChar <= (char)('0' + filteredChoices.Count))
-            {
-                int idx = key.KeyChar - '1';
-                // Safe cursor positioning for exit
-                int exitRow = Math.Min(inputTop + 1, Height - 1);
-                SetCursorPosition(0, exitRow);
-                return filteredChoices[idx];
-            }
-            else if (key.Key == ConsoleKey.Backspace)
-            {
-                if (filter.Length > 0)
-                {
-                    filter = filter.Substring(0, filter.Length - 1);
-                    filteredChoices = originalChoices.Where(c => c.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
-                    if (filteredSelected >= filteredChoices.Count) filteredSelected = Math.Max(0, filteredChoices.Count - 1);
-                    scrollOffset = 0; // Reset scroll when filtering
-                    DrawMenu();
-                }
-            }
-            else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
-            {
-                string newFilter = filter + key.KeyChar;
-                var newFiltered = originalChoices.Where(c => c.IndexOf(newFilter, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
-                if (newFiltered.Count > 0)
-                {
-                    filter = newFilter;
-                    filteredChoices = newFiltered;
-                    filteredSelected = 0;
-                    scrollOffset = 0; // Reset scroll when filtering
-                    DrawMenu();
-                }
-                // else: ignore input that would result in no options
-            }
-        }
+        // Use MenuOverlay for UiNode-based menu rendering
+        // This is a synchronous wrapper around the async ShowAsync method
+        return MenuOverlay.ShowAsync(this, header, choices, selected).GetAwaiter().GetResult();
     }
 
     public ConsoleKeyInfo ReadKey(bool intercept) => Console.ReadKey(intercept);
 
     public void RenderChatMessage(ChatMessage message)
     {
-        string timestamp = message.CreatedAt.ToString("HH:mm:ss");
-        string roleIndicator;
-        ConsoleColor roleColor, textColor = ForegroundColor;
-
-        switch (message.Role)
-        {
-            case Roles.Tool:
-                roleIndicator = "[TOOL]";
-                roleColor = ConsoleColor.Yellow;
-                textColor = ConsoleColor.DarkGray; // Tool messages in dark gray
-                break;
-            case Roles.System:
-                roleIndicator = "[SYSTEM]";
-                roleColor = ConsoleColor.DarkBlue;
-                textColor = ConsoleColor.DarkGray; // System messages in gray
-                break;
-            case Roles.User:
-                roleIndicator = "[USER]";
-                roleColor = ConsoleColor.Cyan;
-                break;
-            case Roles.Assistant:
-                roleIndicator = "[ASSISTANT]";
-                roleColor = ConsoleColor.Green;
-                break;
-            default:
-                roleIndicator = "[UNKNOWN]";
-                roleColor = ConsoleColor.Red;
-                break;
-        }
-
-        // For new messages in the main loop, show all messages with timestamp and role formatting
-        // Render timestamp in gray
-        ForegroundColor = ConsoleColor.Gray;
-        Write(timestamp);
-        Write(" ");
-
-        // Render role indicator in role-specific color
-        ForegroundColor = roleColor;
-        Write(roleIndicator);
-        Write(" ");
-
-        // Render content
-        ForegroundColor = textColor; // Reset to original text color
-        WriteLine(message.Content);
-        ResetColor();
+        // Use ChatSurface to render the message via patch
+        // Get current message count to determine the index
+        var currentMessages = Program.Context?.Messages(InluceSystemMessage: false).ToList() ?? new List<ChatMessage>();
+        var index = currentMessages.Count > 0 ? currentMessages.Count - 1 : 0;
+        
+        // Apply patch to append the message
+        var patch = ChatSurface.AppendMessage(message, index);
+        PatchAsync(patch).GetAwaiter().GetResult();
     }
 
     public void RenderChatHistory(IEnumerable<ChatMessage> messages)
     {
-        WriteLine("Chat History:");
-        WriteLine(new string('-', 50));
-
-        foreach (var message in messages)
-        {
-            // Skip empty system messages in history view
-            if (message.Role == Roles.System && string.IsNullOrWhiteSpace(message.Content))
-                continue;
-
-            RenderChatMessage(message);
-        }
-
-        WriteLine(new string('-', 50));
+        // Use ChatSurface to render all messages via patch
+        var messageList = messages.ToList();
+        
+        // Apply patch to update all messages
+        var patch = ChatSurface.UpdateMessages(messageList);
+        PatchAsync(patch).GetAwaiter().GetResult();
     }
 
     public int CursorTop { get => Console.CursorTop; }
@@ -974,10 +708,6 @@ public class Terminal : IUi
         _uiTree.SetRoot(root);
         _controlOptions = options ?? new UiControlOptions();
 
-        // Clear the console and render the new surface
-        Clear();
-        RenderNode(root, 0);
-
         // Set initial focus if specified
         if (!string.IsNullOrEmpty(_controlOptions.InitialFocusKey))
         {
@@ -990,9 +720,18 @@ public class Terminal : IUi
                 ctx.Failed($"Failed to set initial focus to '{_controlOptions.InitialFocusKey}'", ex);
             }
         }
+
+        // Clear the console and do initial render using TermDom
+        Clear();
+        _lastSnapshot = _termDom.Layout(root, Width, _uiTree.FocusedKey);
+        _termDom.Apply(_termDom.GetFullRender(_lastSnapshot));
+
         ctx.Succeeded();
         return Task.CompletedTask;
     });
+
+    private readonly TermDom _termDom = new();
+    private TermSnapshot? _lastSnapshot;
 
     public Task PatchAsync(UiPatch patch)
     {
@@ -1002,11 +741,25 @@ public class Terminal : IUi
         // Apply the patch atomically
         _uiTree.ApplyPatch(patch);
 
-        // Re-render the entire tree (in a real implementation, could optimize to only re-render affected nodes)
+        // Use incremental rendering if enabled, otherwise fall back to full re-render
         if (_uiTree.Root != null)
         {
-            Clear();
-            RenderNode(_uiTree.Root, 0);
+            var newSnapshot = _termDom.Layout(_uiTree.Root, Width, _uiTree.FocusedKey);
+
+            if (_lastSnapshot != null)
+            {
+                // Compute and apply minimal edits
+                var edits = _termDom.Diff(_lastSnapshot, newSnapshot);
+                _termDom.Apply(edits);
+            }
+            else
+            {
+                // First render or snapshot unavailable
+                Clear();
+                _termDom.Apply(_termDom.GetFullRender(newSnapshot));
+            }
+
+            _lastSnapshot = newSnapshot;
         }
 
         return Task.CompletedTask;
@@ -1047,8 +800,8 @@ public class Terminal : IUi
             case UiKind.Label:
                 if (node.Props.TryGetValue("text", out var labelText))
                 {
-                    ForegroundColor = node.Props.TryGetValue("color", out var color) && color is ConsoleColor cc 
-                        ? cc 
+                    ForegroundColor = node.Props.TryGetValue("color", out var color) && color is ConsoleColor cc
+                        ? cc
                         : ConsoleColor.Gray;
                     WriteLine($"{indentStr}{labelText}");
                     ResetColor();
@@ -1077,7 +830,7 @@ public class Terminal : IUi
                 var text = node.Props.TryGetValue("text", out var t) ? t?.ToString() : "";
                 var placeholder = node.Props.TryGetValue("placeholder", out var ph) ? ph?.ToString() : "";
                 var displayText = string.IsNullOrEmpty(text) ? $"({placeholder})" : text;
-                
+
                 if (isFocused)
                 {
                     ForegroundColor = ConsoleColor.Black;
@@ -1096,7 +849,7 @@ public class Terminal : IUi
                 var isChecked = node.Props.TryGetValue("checked", out var chk) && chk is bool b && b;
                 var cbLabel = node.Props.TryGetValue("label", out var lbl) ? lbl?.ToString() : "";
                 var checkbox = isChecked ? "[X]" : "[ ]";
-                
+
                 if (isFocused)
                 {
                     ForegroundColor = ConsoleColor.Black;
@@ -1111,7 +864,7 @@ public class Terminal : IUi
                 {
                     var selectedIndex = node.Props.TryGetValue("selectedIndex", out var si) && si is int idx ? idx : -1;
                     var itemList = items.ToList();
-                    
+
                     for (int i = 0; i < itemList.Count; i++)
                     {
                         var isSelected = i == selectedIndex;
@@ -1145,11 +898,11 @@ public class Terminal : IUi
             case UiKind.Accordion:
                 var title = node.Props.TryGetValue("title", out var t2) ? t2?.ToString() : "Accordion";
                 var isExpanded = node.Props.TryGetValue("expanded", out var exp) && exp is bool e && e;
-                
+
                 ForegroundColor = isFocused ? ConsoleColor.Yellow : ConsoleColor.Cyan;
                 WriteLine($"{indentStr}{(isExpanded ? "▼" : "▶")} {title}");
                 ResetColor();
-                
+
                 if (isExpanded)
                 {
                     foreach (var child in node.Children)
@@ -1158,6 +911,410 @@ public class Terminal : IUi
                     }
                 }
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Terminal Virtual-DOM for incremental rendering
+    /// Flattens UiNode -> lines with attributes, maintains key→region map, computes minimal edits
+    /// </summary>
+    private sealed class TermDom
+    {
+        /// <summary>
+        /// Flattens UiNode -> lines with attributes (fg/bg), maintains key→region map
+        /// </summary>
+        public TermSnapshot Layout(UiNode root, int width, string? focusedKey)
+        {
+            var lines = new List<TermLine>();
+            var keyMap = new Dictionary<string, TermRegion>();
+
+            LayoutNode(root, 0, width, focusedKey, lines, keyMap);
+
+            return new TermSnapshot(lines, keyMap);
+        }
+
+        /// <summary>
+        /// Computes minimal edits to transform old snapshot into new snapshot
+        /// </summary>
+        public IEnumerable<TermEdit> Diff(TermSnapshot oldSnap, TermSnapshot newSnap)
+        {
+            var edits = new List<TermEdit>();
+            var maxLines = Math.Max(oldSnap.Lines.Count, newSnap.Lines.Count);
+
+            for (int i = 0; i < maxLines; i++)
+            {
+                var oldLine = i < oldSnap.Lines.Count ? oldSnap.Lines[i] : null;
+                var newLine = i < newSnap.Lines.Count ? newSnap.Lines[i] : null;
+
+                if (oldLine == null && newLine != null)
+                {
+                    // New line added
+                    edits.Add(new TermEdit(i, newLine));
+                }
+                else if (oldLine != null && newLine == null)
+                {
+                    // Line removed
+                    edits.Add(new TermEdit(i, new TermLine("", ConsoleColor.Gray, ConsoleColor.Black)));
+                }
+                else if (oldLine != null && newLine != null && !oldLine.Equals(newLine))
+                {
+                    // Line changed
+                    edits.Add(new TermEdit(i, newLine));
+                }
+            }
+
+            return edits;
+        }
+
+        /// <summary>
+        /// Applies edits to console without scrolling, respects z-index (overlays last)
+        /// </summary>
+        public void Apply(IEnumerable<TermEdit> edits)
+        {
+            Console.CursorVisible = false;
+            foreach (var edit in edits)
+            {
+                Console.SetCursorPosition(0, edit.LineIndex);
+                Console.ForegroundColor = edit.Line.Foreground;
+                Console.BackgroundColor = edit.Line.Background;
+
+                // Pad or truncate to console width
+                var text = edit.Line.Text;
+                var width = Console.WindowWidth;
+                if (text.Length < width)
+                    text = text.PadRight(width);
+                else if (text.Length > width)
+                    text = text.Substring(0, width);
+
+                Console.Write(text);
+                Console.ResetColor();
+            }
+        }
+
+        /// <summary>
+        /// Gets all edits for a full render (used for initial render)
+        /// </summary>
+        public IEnumerable<TermEdit> GetFullRender(TermSnapshot snapshot)
+        {
+            return snapshot.Lines.Select((line, index) => new TermEdit(index, line));
+        }
+
+        private void LayoutNode(UiNode node, int indent, int width, string? focusedKey, List<TermLine> lines, Dictionary<string, TermRegion> keyMap)
+        {
+            var startLine = lines.Count;
+            var indentStr = new string(' ', indent * 2);
+            var isFocused = node.Key == focusedKey;
+
+            switch (node.Kind)
+            {
+                case UiKind.Column:
+                case UiKind.Row:
+                    // Layout containers - just layout children
+                    foreach (var child in node.Children)
+                    {
+                        LayoutNode(child, node.Kind == UiKind.Column ? indent : indent + 1, width, focusedKey, lines, keyMap);
+                    }
+                    break;
+
+                case UiKind.Label:
+                    if (node.Props.TryGetValue("text", out var labelText))
+                    {
+                        var fg = node.Props.TryGetValue("color", out var color) && color is ConsoleColor cc
+                            ? cc
+                            : ConsoleColor.Gray;
+                        var bg = isFocused ? ConsoleColor.DarkGray : ConsoleColor.Black;
+
+                        lines.Add(new TermLine($"{indentStr}{labelText}", fg, bg));
+                    }
+                    break;
+
+                case UiKind.Button:
+                    if (node.Props.TryGetValue("text", out var btnText))
+                    {
+                        var fg = isFocused ? ConsoleColor.Black : ConsoleColor.White;
+                        var bg = isFocused ? ConsoleColor.White : ConsoleColor.DarkGray;
+
+                        lines.Add(new TermLine($"{indentStr}[ {btnText} ]", fg, bg));
+                    }
+                    break;
+
+                case UiKind.TextBox:
+                case UiKind.TextArea:
+                    var value = node.Props.TryGetValue("value", out var v) ? v?.ToString() : "";
+                    var placeholder = node.Props.TryGetValue("placeholder", out var p) ? p?.ToString() : "";
+                    var displayText = string.IsNullOrEmpty(value) ? placeholder : value;
+
+                    var textFg = isFocused ? ConsoleColor.Black : (string.IsNullOrEmpty(value) ? ConsoleColor.DarkGray : ConsoleColor.White);
+                    var textBg = isFocused ? ConsoleColor.White : ConsoleColor.Black;
+
+                    lines.Add(new TermLine($"{indentStr}{displayText}", textFg, textBg));
+                    break;
+
+                case UiKind.CheckBox:
+                case UiKind.Toggle:
+                    var isChecked = node.Props.TryGetValue("checked", out var chk) && chk is bool c && c;
+                    var checkbox = isChecked ? "[✓]" : "[ ]";
+                    var cbLabel = node.Props.TryGetValue("text", out var cbt) ? cbt?.ToString() : "";
+
+                    var cbFg = isFocused ? ConsoleColor.Black : ConsoleColor.Gray;
+                    var cbBg = isFocused ? ConsoleColor.White : ConsoleColor.Black;
+
+                    lines.Add(new TermLine($"{indentStr}{checkbox} {cbLabel}", cbFg, cbBg));
+                    break;
+
+                case UiKind.ListView:
+                    if (node.Props.TryGetValue("items", out var itemsObj) && itemsObj is IEnumerable<object> items)
+                    {
+                        var selectedIndex = node.Props.TryGetValue("selectedIndex", out var si) && si is int idx ? idx : -1;
+                        var itemList = items.ToList();
+
+                        for (int i = 0; i < itemList.Count; i++)
+                        {
+                            var isSelected = i == selectedIndex;
+                            var fg = (isSelected || isFocused) ? ConsoleColor.Black : ConsoleColor.Gray;
+                            var bg = (isSelected || isFocused) ? ConsoleColor.White : ConsoleColor.Black;
+
+                            lines.Add(new TermLine($"{indentStr}  {(isSelected ? ">" : " ")} {itemList[i]}", fg, bg));
+                        }
+                    }
+                    break;
+
+                case UiKind.Html:
+                    if (node.Props.TryGetValue("content", out var htmlContent))
+                    {
+                        lines.Add(new TermLine($"{indentStr}{htmlContent}", ConsoleColor.Gray, ConsoleColor.Black));
+                    }
+                    break;
+
+                case UiKind.Spacer:
+                    var height = node.Props.TryGetValue("height", out var h) && h is int ht ? ht : 1;
+                    for (int i = 0; i < height; i++)
+                    {
+                        lines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black));
+                    }
+                    break;
+
+                case UiKind.Accordion:
+                    var title = node.Props.TryGetValue("title", out var t2) ? t2?.ToString() : "Accordion";
+                    var isExpanded = node.Props.TryGetValue("expanded", out var exp) && exp is bool e && e;
+
+                    var accFg = isFocused ? ConsoleColor.Yellow : ConsoleColor.Cyan;
+                    lines.Add(new TermLine($"{indentStr}{(isExpanded ? "▼" : "▶")} {title}", accFg, ConsoleColor.Black));
+
+                    if (isExpanded)
+                    {
+                        foreach (var child in node.Children)
+                        {
+                            LayoutNode(child, indent + 1, width, focusedKey, lines, keyMap);
+                        }
+                    }
+                    break;
+            }
+
+            // Record region for this node
+            var endLine = lines.Count;
+            if (endLine > startLine)
+            {
+                keyMap[node.Key] = new TermRegion(startLine, endLine - startLine);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Snapshot of the terminal state at a point in time
+    /// </summary>
+    private sealed record TermSnapshot(
+        IReadOnlyList<TermLine> Lines,
+        IReadOnlyDictionary<string, TermRegion> KeyMap
+    );
+
+    /// <summary>
+    /// A single line in the terminal with styling
+    /// </summary>
+    private sealed record TermLine(
+        string Text,
+        ConsoleColor Foreground,
+        ConsoleColor Background
+    );
+
+    /// <summary>
+    /// Region occupied by a UiNode in the terminal
+    /// </summary>
+    private sealed record TermRegion(
+        int StartLine,
+        int LineCount
+    );
+
+    /// <summary>
+    /// An edit operation to apply to the terminal
+    /// </summary>
+    private sealed record TermEdit(
+        int LineIndex,
+        TermLine Line
+    );
+}
+
+/// <summary>
+/// Terminal implementation of IInputRouter
+/// Maps key events to unified input submission (Enter submits, Shift+Enter inserts newline)
+/// Integrates with UiNode system by updating the "input" node props as user types
+/// </summary>
+public sealed class TerminalInputRouter : IInputRouter
+{
+    private IUi? _ui;
+    private readonly StringBuilder _inputBuffer = new();
+    private TaskCompletionSource<string?>? _readLineTcs;
+    private CommandManager? _commands;
+
+    public event Action<string>? OnInputChanged;
+
+    public void Attach(IUi ui)
+    {
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
+    }
+
+    public async Task<string?> ReadLineAsync(CommandManager commands)
+    {
+        if (_ui == null)
+            throw new InvalidOperationException("InputRouter not attached to UI");
+
+        _commands = commands;
+        _readLineTcs = new TaskCompletionSource<string?>();
+        _inputBuffer.Clear();
+
+        // Start reading from console in background
+        _ = Task.Run(() => ReadConsoleInput());
+
+        return await _readLineTcs.Task;
+    }
+
+    private async void ReadConsoleInput()
+    {
+        if (_ui == null || _readLineTcs == null) return;
+        
+        var lines = new List<string>();
+
+        while (!_readLineTcs.Task.IsCompleted)
+        {
+            if (!Console.KeyAvailable)
+            {
+                await Task.Delay(10);
+                continue;
+            }
+
+            var key = Console.ReadKey(intercept: true);
+
+            // Handle Escape (command palette)
+            if (key.Key == ConsoleKey.Escape && _commands != null)
+            {
+                try
+                {
+                    await _commands.Action();
+                    // Focus back to input after command
+                    await _ui.FocusAsync("input");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Command error: {ex.Message}");
+                }
+                continue;
+            }
+
+            // Handle Enter (submit) vs Shift+Enter (newline)
+            if (key.Key == ConsoleKey.Enter)
+            {
+                if ((key.Modifiers & ConsoleModifiers.Shift) != 0)
+                {
+                    // Shift+Enter: Insert newline (add current line to buffer and start new line)
+                    lines.Add(_inputBuffer.ToString());
+                    _inputBuffer.Clear();
+                    var multilineText = string.Join("\n", lines) + "\n";
+                    
+                    // Update the UI node
+                    await UpdateInputNode(multilineText);
+                    OnInputChanged?.Invoke(multilineText);
+                }
+                else
+                {
+                    // Enter: Submit
+                    lines.Add(_inputBuffer.ToString());
+                    var result = string.Join("\n", lines).Trim();
+                    _readLineTcs.TrySetResult(string.IsNullOrWhiteSpace(result) ? null : result);
+                    return;
+                }
+            }
+            // Handle Backspace
+            else if (key.Key == ConsoleKey.Backspace)
+            {
+                if (_inputBuffer.Length > 0)
+                {
+                    _inputBuffer.Length--;
+                    var currentText = _inputBuffer.ToString();
+                    if (lines.Count > 0)
+                    {
+                        currentText = string.Join("\n", lines) + "\n" + currentText;
+                    }
+                    await UpdateInputNode(currentText);
+                    OnInputChanged?.Invoke(currentText);
+                }
+                else if (lines.Count > 0)
+                {
+                    // Backspace at start of line - go back to previous line
+                    var lastLine = lines[lines.Count - 1];
+                    lines.RemoveAt(lines.Count - 1);
+                    _inputBuffer.Clear();
+                    _inputBuffer.Append(lastLine);
+                    var currentText = lines.Count > 0 ? string.Join("\n", lines) + "\n" + _inputBuffer.ToString() : _inputBuffer.ToString();
+                    await UpdateInputNode(currentText);
+                    OnInputChanged?.Invoke(currentText);
+                }
+            }
+            // Handle UpArrow (recall last input if available)
+            else if (key.Key == ConsoleKey.UpArrow)
+            {
+                // Let the caller handle history - for now just ignore
+                continue;
+            }
+            // Handle printable characters
+            else if (!char.IsControl(key.KeyChar))
+            {
+                _inputBuffer.Append(key.KeyChar);
+                var currentText = _inputBuffer.ToString();
+                if (lines.Count > 0)
+                {
+                    currentText = string.Join("\n", lines) + "\n" + currentText;
+                }
+                await UpdateInputNode(currentText);
+                OnInputChanged?.Invoke(currentText);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Updates the input UiNode with the current text
+    /// </summary>
+    private async Task UpdateInputNode(string text)
+    {
+        if (_ui == null) return;
+        
+        try
+        {
+            await _ui.PatchAsync(new UiPatch(
+                new UpdatePropsOp("input", new Dictionary<string, object?>
+                {
+                    ["text"] = text,
+                    ["placeholder"] = "Type a message..."
+                }),
+                new UpdatePropsOp("send-btn", new Dictionary<string, object?>
+                {
+                    ["text"] = "Send",
+                    ["enabled"] = !string.IsNullOrWhiteSpace(text)
+                })
+            ));
+        }
+        catch
+        {
+            // Ignore errors if UI is being torn down
         }
     }
 }

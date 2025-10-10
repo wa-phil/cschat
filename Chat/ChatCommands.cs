@@ -21,13 +21,37 @@ public partial class CommandManager
                     {
                         var forked = ChatManager.CreateNewThread();
                         
-                        // Mount empty ChatSurface for new thread
-                        await ChatSurface.MountAsync(
-                            Program.ui,
+                        // Create header with new thread name
+                        var header = ChatSurface.CreateHeader(
+                            threadName: forked.Name,
+                            onClear: async (e) => 
+                            {
+                                Program.Context.Clear();
+                                Program.Context.AddSystemMessage(Program.config.SystemPrompt);
+                                await Program.ui.PatchAsync(ChatSurface.ClearMessages());
+                            }
+                        );
+                        
+                        // Create ChatSurface content for new thread
+                        var chatContent = ChatSurface.Create(
                             Array.Empty<ChatMessage>(),
                             inputText: "",
-                            threadName: forked.Name
+                            onSend: null,
+                            onInput: async (e) =>
+                            {
+                                var currentInputText = e.Value ?? "";
+                                await Program.ui.PatchAsync(ChatSurface.UpdateInput(currentInputText));
+                            }
                         );
+                        
+                        // Wrap in UiFrame and mount
+                        var frame = new UiFrame(
+                            Header: header,
+                            Content: chatContent,
+                            Overlays: Array.Empty<UiNode>()
+                        );
+                        var frameRoot = UiFrameBuilder.Create(frame);
+                        await Program.ui.SetRootAsync(frameRoot, new UiControlOptions(TrapKeys: true, InitialFocusKey: "input"));
                         
                         using var output = Program.ui.BeginRealtime("Creating new thread...");
                         output.WriteLine($"Switched to '{forked.Name}'.");
@@ -59,14 +83,38 @@ public partial class CommandManager
                         Program.config.ChatThreadSettings.ActiveThreadName = target.Name;
                         Config.Save(Program.config, Program.ConfigFilePath);
                         
+                        // Create header with new thread name
+                        var header = ChatSurface.CreateHeader(
+                            threadName: target.Name,
+                            onClear: async (e) => 
+                            {
+                                Program.Context.Clear();
+                                Program.Context.AddSystemMessage(Program.config.SystemPrompt);
+                                await Program.ui.PatchAsync(ChatSurface.ClearMessages());
+                            }
+                        );
+                        
                         // Remount ChatSurface with new thread's messages
                         var messages = Program.Context.Messages(InluceSystemMessage: false).ToList();
-                        await ChatSurface.MountAsync(
-                            Program.ui,
+                        var chatContent = ChatSurface.Create(
                             messages,
                             inputText: "",
-                            threadName: target.Name
+                            onSend: null,
+                            onInput: async (e) =>
+                            {
+                                var currentInputText = e.Value ?? "";
+                                await Program.ui.PatchAsync(ChatSurface.UpdateInput(currentInputText));
+                            }
                         );
+                        
+                        // Wrap in UiFrame and mount
+                        var frame = new UiFrame(
+                            Header: header,
+                            Content: chatContent,
+                            Overlays: Array.Empty<UiNode>()
+                        );
+                        var frameRoot = UiFrameBuilder.Create(frame);
+                        await Program.ui.SetRootAsync(frameRoot, new UiControlOptions(TrapKeys: true, InitialFocusKey: "input"));
                         
                         using var output = Program.ui.BeginRealtime($"Switching from thread '{currentName}' to '{target.Name}'.");
                         return Command.Result.Success;
@@ -77,14 +125,39 @@ public partial class CommandManager
                     Name = "show", Description = () => "Show chat history",
                     Action = async () =>
                     {
+                        // Create header
+                        var header = ChatSurface.CreateHeader(
+                            threadName: Program.config.ChatThreadSettings.ActiveThreadName,
+                            onClear: async (e) => 
+                            {
+                                Program.Context.Clear();
+                                Program.Context.AddSystemMessage(Program.config.SystemPrompt);
+                                await Program.ui.PatchAsync(ChatSurface.ClearMessages());
+                            }
+                        );
+                        
                         // Remount ChatSurface to refresh display
                         var messages = Program.Context.Messages(InluceSystemMessage: false).ToList();
-                        await ChatSurface.MountAsync(
-                            Program.ui,
+                        var chatContent = ChatSurface.Create(
                             messages,
                             inputText: "",
-                            threadName: Program.config.ChatThreadSettings.ActiveThreadName
+                            onSend: null,
+                            onInput: async (e) =>
+                            {
+                                var currentInputText = e.Value ?? "";
+                                await Program.ui.PatchAsync(ChatSurface.UpdateInput(currentInputText));
+                            }
                         );
+                        
+                        // Wrap in UiFrame and mount
+                        var frame = new UiFrame(
+                            Header: header,
+                            Content: chatContent,
+                            Overlays: Array.Empty<UiNode>()
+                        );
+                        var frameRoot = UiFrameBuilder.Create(frame);
+                        await Program.ui.SetRootAsync(frameRoot, new UiControlOptions(TrapKeys: true, InitialFocusKey: "input"));
+                        
                         return Command.Result.Success;
                     }
                 },

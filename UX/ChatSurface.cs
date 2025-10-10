@@ -10,21 +10,17 @@ using System.Threading.Tasks;
 public static class ChatSurface
 {
     /// <summary>
-    /// Creates the root UiNode for the chat surface
+    /// Creates the root UiNode for the chat surface (Content area only - no toolbar)
     /// </summary>
     /// <param name="messages">List of chat messages to display</param>
     /// <param name="inputText">Current text in the input field</param>
-    /// <param name="threadName">Name of the active chat thread</param>
     /// <param name="onSend">Handler for send button click</param>
-    /// <param name="onClear">Handler for clear button click</param>
     /// <param name="onInput">Handler for input text changes</param>
-    /// <returns>Root UiNode representing the chat surface</returns>
+    /// <returns>Root UiNode representing the chat surface content</returns>
     public static UiNode Create(
         IEnumerable<ChatMessage> messages,
         string inputText = "",
-        string? threadName = null,
         UiHandler? onSend = null,
-        UiHandler? onClear = null,
         UiHandler? onInput = null)
     {
         var messageNodes = messages
@@ -37,7 +33,6 @@ public static class ChatSurface
             new Dictionary<string, object?>(),
             new UiNode[]
             {
-                CreateToolbar(threadName, onClear),
                 CreateMessagesPanel(messageNodes),
                 new UiNode("spacer", UiKind.Spacer, new Dictionary<string, object?> { ["height"] = 1 }, Array.Empty<UiNode>()),
                 CreateComposer(inputText, onSend, onInput)
@@ -46,9 +41,9 @@ public static class ChatSurface
     }
 
     /// <summary>
-    /// Creates the toolbar at the top of the chat surface
+    /// Creates the header/toolbar for the frame (thread title and action buttons)
     /// </summary>
-    private static UiNode CreateToolbar(string? threadName, UiHandler? onClear)
+    public static UiNode CreateHeader(string? threadName, UiHandler? onClear)
     {
         var title = string.IsNullOrEmpty(threadName) ? "Chat" : $"Chat: {threadName}";
         
@@ -69,13 +64,13 @@ public static class ChatSurface
         }
 
         return new UiNode(
-            "toolbar",
+            "header",
             UiKind.Row,
             new Dictionary<string, object?>(),
             new[]
             {
                 new UiNode("thread-title", UiKind.Label, props, Array.Empty<UiNode>()),
-                new UiNode("spacer-toolbar", UiKind.Spacer, new Dictionary<string, object?> { ["width"] = 2 }, Array.Empty<UiNode>()),
+                new UiNode("spacer-header", UiKind.Spacer, new Dictionary<string, object?> { ["width"] = 2 }, Array.Empty<UiNode>()),
                 new UiNode("clear-btn", UiKind.Button, clearButtonProps, Array.Empty<UiNode>())
             }
         );
@@ -405,12 +400,10 @@ public static class ChatSurface
         IUi ui,
         IEnumerable<ChatMessage> messages,
         string inputText = "",
-        string? threadName = null,
         UiHandler? onSend = null,
-        UiHandler? onClear = null,
         UiHandler? onInput = null)
     {
-        var surface = Create(messages, inputText, threadName, onSend, onClear, onInput);
+        var surface = Create(messages, inputText, onSend, onInput);
         await ui.SetRootAsync(surface, new UiControlOptions(TrapKeys: true, InitialFocusKey: "input"));
     }
 }
