@@ -227,35 +227,59 @@ static class Program
 
                 Config.Save(config, ConfigFilePath);
 
-                {
-                    output.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-                    output.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
-                    output.WriteLine();
-                }
+                output.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
+                output.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
+                output.WriteLine();
 
-                // Render existing chat history from the loaded thread
-                ui.RenderChatHistory(Context.Messages());
+                // Track current input text
+                string currentInputText = "";
 
+                // Mount ChatSurface for all UI modes
+                var messages = Context.Messages(InluceSystemMessage: false).ToList();
+                await ChatSurface.MountAsync(
+                    ui,
+                    messages,
+                    inputText: currentInputText,
+                    threadName: Program.config.ChatThreadSettings.ActiveThreadName,
+                    onSend: null,  // onSend is handled by unified I/O stack (no custom handler needed)
+                    onClear: async (e) => 
+                    {
+                        Context.Clear();
+                        Context.AddSystemMessage(config.SystemPrompt);
+                        await ui.PatchAsync(ChatSurface.ClearMessages());
+                    },
+                    onInput: async (e) =>
+                    {
+                        // Track input changes and update UI to reflect them
+                        currentInputText = e.Value ?? "";
+                        await ui.PatchAsync(ChatSurface.UpdateInput(currentInputText));
+                    }
+                );
+
+                // Unified main input loop - works the same for Terminal and GUI modes
+                // Both modes use ReadInputWithFeaturesAsync to get input:
+                // - Terminal: reads from console stdin
+                // - GUI: receives input from ControlEvent (enter/click) via _tcsReadLine
                 while (true)
                 {
-                    if (UiMode.Terminal == config.UiMode) ui.Write("> ");
                     var userInput = await ui.ReadInputWithFeaturesAsync(commandManager);
-
-                    // IMPORTANT: when the Photino window closes, ReadInput... returns null -> exit loop
-                    if (userInput is null) break;
-
-                    if (string.IsNullOrWhiteSpace(userInput)) continue;
-
-                    // Add and render user message with proper formatting
-                    Context.AddUserMessage(userInput);
-                    var userMessage = Context.Messages().Last(); // Get the message we just added
-                    ui.RenderChatMessage(userMessage);
-
-                    var (response, updatedContext) = await Engine.PostChatAsync(Context);
-                    var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
-                    ui.RenderChatMessage(assistantMessage);
-                    Context = updatedContext;
-                    Context.AddAssistantMessage(response);
+                    
+                    // When user exits or window closes, ReadInput returns null -> exit loop
+                    if (userInput == null) break;
+                    
+                    if (!string.IsNullOrWhiteSpace(userInput))
+                    {
+                        await ChatSurface.ProcessChatInputAsync(
+                            ui, 
+                            userInput, 
+                            Context,
+                            async (ctx) =>
+                            {
+                                var (result, updatedContext) = await Engine.PostChatAsync(ctx);
+                                Context = updatedContext;
+                                return (result, updatedContext);
+                            });
+                    }
                 }
             });
         }

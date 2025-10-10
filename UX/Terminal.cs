@@ -960,4 +960,204 @@ public class Terminal : IUi
     public void Clear() => Console.Clear();
 
     public Task RunAsync(Func<Task> appMain) => appMain();
+
+    // Declarative control layer (UiNode/UiPatch)
+    private readonly UiNodeTree _uiTree = new();
+    private UiControlOptions? _controlOptions;
+
+    public Task SetRootAsync(UiNode root, UiControlOptions? options = null) => Log.Method(ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        if (root == null) throw new ArgumentNullException(nameof(root));
+
+        // Validate and set the root
+        _uiTree.SetRoot(root);
+        _controlOptions = options ?? new UiControlOptions();
+
+        // Clear the console and render the new surface
+        Clear();
+        RenderNode(root, 0);
+
+        // Set initial focus if specified
+        if (!string.IsNullOrEmpty(_controlOptions.InitialFocusKey))
+        {
+            try
+            {
+                _uiTree.SetFocus(_controlOptions.InitialFocusKey);
+            }
+            catch (Exception ex)
+            {
+                ctx.Failed($"Failed to set initial focus to '{_controlOptions.InitialFocusKey}'", ex);
+            }
+        }
+        ctx.Succeeded();
+        return Task.CompletedTask;
+    });
+
+    public Task PatchAsync(UiPatch patch)
+    {
+        if (patch == null)
+            throw new ArgumentNullException(nameof(patch));
+
+        // Apply the patch atomically
+        _uiTree.ApplyPatch(patch);
+
+        // Re-render the entire tree (in a real implementation, could optimize to only re-render affected nodes)
+        if (_uiTree.Root != null)
+        {
+            Clear();
+            RenderNode(_uiTree.Root, 0);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task FocusAsync(string key)
+    {
+        if (string.IsNullOrEmpty(key))
+            throw new ArgumentNullException(nameof(key));
+
+        // Set focus in the tree
+        _uiTree.SetFocus(key);
+
+        // In Terminal UI, we could move cursor to the focused element
+        // For now, just mark it as focused in the tree
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Renders a UiNode and its children to the terminal
+    /// </summary>
+    private void RenderNode(UiNode node, int indent)
+    {
+        var indentStr = new string(' ', indent * 2);
+        var isFocused = node.Key == _uiTree.FocusedKey;
+
+        switch (node.Kind)
+        {
+            case UiKind.Column:
+            case UiKind.Row:
+                // Layout containers - just render children
+                foreach (var child in node.Children)
+                {
+                    RenderNode(child, node.Kind == UiKind.Column ? indent : indent + 1);
+                }
+                break;
+
+            case UiKind.Label:
+                if (node.Props.TryGetValue("text", out var labelText))
+                {
+                    ForegroundColor = node.Props.TryGetValue("color", out var color) && color is ConsoleColor cc 
+                        ? cc 
+                        : ConsoleColor.Gray;
+                    WriteLine($"{indentStr}{labelText}");
+                    ResetColor();
+                }
+                break;
+
+            case UiKind.Button:
+                if (node.Props.TryGetValue("text", out var btnText))
+                {
+                    if (isFocused)
+                    {
+                        ForegroundColor = ConsoleColor.Black;
+                        BackgroundColor = ConsoleColor.White;
+                    }
+                    else
+                    {
+                        ForegroundColor = ConsoleColor.Cyan;
+                    }
+                    WriteLine($"{indentStr}[{btnText}]");
+                    ResetColor();
+                }
+                break;
+
+            case UiKind.TextBox:
+            case UiKind.TextArea:
+                var text = node.Props.TryGetValue("text", out var t) ? t?.ToString() : "";
+                var placeholder = node.Props.TryGetValue("placeholder", out var ph) ? ph?.ToString() : "";
+                var displayText = string.IsNullOrEmpty(text) ? $"({placeholder})" : text;
+                
+                if (isFocused)
+                {
+                    ForegroundColor = ConsoleColor.Black;
+                    BackgroundColor = ConsoleColor.White;
+                }
+                else
+                {
+                    ForegroundColor = ConsoleColor.Gray;
+                }
+                WriteLine($"{indentStr}{displayText}");
+                ResetColor();
+                break;
+
+            case UiKind.CheckBox:
+            case UiKind.Toggle:
+                var isChecked = node.Props.TryGetValue("checked", out var chk) && chk is bool b && b;
+                var cbLabel = node.Props.TryGetValue("label", out var lbl) ? lbl?.ToString() : "";
+                var checkbox = isChecked ? "[X]" : "[ ]";
+                
+                if (isFocused)
+                {
+                    ForegroundColor = ConsoleColor.Black;
+                    BackgroundColor = ConsoleColor.White;
+                }
+                WriteLine($"{indentStr}{checkbox} {cbLabel}");
+                ResetColor();
+                break;
+
+            case UiKind.ListView:
+                if (node.Props.TryGetValue("items", out var itemsObj) && itemsObj is IEnumerable<object> items)
+                {
+                    var selectedIndex = node.Props.TryGetValue("selectedIndex", out var si) && si is int idx ? idx : -1;
+                    var itemList = items.ToList();
+                    
+                    for (int i = 0; i < itemList.Count; i++)
+                    {
+                        var isSelected = i == selectedIndex;
+                        if (isSelected || isFocused)
+                        {
+                            ForegroundColor = ConsoleColor.Black;
+                            BackgroundColor = ConsoleColor.White;
+                        }
+                        WriteLine($"{indentStr}  {(isSelected ? ">" : " ")} {itemList[i]}");
+                        ResetColor();
+                    }
+                }
+                break;
+
+            case UiKind.Html:
+                // Render as plain text in terminal
+                if (node.Props.TryGetValue("content", out var htmlContent))
+                {
+                    WriteLine($"{indentStr}{htmlContent}");
+                }
+                break;
+
+            case UiKind.Spacer:
+                var height = node.Props.TryGetValue("height", out var h) && h is int ht ? ht : 1;
+                for (int i = 0; i < height; i++)
+                {
+                    WriteLine();
+                }
+                break;
+
+            case UiKind.Accordion:
+                var title = node.Props.TryGetValue("title", out var t2) ? t2?.ToString() : "Accordion";
+                var isExpanded = node.Props.TryGetValue("expanded", out var exp) && exp is bool e && e;
+                
+                ForegroundColor = isFocused ? ConsoleColor.Yellow : ConsoleColor.Cyan;
+                WriteLine($"{indentStr}{(isExpanded ? "▼" : "▶")} {title}");
+                ResetColor();
+                
+                if (isExpanded)
+                {
+                    foreach (var child in node.Children)
+                    {
+                        RenderNode(child, indent + 1);
+                    }
+                }
+                break;
+        }
+    }
 }

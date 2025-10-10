@@ -363,4 +363,32 @@ public interface IUi
 
     // lets each UI decide how to run/pump itself
     Task RunAsync(Func<Task> appMain);
+
+    // Declarative control layer (UiNode/UiPatch)
+    /// <summary>
+    /// Mounts a new control surface as the root of the UI tree
+    /// </summary>
+    /// <param name="root">The root UiNode to mount</param>
+    /// <param name="options">Optional control options (key trapping, initial focus)</param>
+    /// <exception cref="ArgumentNullException">Thrown when root is null</exception>
+    /// <exception cref="InvalidOperationException">Thrown when duplicate keys exist in subtree</exception>
+    /// <exception cref="PlatformNotReadyException">Thrown when UI is not initialized</exception>
+    Task SetRootAsync(UiNode root, UiControlOptions? options = null);
+
+    /// <summary>
+    /// Applies a patch to the mounted UI tree
+    /// </summary>
+    /// <param name="patch">The patch containing operations to apply</param>
+    /// <exception cref="KeyNotFoundException">Thrown when target key is missing</exception>
+    /// <exception cref="InvalidOperationException">Thrown on structural conflicts</exception>
+    /// <exception cref="System.ComponentModel.DataAnnotations.ValidationException">Thrown when props are invalid for kind</exception>
+    Task PatchAsync(UiPatch patch);
+
+    /// <summary>
+    /// Moves input focus to the specified node
+    /// </summary>
+    /// <param name="key">The key of the node to focus</param>
+    /// <exception cref="KeyNotFoundException">Thrown when no such node exists</exception>
+    /// <exception cref="InvalidOperationException">Thrown when node is not focusable</exception>
+    Task FocusAsync(string key);
 }

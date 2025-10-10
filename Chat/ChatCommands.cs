@@ -17,24 +17,32 @@ public partial class CommandManager
                 new Command {
                     Name = "new",
                     Description = () => "Create a new thread (saves current thread, auto-naming it)",
-                    Action = () =>
+                    Action = async () =>
                     {
                         var forked = ChatManager.CreateNewThread();
-                        Program.ui.Clear();
+                        
+                        // Mount empty ChatSurface for new thread
+                        await ChatSurface.MountAsync(
+                            Program.ui,
+                            Array.Empty<ChatMessage>(),
+                            inputText: "",
+                            threadName: forked.Name
+                        );
+                        
                         using var output = Program.ui.BeginRealtime("Creating new thread...");
                         output.WriteLine($"Switched to '{forked.Name}'.");
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Success;
                     }
                 },
                 new Command {
                     Name="switch", Description=()=>$"Switch active thread [current: {Program.config.ChatThreadSettings.ActiveThreadName ?? "none"}]",
-                    Action = () =>
+                    Action = async () =>
                     {
                         var items = Program.userManagedData.GetItems<ChatThread>()
                                 .OrderByDescending(t => t.LastUsedUtc).ToList();
 
                         var chosen = Program.ui.RenderMenu("Switch to thread", items.Select(t => t.Name).ToList());
-                        if (string.IsNullOrEmpty(chosen)) return Task.FromResult(Command.Result.Cancelled);
+                        if (string.IsNullOrEmpty(chosen)) return Command.Result.Cancelled;
                         var target = items.First(x => x.Name.Equals(chosen, StringComparison.OrdinalIgnoreCase));
 
                         // Always save the current active thread if one exists
@@ -50,30 +58,48 @@ public partial class CommandManager
                         // Update config and persist
                         Program.config.ChatThreadSettings.ActiveThreadName = target.Name;
                         Config.Save(Program.config, Program.ConfigFilePath);
-                        Program.ui.Clear();
-                        Program.ui.RenderChatHistory(Program.Context.Messages());
+                        
+                        // Remount ChatSurface with new thread's messages
+                        var messages = Program.Context.Messages(InluceSystemMessage: false).ToList();
+                        await ChatSurface.MountAsync(
+                            Program.ui,
+                            messages,
+                            inputText: "",
+                            threadName: target.Name
+                        );
+                        
                         using var output = Program.ui.BeginRealtime($"Switching from thread '{currentName}' to '{target.Name}'.");
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Success;
                     }
                 },
                 new Command
                 {
                     Name = "show", Description = () => "Show chat history",
-                    Action = () =>
+                    Action = async () =>
                     {
-                        Program.ui.RenderChatHistory(Program.Context.Messages());
-                        return Task.FromResult(Command.Result.Success);
+                        // Remount ChatSurface to refresh display
+                        var messages = Program.Context.Messages(InluceSystemMessage: false).ToList();
+                        await ChatSurface.MountAsync(
+                            Program.ui,
+                            messages,
+                            inputText: "",
+                            threadName: Program.config.ChatThreadSettings.ActiveThreadName
+                        );
+                        return Command.Result.Success;
                     }
                 },
                 new Command
                 {
                     Name = "clear", Description = () => "Clear chat history",
-                    Action = () =>
+                    Action = async () =>
                     {
                         Program.Context.Clear();
                         Program.Context.AddSystemMessage(Program.config.SystemPrompt);
+                        
+                        await Program.ui.PatchAsync(ChatSurface.ClearMessages());
+                        
                         using var output = Program.ui.BeginRealtime("Clearing chat history...");
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Success;
                     }
                 },
                 new Command

@@ -382,19 +382,77 @@ public sealed class PhotinoUi : IUi
 							}, TaskScheduler.Default);
 						}
 
-						var win = _win;
-						if (win is not null)
-						{
-							try { win.Invoke(RunOnUi); }
-							catch { RunOnUi(); }
-						}
-						else
-						{
-							RunOnUi();
-						}
+					var win = _win;
+					if (win is not null)
+					{
+						try { win.Invoke(RunOnUi); }
+						catch { RunOnUi(); }
+					}
+					else
+					{
+						RunOnUi();
+					}
 
+					break;
+				}
+
+				case "ControlEvent":
+				{
+					// payload: { type:"ControlEvent", key:"node-key", name:"click"|"change"|"enter", value?:"..." }
+					var key = S("key", "Key");
+					var name = S("name", "Name");
+					var value = S("value", "Value");
+
+					if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(name))
+						break;
+
+					// Special handling for input submission events:
+					// For text input "enter" or send button "click", treat as UserText
+					// to feed into the unified ReadInputWithFeaturesAsync flow
+					if ((key == "input" && name == "enter") || (key == "send-btn" && name == "click"))
+					{
+						// Feed the input value into the unified I/O stack
+						_tcsReadLine?.TrySetResult(value);
+						if (!string.IsNullOrWhiteSpace(value))
+							_lastInput = value;
 						break;
 					}
+
+					// For all other events, find and invoke the custom handler
+					var node = _uiTree.FindNode(key);
+					if (node == null)
+						break;
+
+					// Look for the appropriate handler in the node's Props
+					string handlerKey = name switch
+					{
+						"click" => "onClick",
+						"change" => "onChange",
+						"enter" => "onEnter",
+						"toggle" => "onToggle",
+						"itemActivated" => "onItemActivated",
+						_ => $"on{char.ToUpper(name[0])}{name.Substring(1)}"
+					};
+
+					if (node.Props.TryGetValue(handlerKey, out var handlerObj) && handlerObj is UiHandler handler)
+					{
+						var evt = new UiEvent(key, name, value, null);
+						// Invoke the handler asynchronously
+						_ = Task.Run(async () =>
+						{
+							try
+							{
+								await handler(evt);
+							}
+							catch (Exception ex)
+							{
+								Log.Method(ctx => ctx.Failed($"Error in UiEvent handler for {key}.{name}", ex));
+							}
+						});
+					}
+
+					break;
+				}
 			}
 
 			ctx.Succeeded();
@@ -417,7 +475,8 @@ public sealed class PhotinoUi : IUi
 			foreach (var f in form.Fields)
 			{
 				var current = f.Formatter(form.Model);
-				fields.Add(new {
+				fields.Add(new
+				{
 					key = f.Key,
 					label = f.Label,
 					kind = f.Kind.ToString(),
@@ -456,7 +515,7 @@ public sealed class PhotinoUi : IUi
 			if (allOk && form.Validate is not null)
 			{
 				var errs = form.Validate(form.Model!);
-				foreach (var (key, message) in errs ?? Array.Empty<(string,string)>())
+				foreach (var (key, message) in errs ?? Array.Empty<(string, string)>())
 				{
 					allOk = false;
 					Post(new { type = "FormError", key, message });
@@ -663,5 +722,114 @@ public sealed class PhotinoUi : IUi
 		};
 
 		return new ConsoleKeyInfo(c, parsed, shift, alt, ctrl);
+	}
+
+	// Declarative control layer (UiNode/UiPatch)
+	private readonly UiNodeTree _uiTree = new();
+	private UiControlOptions? _controlOptions;
+
+	public Task SetRootAsync(UiNode root, UiControlOptions? options = null)
+	{
+		if (root == null)
+			throw new ArgumentNullException(nameof(root));
+
+		if (!_ready)
+			throw new PlatformNotReadyException("Photino UI is not initialized");
+
+		// Validate and set the root
+		_uiTree.SetRoot(root);
+		_controlOptions = options ?? new UiControlOptions();
+
+		// Send mount message to the web view
+		Post(new 
+		{ 
+			type = "MountControl", 
+			tree = SerializeNode(root), 
+			options = new 
+			{ 
+				trapKeys = _controlOptions.TrapKeys, 
+				initialFocusKey = _controlOptions.InitialFocusKey 
+			} 
+		});
+
+		return Task.CompletedTask;
+	}
+
+	public Task PatchAsync(UiPatch patch)
+	{
+		if (patch == null)
+			throw new ArgumentNullException(nameof(patch));
+
+		if (!_ready)
+			throw new PlatformNotReadyException("Photino UI is not initialized");
+
+		// Apply the patch to the tree (validates operations)
+		_uiTree.ApplyPatch(patch);
+
+		// Serialize patch operations for the web view
+		// Build ops list manually to avoid any LINQ generic inference issues (previous CS0411)
+		var ops = new List<object>(patch.Ops.Length);
+		foreach (var op in patch.Ops)
+		{
+			switch (op)
+			{
+				case ReplaceOp replaceOp:
+					ops.Add(new { type = "replace", key = replaceOp.Key, node = SerializeNode(replaceOp.Node) });
+					break;
+				case UpdatePropsOp updatePropsOp:
+					ops.Add(new { type = "updateProps", key = updatePropsOp.Key, props = updatePropsOp.Props });
+					break;
+				case InsertChildOp insertChildOp:
+					ops.Add(new { type = "insertChild", parentKey = insertChildOp.ParentKey, index = insertChildOp.Index, node = SerializeNode(insertChildOp.Node) });
+					break;
+				case RemoveOp removeOp:
+					ops.Add(new { type = "remove", key = removeOp.Key });
+					break;
+				default:
+					throw new InvalidOperationException($"Unknown operation type: {op.GetType().Name}");
+			}
+		}
+
+		// Send patch message to the web view
+		Post(new { type = "PatchControl", patch = new { ops } });
+
+		return Task.CompletedTask;
+	}
+
+	public Task FocusAsync(string key)
+	{
+		if (string.IsNullOrEmpty(key))
+			throw new ArgumentNullException(nameof(key));
+
+		if (!_ready)
+			throw new PlatformNotReadyException("Photino UI is not initialized");
+
+		// Set focus in the tree (validates node exists and is focusable)
+		_uiTree.SetFocus(key);
+
+		// Send focus message to the web view
+		Post(new { type = "FocusControl", key });
+
+		return Task.CompletedTask;
+	}
+
+	/// <summary>
+	/// Serializes a UiNode to an object suitable for JSON transmission
+	/// </summary>
+	private object SerializeNode(UiNode node)
+	{
+		// Build children list manually to avoid any LINQ generic inference edge cases (CS0411)
+		var childList = new List<object>(node.Children.Count);
+		foreach (var c in node.Children)
+		{
+			childList.Add(SerializeNode(c));
+		}
+		return new
+		{
+			key = node.Key,
+			kind = node.Kind.ToString(),
+			props = node.Props,
+			children = childList
+		};
 	}
 }
