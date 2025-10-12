@@ -9,6 +9,21 @@ using System.Threading.Tasks;
 /// </summary>
 public static class ChatSurface
 {
+    // Encapsulate input state for chat composer
+    public sealed record ChatInputState
+    {
+        public string Text { get; init; } = "";
+        public int Caret { get; init; } = 0;
+        public string FocusKey { get; set; } = "input"; // "input" or "send-btn"
+        public int Scroll { get; init; } = 0;
+    }
+
+    public enum ChatInputAction
+    {
+        None,
+        Submit
+    }
+
     /// <summary>
     /// Creates the root UiNode for the chat surface (Content area only - no toolbar)
     /// </summary>
@@ -38,6 +53,120 @@ public static class ChatSurface
                 CreateComposer(inputText, onSend, onInput)
             }
         );
+    }
+
+    /// <summary>
+    /// Handles low-level key input for the chat surface. Returns updated state and an action (e.g. Submit).
+    /// This keeps input editing logic local to ChatSurface.
+    /// </summary>
+    public static async Task<(ChatInputState state, ChatInputAction action)> HandleKeyAsync(IUi ui, ConsoleKeyInfo key, ChatInputState state)
+    {
+        var current = state with { };
+
+        // Tab cycles between input and send button
+        if (key.Key == ConsoleKey.Tab)
+        {
+            if (current.FocusKey == "input")
+            {
+                await ui.FocusAsync("send-btn");
+                current.FocusKey = "send-btn";
+            }
+            else
+            {
+                await ui.FocusAsync("input");
+                current.FocusKey = "input";
+            }
+            return (current, ChatInputAction.None);
+        }
+
+        // If focus is on send button, Enter/Space triggers submit
+        if (current.FocusKey == "send-btn" && (key.Key == ConsoleKey.Enter || key.Key == ConsoleKey.Spacebar))
+        {
+            return (current, ChatInputAction.Submit);
+        }
+
+        // Input-specific keys
+        if (current.FocusKey != "input")
+            return (current, ChatInputAction.None);
+
+        // Submit (Enter without Shift)
+        if (key.Key == ConsoleKey.Enter && (key.Modifiers & ConsoleModifiers.Shift) == 0)
+        {
+            return (current, ChatInputAction.Submit);
+        }
+
+        // Shift+Enter inserts newline
+        if (key.Key == ConsoleKey.Enter && (key.Modifiers & ConsoleModifiers.Shift) != 0)
+        {
+            var text = current.Text.Insert(current.Caret, "\n");
+            current = current with { Text = text, Caret = current.Caret + 1 };
+            await ui.PatchAsync(UpdateInput(current.Text));
+            return (current, ChatInputAction.None);
+        }
+
+        // Caret navigation: Home/End
+        if (key.Key == ConsoleKey.Home)
+        {
+            current = current with { Caret = 0 };
+            return (current, ChatInputAction.None);
+        }
+        if (key.Key == ConsoleKey.End)
+        {
+            current = current with { Caret = current.Text.Length };
+            return (current, ChatInputAction.None);
+        }
+
+        // Word navigation with Ctrl+Arrows
+        if (key.Key == ConsoleKey.LeftArrow && (key.Modifiers & ConsoleModifiers.Control) != 0)
+        {
+            var c = current.Caret;
+            while (c > 0 && char.IsWhiteSpace(current.Text[c - 1])) c--;
+            while (c > 0 && !char.IsWhiteSpace(current.Text[c - 1])) c--;
+            current = current with { Caret = c };
+            return (current, ChatInputAction.None);
+        }
+        if (key.Key == ConsoleKey.RightArrow && (key.Modifiers & ConsoleModifiers.Control) != 0)
+        {
+            var c = current.Caret;
+            while (c < current.Text.Length && char.IsWhiteSpace(current.Text[c])) c++;
+            while (c < current.Text.Length && !char.IsWhiteSpace(current.Text[c])) c++;
+            current = current with { Caret = c };
+            return (current, ChatInputAction.None);
+        }
+
+        // Backspace/Delete
+        if (key.Key == ConsoleKey.Backspace)
+        {
+            if (current.Caret > 0)
+            {
+                var text = current.Text.Remove(current.Caret - 1, 1);
+                current = current with { Text = text, Caret = current.Caret - 1 };
+                await ui.PatchAsync(UpdateInput(current.Text));
+            }
+            return (current, ChatInputAction.None);
+        }
+        if (key.Key == ConsoleKey.Delete)
+        {
+            if (current.Caret < current.Text.Length)
+            {
+                var text = current.Text.Remove(current.Caret, 1);
+                current = current with { Text = text };
+                await ui.PatchAsync(UpdateInput(current.Text));
+            }
+            return (current, ChatInputAction.None);
+        }
+
+        // Printable character input
+        if (!char.IsControl(key.KeyChar))
+        {
+            var text = current.Text.Insert(current.Caret, key.KeyChar.ToString());
+            current = current with { Text = text, Caret = current.Caret + 1 };
+            await ui.PatchAsync(UpdateInput(current.Text));
+            return (current, ChatInputAction.None);
+        }
+
+        // Up/Down/PageUp/PageDown reserved for scroll – not implemented yet
+        return (current, ChatInputAction.None);
     }
 
     /// <summary>
@@ -372,25 +501,40 @@ public static class ChatSurface
         // Clear the input box
         await ui.PatchAsync(UpdateInput(""));
 
-        // Get response from AI
-        var (response, updatedContext) = await getAIResponse(context);
-        
-        // Create assistant message
-        var assistantMessage = new ChatMessage 
-        { 
-            Role = Roles.Assistant, 
-            Content = response,
-            CreatedAt = DateTime.Now 
-        };
-        
-        // Add assistant message to context (already done by getAIResponse, but update our reference)
-        currentMessages = updatedContext.Messages(InluceSystemMessage: false).ToList();
-        
-        // Append assistant message bubble
-        await ui.PatchAsync(AppendMessage(assistantMessage, currentMessages.Count - 1));
-        
-        // Update content (for streaming, this would be called incrementally)
-        await ui.PatchAsync(UpdateMessageContent(assistantMessage.Id, response));
+        try
+        {
+            // Get response from AI
+            var (response, updatedContext) = await getAIResponse(context);
+            
+            // Create assistant message
+            var assistantMessage = new ChatMessage 
+            { 
+                Role = Roles.Assistant, 
+                Content = response,
+                CreatedAt = DateTime.Now 
+            };
+            
+            // Add assistant message to context (already done by getAIResponse, but update our reference)
+            currentMessages = updatedContext.Messages(InluceSystemMessage: false).ToList();
+            
+            // Append assistant message bubble
+            await ui.PatchAsync(AppendMessage(assistantMessage, currentMessages.Count - 1));
+            
+            // Update content (for streaming, this would be called incrementally)
+            await ui.PatchAsync(UpdateMessageContent(assistantMessage.Id, response));
+        }
+        catch (Exception ex)
+        {
+            // Render an error message from assistant to keep the UI responsive
+            var errorMsg = new ChatMessage
+            {
+                Role = Roles.Assistant,
+                Content = $"Sorry, I ran into an error: {ex.Message}",
+                CreatedAt = DateTime.Now
+            };
+            currentMessages = context.Messages(InluceSystemMessage: false).ToList();
+            await ui.PatchAsync(AppendMessage(errorMsg, currentMessages.Count - 1));
+        }
     }
 
     /// <summary>

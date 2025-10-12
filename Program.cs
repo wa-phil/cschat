@@ -231,72 +231,14 @@ static class Program
                 output.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
                 output.WriteLine();
 
-                // Track current input text
-                string currentInputText = "";
-
-                // Mount ChatSurface wrapped in UiFrame for all UI modes
-                var messages = Context.Messages(InluceSystemMessage: false).ToList();
-                
-                // Create header with thread name and clear button
-                var header = ChatSurface.CreateHeader(
-                    threadName: Program.config.ChatThreadSettings.ActiveThreadName,
-                    onClear: async (e) => 
-                    {
-                        Context.Clear();
-                        Context.AddSystemMessage(config.SystemPrompt);
-                        await ui.PatchAsync(ChatSurface.ClearMessages());
-                    }
-                );
-
-                // Create ChatSurface content (messages + composer only)
-                // onSend and onInput are NOT used - the IInputRouter handles all input routing
-                // The InputRouter will update the input node directly via patches
-                var chatContent = ChatSurface.Create(
-                    messages,
-                    inputText: currentInputText,
-                    onSend: null,   // IInputRouter handles submit
-                    onInput: null   // IInputRouter handles input changes
-                );
-
-                // Wrap in UiFrame
-                var frame = new UiFrame(
-                    Header: header,
-                    Content: chatContent,
-                    Overlays: Array.Empty<UiNode>()
-                );
-
-                // Mount the frame
-                var frameRoot = UiFrameBuilder.Create(frame);
-                await ui.SetRootAsync(frameRoot, new UiControlOptions(TrapKeys: true, InitialFocusKey: "input"));
-
-                // Get the input router for unified input handling across Terminal and GUI modes
+                // Get the input router and attach to UI
                 var inputRouter = ui.GetInputRouter();
+                inputRouter.Attach(ui);
 
-                // Unified main input loop - uses IInputRouter for consistent input handling
-                // Both Terminal and Photino modes use the same ReadLineAsync method:
-                // - Terminal: reads from console stdin and processes key events
-                // - GUI: receives input from ControlEvent (enter/click) via event routing
-                while (true)
-                {
-                    var userInput = await inputRouter.ReadLineAsync(commandManager);
-                    
-                    // When user exits or window closes, ReadInput returns null -> exit loop
-                    if (userInput == null) break;
-                    
-                    if (!string.IsNullOrWhiteSpace(userInput))
-                    {
-                        await ChatSurface.ProcessChatInputAsync(
-                            ui, 
-                            userInput, 
-                            Context,
-                            async (ctx) =>
-                            {
-                                var (result, updatedContext) = await Engine.PostChatAsync(ctx);
-                                Context = updatedContext;
-                                return (result, updatedContext);
-                            });
-                    }
-                }
+                // Mount frame and delegate the main loop to UiFrameController
+                var controller = new UiFrameController(ui, inputRouter, Context, commandManager, config);
+                await controller.InitializeAsync();
+                await controller.RunLoopAsync();
             });
         }
         catch (Exception ex)

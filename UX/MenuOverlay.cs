@@ -120,77 +120,159 @@ public static class MenuOverlay
         if (selectedIndex < 0 || selectedIndex >= choices.Count)
             selectedIndex = 0;
 
-        // Create TaskCompletionSource to wait for user selection
-        var tcs = new TaskCompletionSource<string?>();
+        // Local state for interaction
         int currentSelected = selectedIndex;
         string currentFilter = "";
         var filteredChoices = new List<string>(choices);
+        const int page = 10;
 
-        // Event handlers for menu interaction
-        UiHandler onListChange = async (e) =>
+        // Create and push overlay (no external handlers; we'll drive via input router)
+        var menuNode = Create(title, filteredChoices, currentSelected);
+        await ui.PatchAsync(UiFrameBuilder.PushOverlay(menuNode));
+
+        // Set initial focus to filter box so users can start typing immediately
+        await ui.FocusAsync("overlay-menu-filter");
+
+        // Helper to refresh the list and filter text in UI
+        async Task RefreshAsync(bool updateFilter = true, bool updateList = true)
         {
-            if (e.Value != null && int.TryParse(e.Value, out var newIndex))
+            var ops = new List<UiOp>();
+            if (updateFilter)
             {
-                currentSelected = newIndex;
-            }
-            await Task.CompletedTask;
-        };
-
-        UiHandler onFilterChange = async (e) =>
-        {
-            currentFilter = e.Value ?? "";
-            // Filter choices based on the filter text
-            filteredChoices = choices
-                .Where(c => c.IndexOf(currentFilter, StringComparison.OrdinalIgnoreCase) >= 0)
-                .ToList();
-            
-            // Update the list view with filtered choices
-            await ui.PatchAsync(new UiPatch(
-                new UpdatePropsOp("overlay-menu-list", new Dictionary<string, object?>
+                ops.Add(new UpdatePropsOp("overlay-menu-filter", new Dictionary<string, object?>
                 {
-                    ["items"] = filteredChoices,
-                    ["selectedIndex"] = 0
-                })
-            ));
-            currentSelected = 0;
-        };
-
-        UiHandler onOk = async (e) =>
-        {
-            if (filteredChoices.Count > 0 && currentSelected >= 0 && currentSelected < filteredChoices.Count)
-            {
-                tcs.TrySetResult(filteredChoices[currentSelected]);
+                    ["text"] = currentFilter
+                }));
             }
-            else
+            if (updateList)
             {
-                tcs.TrySetResult(null);
+                // clamp selection
+                if (filteredChoices.Count == 0) currentSelected = -1;
+                else if (currentSelected < 0) currentSelected = 0;
+                else if (currentSelected >= filteredChoices.Count) currentSelected = filteredChoices.Count - 1;
+
+                ops.Add(new UpdatePropsOp("overlay-menu-list", new Dictionary<string, object?>
+                {
+                    ["items"] = filteredChoices.ToList(),
+                    ["selectedIndex"] = Math.Max(0, currentSelected)
+                }));
             }
-            await Task.CompletedTask;
-        };
+            if (ops.Count > 0)
+            {
+                await ui.PatchAsync(new UiPatch(ops.ToArray()));
+            }
+        }
 
-        UiHandler onCancel = async (e) =>
+        // Main input loop (implementation detail of MenuOverlay)
+        string? result = null;
+        var router = ui.GetInputRouter();
+        while (true)
         {
-            tcs.TrySetResult(null);
-            await Task.CompletedTask;
-        };
+            var maybeKey = router.TryReadKey();
+            if (maybeKey is null)
+            {
+                await Task.Delay(10);
+                continue;
+            }
 
-        // Create the menu overlay with event handlers
-        var menuNode = CreateWithHandlers(title, choices, selectedIndex, onListChange, onFilterChange, onOk, onCancel);
+            var key = maybeKey.Value;
 
-        // Push overlay onto the frame
-        var pushPatch = UiFrameBuilder.PushOverlay(menuNode);
-        await ui.PatchAsync(pushPatch);
+            // ESC cancels
+            if (key.Key == ConsoleKey.Escape)
+            {
+                result = null;
+                break;
+            }
 
-        // Focus the list
-        await ui.FocusAsync("overlay-menu-list");
+            // Enter selects current item
+            if (key.Key == ConsoleKey.Enter)
+            {
+                if (filteredChoices.Count > 0 && currentSelected >= 0 && currentSelected < filteredChoices.Count)
+                    result = filteredChoices[currentSelected];
+                else
+                    result = null;
+                break;
+            }
 
-        // Wait for user selection
-        var result = await tcs.Task;
+            // Filtering: any printable character appends to filter
+            if (!char.IsControl(key.KeyChar))
+            {
+                currentFilter += key.KeyChar;
+                filteredChoices = choices
+                    .Where(c => c.IndexOf(currentFilter, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .ToList();
+                currentSelected = 0;
+                await RefreshAsync(updateFilter: true, updateList: true);
+                continue;
+            }
 
-        // Pop the overlay
-        var popPatch = UiFrameBuilder.PopOverlay("overlay-menu");
-        await ui.PatchAsync(popPatch);
+            // Backspace modifies filter
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                if (currentFilter.Length > 0)
+                {
+                    currentFilter = currentFilter.Substring(0, currentFilter.Length - 1);
+                    filteredChoices = choices
+                        .Where(c => c.IndexOf(currentFilter, StringComparison.OrdinalIgnoreCase) >= 0)
+                        .ToList();
+                    currentSelected = 0;
+                    await RefreshAsync(updateFilter: true, updateList: true);
+                }
+                continue;
+            }
 
+            // Navigation: Up/Down/Home/End/PageUp/PageDown
+            if (key.Key == ConsoleKey.UpArrow)
+            {
+                if (currentSelected > 0)
+                {
+                    currentSelected--;
+                    await RefreshAsync(updateFilter: false, updateList: true);
+                }
+                continue;
+            }
+
+            if (key.Key == ConsoleKey.DownArrow)
+            {
+                if (filteredChoices.Count > 0 && currentSelected < filteredChoices.Count - 1)
+                {
+                    currentSelected++;
+                    await RefreshAsync(updateFilter: false, updateList: true);
+                }
+                continue;
+            }
+
+            if (key.Key == ConsoleKey.PageUp)
+            {
+                currentSelected = Math.Max(0, currentSelected - page);
+                await RefreshAsync(updateFilter: false, updateList: true);
+                continue;
+            }
+
+            if (key.Key == ConsoleKey.PageDown)
+            {
+                currentSelected = Math.Min(Math.Max(0, filteredChoices.Count - 1), currentSelected + page);
+                await RefreshAsync(updateFilter: false, updateList: true);
+                continue;
+            }
+
+            if (key.Key == ConsoleKey.Home)
+            {
+                currentSelected = 0;
+                await RefreshAsync(updateFilter: false, updateList: true);
+                continue;
+            }
+
+            if (key.Key == ConsoleKey.End)
+            {
+                currentSelected = Math.Max(0, filteredChoices.Count - 1);
+                await RefreshAsync(updateFilter: false, updateList: true);
+                continue;
+            }
+        }
+
+        // Pop the overlay and return
+        await ui.PatchAsync(UiFrameBuilder.PopOverlay("overlay-menu"));
         return result;
     }
 

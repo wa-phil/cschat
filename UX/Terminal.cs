@@ -5,7 +5,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
-public class Terminal : IUi
+public class Terminal : CUiBase
 {
     private TerminalInputRouter? _inputRouter;
 
@@ -152,7 +152,7 @@ public class Terminal : IUi
 
     private string? lastInput = null;
 
-    public Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
+    public override Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
     {
         Write($"{question} {(defaultAnswer ? "[Y/n]" : "[y/N]")} ");
         while (true)
@@ -166,7 +166,7 @@ public class Terminal : IUi
         }
     }
 
-    public async Task<bool> ShowFormAsync(UiForm form)
+    public override async Task<bool> ShowFormAsync(UiForm form)
     {
         await Task.CompletedTask;
         WriteLine(form.Title);
@@ -222,7 +222,7 @@ public class Terminal : IUi
         return true;
     }
 
-    public async Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt)
+    public override async Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt)
     {
         var path = await ReadPathWithAutocompleteAsync(false);
 
@@ -243,7 +243,7 @@ public class Terminal : IUi
 
     private readonly Dictionary<string, TermProg> _progress = new();
 
-    public string StartProgress(string title, CancellationTokenSource cts)
+    public override string StartProgress(string title, CancellationTokenSource cts)
     {
         var id = Guid.NewGuid().ToString("n");
         var tp = new TermProg { Title = title, Cts = cts, LastWidth = Math.Max(10, Width - 1) };
@@ -258,7 +258,7 @@ public class Terminal : IUi
         return id;
     }
 
-    public void UpdateProgress(string id, ProgressSnapshot s)
+    public override void UpdateProgress(string id, ProgressSnapshot s)
     {
         if (!_progress.TryGetValue(id, out var tp)) return;
 
@@ -333,7 +333,7 @@ public class Terminal : IUi
         SetCursorPosition(0, tp.RegionTop);
     }
 
-    public void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown)
+    public override void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown)
     {
         if (_progress.Remove(id, out var tp))
         {
@@ -406,7 +406,7 @@ public class Terminal : IUi
         return string.IsNullOrWhiteSpace(result) ? null : Path.GetFullPath(result);
     }
 
-    public async Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager)
+    public override async Task<string?> ReadInputAsync(CommandManager commandManager)
     {
         var buffer = new List<char>();
         var lines = new List<string>();
@@ -494,7 +494,13 @@ public class Terminal : IUi
         return string.IsNullOrWhiteSpace(input) ? null : input;
     }
 
-    public IInputRouter GetInputRouter()
+    [Obsolete("Use ReadInputAsync instead")]
+    public override async Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager)
+    {
+        return await ReadInputAsync(commandManager);
+    }
+
+    public override IInputRouter GetInputRouter()
     {
         if (_inputRouter == null)
         {
@@ -504,7 +510,7 @@ public class Terminal : IUi
         return _inputRouter;
     }
 
-    public void RenderTable(Table table, string? title = null)
+    public override void RenderTable(Table table, string? title = null)
     {
         int maxWidth = Width - 1;
         var hs = table.Headers.ToList();
@@ -602,7 +608,7 @@ public class Terminal : IUi
         RenderChatMessage(message);
     }
 
-    public void RenderReport(Report report)
+    public override void RenderReport(Report report)
     {
         var width = Math.Max(20, Width - 1);
         var text = report?.ToPlainText(width) ?? "";
@@ -618,7 +624,7 @@ public class Terminal : IUi
         public void Dispose() { /* no-op */ }
     }
 
-    public IRealtimeWriter BeginRealtime(string title)
+    public override IRealtimeWriter BeginRealtime(string title)
     {
         // Give a small heading so it's visible, then pass-through
         if (!string.IsNullOrWhiteSpace(title))
@@ -630,16 +636,16 @@ public class Terminal : IUi
     }
 
     // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
-    public string? RenderMenu(string header, List<string> choices, int selected = 0)
+    public override string? RenderMenu(string header, List<string> choices, int selected = 0)
     {
         // Use MenuOverlay for UiNode-based menu rendering
         // This is a synchronous wrapper around the async ShowAsync method
         return MenuOverlay.ShowAsync(this, header, choices, selected).GetAwaiter().GetResult();
     }
 
-    public ConsoleKeyInfo ReadKey(bool intercept) => Console.ReadKey(intercept);
+    public override ConsoleKeyInfo ReadKey(bool intercept) => Console.ReadKey(intercept);
 
-    public void RenderChatMessage(ChatMessage message)
+    public override void RenderChatMessage(ChatMessage message)
     {
         // Use ChatSurface to render the message via patch
         // Get current message count to determine the index
@@ -651,7 +657,7 @@ public class Terminal : IUi
         PatchAsync(patch).GetAwaiter().GetResult();
     }
 
-    public void RenderChatHistory(IEnumerable<ChatMessage> messages)
+    public override void RenderChatHistory(IEnumerable<ChatMessage> messages)
     {
         // Use ChatSurface to render all messages via patch
         var messageList = messages.ToList();
@@ -661,65 +667,45 @@ public class Terminal : IUi
         PatchAsync(patch).GetAwaiter().GetResult();
     }
 
-    public int CursorTop { get => Console.CursorTop; }
-    public int CursorLeft { get => Console.CursorLeft; }
+    public override int CursorTop { get => Console.CursorTop; }
 
-    public int Width { get => Console.WindowWidth; }
+    public override int Width { get => Console.WindowWidth; }
 
-    public int Height { get => Console.WindowHeight; }
+    public override int Height { get => Console.WindowHeight; }
 
-    public bool CursorVisible { set => Console.CursorVisible = value; }
-    public bool KeyAvailable { get => Console.KeyAvailable; }
+    public override bool KeyAvailable { get => Console.KeyAvailable; }
 
-    public bool IsOutputRedirected { get; } = Console.IsOutputRedirected;
-    public void SetCursorPosition(int left, int top) => Console.SetCursorPosition(left, top);
+    public override bool IsOutputRedirected { get; } = Console.IsOutputRedirected;
+    public override void SetCursorPosition(int left, int top) => Console.SetCursorPosition(left, top);
 
-    public ConsoleColor ForegroundColor
+    public override ConsoleColor ForegroundColor
     {
         get => Console.ForegroundColor;
         set => Console.ForegroundColor = value;
     }
 
-    public ConsoleColor BackgroundColor
+    public override ConsoleColor BackgroundColor
     {
         get => Console.BackgroundColor;
         set => Console.BackgroundColor = value;
     }
 
-    public void ResetColor() => Console.ResetColor();
+    public override void ResetColor() => Console.ResetColor();
 
-    public void Write(string text) => Console.Write(text);
-    public void WriteLine(string? text = null) => Console.WriteLine(text);
+    public override void Write(string text) => Console.Write(text);
+    public override void WriteLine(string? text = null) => Console.WriteLine(text);
 
-    public void Clear() => Console.Clear();
+    public override void Clear() => Console.Clear();
 
-    public Task RunAsync(Func<Task> appMain) => appMain();
+    public override Task RunAsync(Func<Task> appMain) => appMain();
 
-    // Declarative control layer (UiNode/UiPatch)
-    private readonly UiNodeTree _uiTree = new();
-    private UiControlOptions? _controlOptions;
+    // Declarative control layer - override base implementations for Terminal-specific rendering
+    private readonly TermDom _termDom = new();
+    private TermSnapshot? _lastSnapshot;
 
-    public Task SetRootAsync(UiNode root, UiControlOptions? options = null) => Log.Method(ctx =>
+    protected override Task PostSetRootAsync(UiNode root, UiControlOptions options) => Log.Method(ctx =>
     {
         ctx.OnlyEmitOnFailure();
-        if (root == null) throw new ArgumentNullException(nameof(root));
-
-        // Validate and set the root
-        _uiTree.SetRoot(root);
-        _controlOptions = options ?? new UiControlOptions();
-
-        // Set initial focus if specified
-        if (!string.IsNullOrEmpty(_controlOptions.InitialFocusKey))
-        {
-            try
-            {
-                _uiTree.SetFocus(_controlOptions.InitialFocusKey);
-            }
-            catch (Exception ex)
-            {
-                ctx.Failed($"Failed to set initial focus to '{_controlOptions.InitialFocusKey}'", ex);
-            }
-        }
 
         // Clear the console and do initial render using TermDom
         Clear();
@@ -730,17 +716,8 @@ public class Terminal : IUi
         return Task.CompletedTask;
     });
 
-    private readonly TermDom _termDom = new();
-    private TermSnapshot? _lastSnapshot;
-
-    public Task PatchAsync(UiPatch patch)
+    protected override Task PostPatchAsync(UiPatch patch)
     {
-        if (patch == null)
-            throw new ArgumentNullException(nameof(patch));
-
-        // Apply the patch atomically
-        _uiTree.ApplyPatch(patch);
-
         // Use incremental rendering if enabled, otherwise fall back to full re-render
         if (_uiTree.Root != null)
         {
@@ -765,16 +742,10 @@ public class Terminal : IUi
         return Task.CompletedTask;
     }
 
-    public Task FocusAsync(string key)
+    protected override Task PostFocusAsync(string key)
     {
-        if (string.IsNullOrEmpty(key))
-            throw new ArgumentNullException(nameof(key));
-
-        // Set focus in the tree
-        _uiTree.SetFocus(key);
-
         // In Terminal UI, we could move cursor to the focused element
-        // For now, just mark it as focused in the tree
+        // For now, just mark it as focused in the tree (already done in base)
         return Task.CompletedTask;
     }
 
@@ -1165,6 +1136,7 @@ public sealed class TerminalInputRouter : IInputRouter
     private readonly StringBuilder _inputBuffer = new();
     private TaskCompletionSource<string?>? _readLineTcs;
     private CommandManager? _commands;
+    private ConsoleKeyInfo _lastKey;
 
     public event Action<string>? OnInputChanged;
 
@@ -1173,6 +1145,20 @@ public sealed class TerminalInputRouter : IInputRouter
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
     }
 
+    /// <summary>
+    /// Non-blocking poll for key input. Returns ConsoleKeyInfo if a key is available, otherwise null.
+    /// </summary>
+    public ConsoleKeyInfo? TryReadKey()
+    {
+        if (Console.KeyAvailable)
+        {
+            _lastKey = Console.ReadKey(intercept: true);
+            return _lastKey;
+        }
+        return null;
+    }
+
+    [Obsolete("Use TryReadKey and ReadInputAsync instead")]
     public async Task<string?> ReadLineAsync(CommandManager commands)
     {
         if (_ui == null)
@@ -1196,13 +1182,14 @@ public sealed class TerminalInputRouter : IInputRouter
 
         while (!_readLineTcs.Task.IsCompleted)
         {
-            if (!Console.KeyAvailable)
+            var maybe = TryReadKey();
+            if (maybe is null)
             {
                 await Task.Delay(10);
                 continue;
             }
 
-            var key = Console.ReadKey(intercept: true);
+            var key = maybe.Value;
 
             // Handle Escape (command palette)
             if (key.Key == ConsoleKey.Escape && _commands != null)

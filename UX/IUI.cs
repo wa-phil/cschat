@@ -327,8 +327,15 @@ public interface IInputRouter
     void Attach(IUi ui);
 
     /// <summary>
+    /// Non-blocking poll; returns a ConsoleKeyInfo if a key is available, else null.
+    /// Backend must not block the caller. The actual key processing is deferred to the UI layer.
+    /// </summary>
+    ConsoleKeyInfo? TryReadKey();
+
+    /// <summary>
     /// Returns user-submitted text (null on close/exit)
     /// </summary>
+    [Obsolete("Use ReadInputAsync via IUi instead. This method is kept for backward compatibility and is implemented via key accumulation.")]
     Task<string?> ReadLineAsync(CommandManager commands);
 
     /// <summary>
@@ -357,7 +364,15 @@ public interface IUi
     void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown);
 
     // input
+    /// <summary>
+    /// Accumulates ConsoleKeyInfo from IInputRouter.TryReadKey into a buffer and resolves on submit (Enter),
+    /// honoring Shift+Enter for newline. Photino routes DOM "enter/click" to synthetic keys; Terminal uses real keys.
+    /// </summary>
+    Task<string?> ReadInputAsync(CommandManager commands);
+
+    [Obsolete("Use ReadInputAsync instead. This method delegates to ReadInputAsync and is kept for backward compatibility.")]
     Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager);
+    
     IInputRouter GetInputRouter();
     string? RenderMenu(string header, List<string> choices, int selected = 0);
     ConsoleKeyInfo ReadKey(bool intercept);
@@ -368,10 +383,9 @@ public interface IUi
 
     // low-level console-like I/O (to be removed)
     int CursorTop { get; }
-    int CursorLeft { get; }
+
     int Width { get; }
     int Height { get; }
-    bool CursorVisible { set; }
     bool KeyAvailable { get; }
     bool IsOutputRedirected { get; }
     void SetCursorPosition(int left, int top);

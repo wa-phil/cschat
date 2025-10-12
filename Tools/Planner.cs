@@ -44,15 +44,23 @@ Determine: Is the goal now complete? Respond ONLY with JSON matching the PlanPro
         // marshal Context context into working Context
         context.GetContext().ForEach(c => working.AddContext(c.Reference, c.Chunk));
         working.AddUserMessage("Have we achieved the goal?");
-        var response = await TypeParser.GetAsync(working, typeof(PlanProgress));
-        if (response == null || response is not PlanProgress progress)
+        try
         {
-            ctx.Failed("Failed to parse plan progress from response.", Error.EmptyResponse);
+            var response = await TypeParser.GetAsync(working, typeof(PlanProgress));
+            if (response == null || response is not PlanProgress progress)
+            {
+                ctx.Failed("Failed to parse plan progress from response.", Error.EmptyResponse);
+                return new PlanProgress { GoalAchieved = false };
+            }
+            ctx.Append(Log.Data.Progress, response != null ? response.ToJson() : "<null>");
+            ctx.Succeeded();
+            return progress;
+        }
+        catch (CsChatException ex)
+        {
+            ctx.Failed("Plan progress parsing failed", ex.ErrorCode);
             return new PlanProgress { GoalAchieved = false };
         }
-        ctx.Append(Log.Data.Progress, response != null ? response.ToJson() : "<null>");
-        ctx.Succeeded();
-        return progress;
     });
 
     private async Task<object?> GetToolInput(string toolName, ITool tool, string goal) => await Log.MethodAsync(async ctx =>
@@ -88,10 +96,18 @@ Respond with ONLY the JSON object that matches {tool.InputType.Name}.
 
         Context.AddUserMessage("Create the inputs JSON for this tool based on the goal and context.");
 
-        var typedInput = await TypeParser.GetAsync(Context, tool.InputType);
-        ctx.Append(Log.Data.ParsedInput, typedInput?.ToJson() ?? "<null>");        
-        ctx.Succeeded();
-        return typedInput;
+        try
+        {
+            var typedInput = await TypeParser.GetAsync(Context, tool.InputType);
+            ctx.Append(Log.Data.ParsedInput, typedInput?.ToJson() ?? "<null>");        
+            ctx.Succeeded();
+            return typedInput;
+        }
+        catch (CsChatException ex)
+        {
+            ctx.Failed("Failed to generate tool input", ex.ErrorCode);
+            return null;
+        }
     });
 
     private async Task<ToolSelection> GetToolSelection(string goal, Context history) => await Log.MethodAsync(async ctx =>
@@ -124,14 +140,22 @@ Your task is to determine which tool to use based on the following:
         history.GetContext().ForEach(c => Context.AddContext(c.Reference, c.Chunk));
         Context.AddToolMessage($"Progress so far:\n{string.Join("\n", results)}");
         Context.AddUserMessage("What is the next tool to use?");
-        var response = await TypeParser.GetAsync(Context, typeof(ToolSelection));
-        if (response == null || response is not ToolSelection toolSelection)
+        try
         {
-            ctx.Failed("Failed to parse tool selection from response.", Error.EmptyResponse);
+            var response = await TypeParser.GetAsync(Context, typeof(ToolSelection));
+            if (response == null || response is not ToolSelection toolSelection)
+            {
+                ctx.Failed("Failed to parse tool selection from response.", Error.EmptyResponse);
+                return new ToolSelection { ToolName = "", Reasoning = "No further action required." };
+            }
+            ctx.Succeeded();
+            return (ToolSelection)response;
+        }
+        catch (CsChatException ex)
+        {
+            ctx.Failed("Tool selection failed", ex.ErrorCode);
             return new ToolSelection { ToolName = "", Reasoning = "No further action required." };
         }
-        ctx.Succeeded();
-        return (ToolSelection)response;
     });
 
     private async Task<PlanObjective> GetObjective(Context context) => await Log.MethodAsync(async ctx =>
@@ -153,14 +177,22 @@ You do not need to summarize the user's question, or comment on it, or explain y
         context.GetContext().ForEach(c => working.AddContext(c.Reference, c.Chunk));
         working.AddUserMessage("---ONLY RESPOND WITH THE JSON OBJECT, DO NOT RESPOND WITH ANYTHING ELSE---");
         working.AddUserMessage(input);
-        var result = await TypeParser.GetAsync(working, typeof(PlanObjective));
-        if (result == null || result is not PlanObjective goal)
+        try
         {
-            ctx.Failed("Failed to parse goal from response.", Error.EmptyResponse);
+            var result = await TypeParser.GetAsync(working, typeof(PlanObjective));
+            if (result == null || result is not PlanObjective goal)
+            {
+                ctx.Failed("Failed to parse goal from response.", Error.EmptyResponse);
+                return new PlanObjective { TakeAction = false, Goal = "No further action required" };
+            }
+            ctx.Succeeded();
+            return (PlanObjective)result;
+        }
+        catch (CsChatException ex)
+        {
+            ctx.Failed("Objective parsing failed", ex.ErrorCode);
             return new PlanObjective { TakeAction = false, Goal = "No further action required" };
         }
-        ctx.Succeeded();
-        return (PlanObjective)result;
     });
 
     public async Task<(string result, Context Context)> PostChatAsync(Context context) => await Log.MethodAsync(async ctx =>
