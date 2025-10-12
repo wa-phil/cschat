@@ -9,8 +9,8 @@ public class UiFrameTests
     public void UiFrameBuilder_Create_ProducesValidFrameStructure()
     {
         // Arrange
-        var header = new UiNode("test-header", UiKind.Row, new Dictionary<string, object?>(), Array.Empty<UiNode>());
-        var content = new UiNode("test-content", UiKind.Column, new Dictionary<string, object?>(), Array.Empty<UiNode>());
+        var header = new UiNode("test-header", UiKind.Row, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>());
+        var content = new UiNode("test-content", UiKind.Column, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>());
         var frame = new UiFrame(header, content, Array.Empty<UiNode>());
 
         // Act
@@ -24,20 +24,20 @@ public class UiFrameTests
         // Verify header
         var headerNode = frameNode.Children[0];
         Assert.Equal("test-header", headerNode.Key);
-        Assert.True(headerNode.Props.ContainsKey(UiProps.Role));
-        Assert.Equal("header", headerNode.Props[UiProps.Role]);
+        Assert.True(headerNode.Props.ContainsKey(UiProperty.Role));
+        Assert.Equal("header", headerNode.Props[UiProperty.Role]);
 
         // Verify content
         var contentNode = frameNode.Children[1];
         Assert.Equal("test-content", contentNode.Key);
-        Assert.True(contentNode.Props.ContainsKey(UiProps.Role));
-        Assert.Equal("content", contentNode.Props[UiProps.Role]);
+        Assert.True(contentNode.Props.ContainsKey(UiProperty.Role));
+        Assert.Equal("content", contentNode.Props[UiProperty.Role]);
 
         // Verify overlays container
         var overlaysNode = frameNode.Children[2];
         Assert.Equal("frame.overlays", overlaysNode.Key);
-        Assert.True(overlaysNode.Props.ContainsKey(UiProps.Role));
-        Assert.Equal("overlay", overlaysNode.Props[UiProps.Role]);
+        Assert.True(overlaysNode.Props.ContainsKey(UiProperty.Role));
+        Assert.Equal("overlay", overlaysNode.Props[UiProperty.Role]);
         Assert.Empty(overlaysNode.Children);
     }
 
@@ -45,10 +45,10 @@ public class UiFrameTests
     public void UiFrameBuilder_Create_WithOverlays_AddsOverlaysWithZIndex()
     {
         // Arrange
-        var header = new UiNode("test-header", UiKind.Row, new Dictionary<string, object?>(), Array.Empty<UiNode>());
-        var content = new UiNode("test-content", UiKind.Column, new Dictionary<string, object?>(), Array.Empty<UiNode>());
-        var overlay1 = new UiNode("overlay-1", UiKind.Column, new Dictionary<string, object?>(), Array.Empty<UiNode>());
-        var overlay2 = new UiNode("overlay-2", UiKind.Column, new Dictionary<string, object?>(), Array.Empty<UiNode>());
+        var header = new UiNode("test-header", UiKind.Row, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>());
+        var content = new UiNode("test-content", UiKind.Column, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>());
+        var overlay1 = new UiNode("overlay-1", UiKind.Column, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>());
+        var overlay2 = new UiNode("overlay-2", UiKind.Column, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>());
         var frame = new UiFrame(header, content, new[] { overlay1, overlay2 });
 
         // Act
@@ -62,11 +62,11 @@ public class UiFrameTests
         var firstOverlay = overlaysNode.Children[0];
         var secondOverlay = overlaysNode.Children[1];
         
-        Assert.True(firstOverlay.Props.ContainsKey(UiProps.ZIndex));
-        Assert.True(secondOverlay.Props.ContainsKey(UiProps.ZIndex));
+        Assert.True(firstOverlay.Props.ContainsKey(UiProperty.ZIndex));
+        Assert.True(secondOverlay.Props.ContainsKey(UiProperty.ZIndex));
         
-        var firstZ = (int)firstOverlay.Props[UiProps.ZIndex]!;
-        var secondZ = (int)secondOverlay.Props[UiProps.ZIndex]!;
+        var firstZ = (int)firstOverlay.Props[UiProperty.ZIndex]!;
+        var secondZ = (int)secondOverlay.Props[UiProperty.ZIndex]!;
         
         Assert.True(secondZ > firstZ);
     }
@@ -75,7 +75,7 @@ public class UiFrameTests
     public void UiFrameBuilder_ReplaceContent_CreatesCorrectPatch()
     {
         // Arrange
-        var newContent = new UiNode("new-content", UiKind.Column, new Dictionary<string, object?>(), Array.Empty<UiNode>());
+        var newContent = new UiNode("new-content", UiKind.Column, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>());
 
         // Act
         var patch = UiFrameBuilder.ReplaceContent(newContent);
@@ -85,15 +85,15 @@ public class UiFrameTests
         var op = patch.Ops[0] as ReplaceOp;
         Assert.NotNull(op);
         Assert.Equal("frame.content", op!.Key);
-        Assert.True(op.Node.Props.ContainsKey(UiProps.Role));
-        Assert.Equal("content", op.Node.Props[UiProps.Role]);
+        Assert.True(op.Node.Props.ContainsKey(UiProperty.Role));
+        Assert.Equal("content", op.Node.Props[UiProperty.Role]);
     }
 
     [Fact]
     public void UiFrameBuilder_PushOverlay_CreatesCorrectPatch()
     {
         // Arrange
-        var overlay = new UiNode("test-overlay", UiKind.Column, new Dictionary<string, object?>(), Array.Empty<UiNode>());
+        var overlay = new UiNode("test-overlay", UiKind.Column, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>());
 
         // Act
         var patch = UiFrameBuilder.PushOverlay(overlay);
@@ -104,9 +104,9 @@ public class UiFrameTests
         Assert.NotNull(op);
         Assert.Equal("frame.overlays", op!.ParentKey);
         Assert.Equal(int.MaxValue, op.Index); // Inserted at end
-        Assert.True(op.Node.Props.ContainsKey(UiProps.Role));
-        Assert.Equal("overlay", op.Node.Props[UiProps.Role]);
-        Assert.True(op.Node.Props.ContainsKey(UiProps.ZIndex));
+        Assert.True(op.Node.Props.ContainsKey(UiProperty.Role));
+        Assert.Equal("overlay", op.Node.Props[UiProperty.Role]);
+        Assert.True(op.Node.Props.ContainsKey(UiProperty.ZIndex));
     }
 
     [Fact]
@@ -129,7 +129,7 @@ public class UiFrameTests
     public void UiFrameBuilder_ReplaceHeader_CreatesCorrectPatch()
     {
         // Arrange
-        var newHeader = new UiNode("new-header", UiKind.Row, new Dictionary<string, object?>(), Array.Empty<UiNode>());
+        var newHeader = new UiNode("new-header", UiKind.Row, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>());
 
         // Act
         var patch = UiFrameBuilder.ReplaceHeader(newHeader);
@@ -139,8 +139,8 @@ public class UiFrameTests
         var op = patch.Ops[0] as ReplaceOp;
         Assert.NotNull(op);
         Assert.Equal("frame.header", op!.Key);
-        Assert.True(op.Node.Props.ContainsKey(UiProps.Role));
-        Assert.Equal("header", op.Node.Props[UiProps.Role]);
+        Assert.True(op.Node.Props.ContainsKey(UiProperty.Role));
+        Assert.Equal("header", op.Node.Props[UiProperty.Role]);
     }
 
     [Fact]
@@ -156,8 +156,8 @@ public class UiFrameTests
         // Assert
         Assert.Equal("overlay-menu", menuNode.Key);
         Assert.Equal(UiKind.Column, menuNode.Kind);
-        Assert.True(menuNode.Props.ContainsKey(UiProps.Modal));
-        Assert.True((bool)menuNode.Props[UiProps.Modal]!);
+        Assert.True(menuNode.Props.ContainsKey(UiProperty.Modal));
+        Assert.True((bool)menuNode.Props[UiProperty.Modal]!);
 
         // Should have: title, filter, list, buttons
         Assert.Equal(4, menuNode.Children.Count);
@@ -165,7 +165,7 @@ public class UiFrameTests
         // Verify title
         var titleNode = menuNode.Children[0];
         Assert.Equal("overlay-menu-title", titleNode.Key);
-        Assert.Equal(title, titleNode.Props["text"]);
+        Assert.Equal(title, titleNode.Props[UiProperty.Text]);
 
         // Verify filter
         var filterNode = menuNode.Children[1];
@@ -175,7 +175,7 @@ public class UiFrameTests
         var listNode = menuNode.Children[2];
         Assert.Equal("overlay-menu-list", listNode.Key);
         Assert.Equal(UiKind.ListView, listNode.Kind);
-        Assert.Equal(1, listNode.Props["selectedIndex"]);
+        Assert.Equal(1, listNode.Props[UiProperty.SelectedIndex]);
 
         // Verify buttons
         var buttonsNode = menuNode.Children[3];
@@ -197,8 +197,8 @@ public class UiFrameTests
         // Assert
         Assert.Equal("overlay-form", formNode.Key);
         Assert.Equal(UiKind.Column, formNode.Kind);
-        Assert.True(formNode.Props.ContainsKey(UiProps.Modal));
-        Assert.True((bool)formNode.Props[UiProps.Modal]!);
+        Assert.True(formNode.Props.ContainsKey(UiProperty.Modal));
+        Assert.True((bool)formNode.Props[UiProperty.Modal]!);
 
         // Should have: title + (label, input, help, error) * 2 fields + buttons
         // Title + 2 fields * 4 nodes each + buttons = 1 + 8 + 1 = 10
@@ -207,22 +207,12 @@ public class UiFrameTests
         // Verify title
         var titleNode = formNode.Children[0];
         Assert.Equal("overlay-form-title", titleNode.Key);
-        Assert.Equal("Test Form", titleNode.Props["text"]);
+        Assert.Equal("Test Form", titleNode.Props[UiProperty.Text]);
     }
 
     private class TestModel
     {
         public string Name { get; set; } = "";
         public int Age { get; set; }
-    }
-
-    [Fact]
-    public void UiProps_HasExpectedConstants()
-    {
-        // Assert - verify all expected prop names are defined
-        Assert.Equal("zIndex", UiProps.ZIndex);
-        Assert.Equal("role", UiProps.Role);
-        Assert.Equal("modal", UiProps.Modal);
-        Assert.Equal("focusable", UiProps.Focusable);
     }
 }

@@ -45,11 +45,11 @@ public static class ChatSurface
         return new UiNode(
             "chat-root",
             UiKind.Column,
-            new Dictionary<string, object?>(),
+            new Dictionary<UiProperty, object?>(),
             new UiNode[]
             {
                 CreateMessagesPanel(messageNodes),
-                new UiNode("spacer", UiKind.Spacer, new Dictionary<string, object?> { ["height"] = 1 }, Array.Empty<UiNode>()),
+                new UiNode("spacer", UiKind.Spacer, new Dictionary<UiProperty, object?> { [UiProperty.Height] = 1 }, Array.Empty<UiNode>()),
                 CreateComposer(inputText, onSend, onInput)
             }
         );
@@ -176,30 +176,30 @@ public static class ChatSurface
     {
         var title = string.IsNullOrEmpty(threadName) ? "Chat" : $"Chat: {threadName}";
         
-        var props = new Dictionary<string, object?>
+        var props = new Dictionary<UiProperty, object?>
         {
-            ["text"] = title,
-            ["color"] = ConsoleColor.Cyan
+            [UiProperty.Text] = title,
+            [UiProperty.Color] = ConsoleColor.Cyan
         };
 
-        var clearButtonProps = new Dictionary<string, object?>
+        var clearButtonProps = new Dictionary<UiProperty, object?>
         {
-            ["text"] = "Clear"
+            [UiProperty.Text] = "Clear"
         };
         
         if (onClear != null)
         {
-            clearButtonProps["onClick"] = onClear;
+            clearButtonProps[UiProperty.OnClick] = onClear;
         }
 
         return new UiNode(
             "header",
             UiKind.Row,
-            new Dictionary<string, object?>(),
+            new Dictionary<UiProperty, object?>(),
             new[]
             {
                 new UiNode("thread-title", UiKind.Label, props, Array.Empty<UiNode>()),
-                new UiNode("spacer-header", UiKind.Spacer, new Dictionary<string, object?> { ["width"] = 2 }, Array.Empty<UiNode>()),
+                new UiNode("spacer-header", UiKind.Spacer, new Dictionary<UiProperty, object?> { [UiProperty.Width] = 2 }, Array.Empty<UiNode>()),
                 new UiNode("clear-btn", UiKind.Button, clearButtonProps, Array.Empty<UiNode>())
             }
         );
@@ -213,10 +213,10 @@ public static class ChatSurface
         return new UiNode(
             "messages",
             UiKind.Column,
-            new Dictionary<string, object?>
+            new Dictionary<UiProperty, object?>
             {
-                ["scrollable"] = true,
-                ["autoScroll"] = true
+                [UiProperty.Scrollable] = true,
+                [UiProperty.AutoScroll] = true
             },
             messageNodes
         );
@@ -241,11 +241,11 @@ public static class ChatSurface
         var timestamp = message.CreatedAt.ToString("HH:mm:ss");
         var header = $"[{timestamp}] {roleLabel}:";
 
-        var props = new Dictionary<string, object?>
+        var props = new Dictionary<UiProperty, object?>
         {
-            ["role"] = message.Role.ToString(),
-            ["timestamp"] = message.CreatedAt,
-            ["state"] = message.State.ToString()
+            [UiProperty.Role] = message.Role.ToString(),
+            [UiProperty.Timestamp] = message.CreatedAt,
+            [UiProperty.State] = message.State.ToString()
         };
 
         var children = new List<UiNode>
@@ -253,21 +253,21 @@ public static class ChatSurface
             new UiNode(
                 $"msg-{message.Id}-header",
                 UiKind.Label,
-                new Dictionary<string, object?>
+                new Dictionary<UiProperty, object?>
                 {
-                    ["text"] = header,
-                    ["color"] = color
+                    [UiProperty.Text] = header,
+                    [UiProperty.Color] = color
                 },
                 Array.Empty<UiNode>()
             ),
             new UiNode(
                 $"msg-{message.Id}-content",
                 UiKind.Label,
-                new Dictionary<string, object?>
+                new Dictionary<UiProperty, object?>
                 {
-                    ["text"] = message.Content ?? "",
-                    ["color"] = color,
-                    ["wrap"] = true
+                    [UiProperty.Text] = message.Content ?? "",
+                    [UiProperty.Color] = color,
+                    [UiProperty.Wrap] = true
                 },
                 Array.Empty<UiNode>()
             )
@@ -286,38 +286,38 @@ public static class ChatSurface
     /// </summary>
     private static UiNode CreateComposer(string inputText, UiHandler? onSend, UiHandler? onInput)
     {
-        var inputProps = new Dictionary<string, object?>
+        var inputProps = new Dictionary<UiProperty, object?>
         {
-            ["text"] = inputText,
-            ["placeholder"] = "Type a message..."
+            [UiProperty.Text] = inputText,
+            [UiProperty.Placeholder] = "Type a message..."
         };
 
         if (onInput != null)
         {
-            inputProps["onChange"] = onInput;
+            inputProps[UiProperty.OnChange] = onInput;
         }
 
         // Also wire up Enter key to trigger send
         if (onSend != null)
         {
-            inputProps["onEnter"] = onSend;
+            inputProps[UiProperty.OnEnter] = onSend;
         }
 
-        var sendButtonProps = new Dictionary<string, object?>
+        var sendButtonProps = new Dictionary<UiProperty, object?>
         {
-            ["text"] = "Send",
-            ["enabled"] = !string.IsNullOrWhiteSpace(inputText)
+            [UiProperty.Text] = "Send",
+            [UiProperty.Enabled] = !string.IsNullOrWhiteSpace(inputText)
         };
 
         if (onSend != null)
         {
-            sendButtonProps["onClick"] = onSend;
+            sendButtonProps[UiProperty.OnClick] = onSend;
         }
 
         return new UiNode(
             "composer",
             UiKind.Row,
-            new Dictionary<string, object?>(),
+            new Dictionary<UiProperty, object?>(),
             new[]
             {
                 new UiNode("input", UiKind.TextBox, inputProps, Array.Empty<UiNode>()),
@@ -343,10 +343,10 @@ public static class ChatSurface
         return new UiPatch(
             new UpdatePropsOp(
                 $"msg-{messageId}-content",
-                new Dictionary<string, object?>
+                new Dictionary<UiProperty, object?>
                 {
-                    ["text"] = newContent,
-                    ["wrap"] = true
+                    [UiProperty.Text] = newContent,
+                    [UiProperty.Wrap] = true
                 }
             )
         );
@@ -360,18 +360,18 @@ public static class ChatSurface
         return new UiPatch(
             new UpdatePropsOp(
                 "input",
-                new Dictionary<string, object?>
+                new Dictionary<UiProperty, object?>
                 {
-                    ["text"] = text,
-                    ["placeholder"] = "Type a message..."
+                    [UiProperty.Text] = text,
+                    [UiProperty.Placeholder] = "Type a message..."
                 }
             ),
             new UpdatePropsOp(
                 "send-btn",
-                new Dictionary<string, object?>
+                new Dictionary<UiProperty, object?>
                 {
-                    ["text"] = "Send",
-                    ["enabled"] = !string.IsNullOrWhiteSpace(text)
+                    [UiProperty.Text] = "Send",
+                    [UiProperty.Enabled] = !string.IsNullOrWhiteSpace(text)
                 }
             )
         );
@@ -388,10 +388,10 @@ public static class ChatSurface
                 new UiNode(
                     "messages",
                     UiKind.Column,
-                    new Dictionary<string, object?>
+                    new Dictionary<UiProperty, object?>
                     {
-                        ["scrollable"] = true,
-                        ["autoScroll"] = true
+                        [UiProperty.Scrollable] = true,
+                        [UiProperty.AutoScroll] = true
                     },
                     Array.Empty<UiNode>()
                 )
@@ -408,10 +408,10 @@ public static class ChatSurface
         return new UiPatch(
             new UpdatePropsOp(
                 "thread-title",
-                new Dictionary<string, object?>
+                new Dictionary<UiProperty, object?>
                 {
-                    ["text"] = title,
-                    ["color"] = ConsoleColor.Cyan
+                    [UiProperty.Text] = title,
+                    [UiProperty.Color] = ConsoleColor.Cyan
                 }
             )
         );
@@ -432,10 +432,10 @@ public static class ChatSurface
                 new UiNode(
                     "messages",
                     UiKind.Column,
-                    new Dictionary<string, object?>
+                    new Dictionary<UiProperty, object?>
                     {
-                        ["scrollable"] = true,
-                        ["autoScroll"] = true
+                        [UiProperty.Scrollable] = true,
+                        [UiProperty.AutoScroll] = true
                     },
                     messageNodes
                 )
@@ -459,9 +459,9 @@ public static class ChatSurface
         var node = new UiNode(
             $"msg-{messageId}",
             UiKind.Column,
-            new Dictionary<string, object?>
+            new Dictionary<UiProperty, object?>
             {
-                ["state"] = state.ToString()
+                [UiProperty.State] = state.ToString()
             },
             Array.Empty<UiNode>()
         );
@@ -471,9 +471,9 @@ public static class ChatSurface
         return new UiPatch(
             new UpdatePropsOp(
                 $"msg-{messageId}",
-                new Dictionary<string, object?>
+                new Dictionary<UiProperty, object?>
                 {
-                    ["state"] = state.ToString()
+                    [UiProperty.State] = state.ToString()
                 }
             )
         );

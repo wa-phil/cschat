@@ -22,17 +22,17 @@ public static class MenuOverlay
         if (selectedIndex < 0 || selectedIndex >= choices.Count)
             selectedIndex = 0;
 
-        var children = new List<UiNode>
+    var children = new List<UiNode>
         {
             // Title
             new UiNode(
                 "overlay-menu-title",
                 UiKind.Label,
-                new Dictionary<string, object?>
+                new Dictionary<UiProperty, object?>
                 {
-                    ["text"] = title,
-                    ["style"] = "bold",
-                    ["align"] = "center"
+                    [UiProperty.Text] = title,
+                    [UiProperty.Style] = "bold",
+                    [UiProperty.Align] = "center"
                 },
                 Array.Empty<UiNode>()
             ),
@@ -41,10 +41,10 @@ public static class MenuOverlay
             new UiNode(
                 "overlay-menu-filter",
                 UiKind.TextBox,
-                new Dictionary<string, object?>
+                new Dictionary<UiProperty, object?>
                 {
-                    ["placeholder"] = "Filter...",
-                    [UiProps.Focusable] = true
+                    [UiProperty.Placeholder] = "Filter...",
+                    [UiProperty.Focusable] = true
                 },
                 Array.Empty<UiNode>()
             ),
@@ -53,25 +53,55 @@ public static class MenuOverlay
             new UiNode(
                 "overlay-menu-list",
                 UiKind.ListView,
-                new Dictionary<string, object?>
+                new Dictionary<UiProperty, object?>
                 {
-                    ["items"] = choices.ToList(),
-                    ["selectedIndex"] = selectedIndex,
-                    [UiProps.Focusable] = true
+                    [UiProperty.Items] = choices.ToList(),
+                    [UiProperty.SelectedIndex] = selectedIndex,
+                    [UiProperty.Focusable] = true
                 },
                 Array.Empty<UiNode>()
+            ),
+
+            // Buttons row: OK and Cancel
+            new UiNode(
+                "overlay-menu-buttons",
+                UiKind.Row,
+                new Dictionary<UiProperty, object?>(),
+                new[]
+                {
+                    new UiNode(
+                        "overlay-menu-ok",
+                        UiKind.Button,
+                        new Dictionary<UiProperty, object?>
+                        {
+                            [UiProperty.Text] = "OK",
+                            [UiProperty.Focusable] = true
+                        },
+                        Array.Empty<UiNode>()
+                    ),
+                    new UiNode(
+                        "overlay-menu-cancel",
+                        UiKind.Button,
+                        new Dictionary<UiProperty, object?>
+                        {
+                            [UiProperty.Text] = "Cancel",
+                            [UiProperty.Focusable] = true
+                        },
+                        Array.Empty<UiNode>()
+                    )
+                }
             )
         };
 
         return new UiNode(
             "overlay-menu",
             UiKind.Column,
-            new Dictionary<string, object?>
+            new Dictionary<UiProperty, object?>
             {
-                [UiProps.Modal] = true,
-                [UiProps.Role] = "overlay",
-                ["width"] = "80%",
-                ["padding"] = "2"
+                [UiProperty.Modal] = true,
+                [UiProperty.Role] = "overlay",
+                [UiProperty.Width] = "80%",
+                [UiProperty.Padding] = "2"
             },
             children
         );
@@ -110,9 +140,9 @@ public static class MenuOverlay
             var ops = new List<UiOp>();
             if (updateFilter)
             {
-                ops.Add(new UpdatePropsOp("overlay-menu-filter", new Dictionary<string, object?>
+                ops.Add(new UpdatePropsOp("overlay-menu-filter", new Dictionary<UiProperty, object?>
                 {
-                    ["text"] = currentFilter
+                    [UiProperty.Text] = currentFilter
                 }));
             }
             if (updateList)
@@ -122,10 +152,10 @@ public static class MenuOverlay
                 else if (currentSelected < 0) currentSelected = 0;
                 else if (currentSelected >= filteredChoices.Count) currentSelected = filteredChoices.Count - 1;
 
-                ops.Add(new UpdatePropsOp("overlay-menu-list", new Dictionary<string, object?>
+                ops.Add(new UpdatePropsOp("overlay-menu-list", new Dictionary<UiProperty, object?>
                 {
-                    ["items"] = filteredChoices.ToList(),
-                    ["selectedIndex"] = Math.Max(0, currentSelected)
+                    [UiProperty.Items] = filteredChoices.ToList(),
+                    [UiProperty.SelectedIndex] = Math.Max(0, currentSelected)
                 }));
             }
             if (ops.Count > 0)

@@ -730,9 +730,9 @@ public class Terminal : CUiBase
                 break;
 
             case UiKind.Label:
-                if (node.Props.TryGetValue("text", out var labelText))
+                if (node.Props.TryGetValue(UiProperty.Text, out var labelText))
                 {
-                    ForegroundColor = node.Props.TryGetValue("color", out var color) && color is ConsoleColor cc
+                    ForegroundColor = node.Props.TryGetValue(UiProperty.Color, out var color) && color is ConsoleColor cc
                         ? cc
                         : ConsoleColor.Gray;
                     WriteLine($"{indentStr}{labelText}");
@@ -741,7 +741,7 @@ public class Terminal : CUiBase
                 break;
 
             case UiKind.Button:
-                if (node.Props.TryGetValue("text", out var btnText))
+                if (node.Props.TryGetValue(UiProperty.Text, out var btnText))
                 {
                     if (isFocused)
                     {
@@ -759,8 +759,8 @@ public class Terminal : CUiBase
 
             case UiKind.TextBox:
             case UiKind.TextArea:
-                var text = node.Props.TryGetValue("text", out var t) ? t?.ToString() : "";
-                var placeholder = node.Props.TryGetValue("placeholder", out var ph) ? ph?.ToString() : "";
+                var text = node.Props.TryGetValue(UiProperty.Text, out var t) ? t?.ToString() : "";
+                var placeholder = node.Props.TryGetValue(UiProperty.Placeholder, out var ph) ? ph?.ToString() : "";
                 var displayText = string.IsNullOrEmpty(text) ? $"({placeholder})" : text;
 
                 if (isFocused)
@@ -778,8 +778,8 @@ public class Terminal : CUiBase
 
             case UiKind.CheckBox:
             case UiKind.Toggle:
-                var isChecked = node.Props.TryGetValue("checked", out var chk) && chk is bool b && b;
-                var cbLabel = node.Props.TryGetValue("label", out var lbl) ? lbl?.ToString() : "";
+                var isChecked = node.Props.TryGetValue(UiProperty.Checked, out var chk) && chk is bool b && b;
+                var cbLabel = node.Props.TryGetValue(UiProperty.Label, out var lbl) ? lbl?.ToString() : "";
                 var checkbox = isChecked ? "[X]" : "[ ]";
 
                 if (isFocused)
@@ -792,9 +792,9 @@ public class Terminal : CUiBase
                 break;
 
             case UiKind.ListView:
-                if (node.Props.TryGetValue("items", out var itemsObj) && itemsObj is IEnumerable<object> items)
+                if (node.Props.TryGetValue(UiProperty.Items, out var itemsObj) && itemsObj is IEnumerable<object> items)
                 {
-                    var selectedIndex = node.Props.TryGetValue("selectedIndex", out var si) && si is int idx ? idx : -1;
+                    var selectedIndex = node.Props.TryGetValue(UiProperty.SelectedIndex, out var si) && si is int idx ? idx : -1;
                     var itemList = items.ToList();
 
                     for (int i = 0; i < itemList.Count; i++)
@@ -813,14 +813,14 @@ public class Terminal : CUiBase
 
             case UiKind.Html:
                 // Render as plain text in terminal
-                if (node.Props.TryGetValue("content", out var htmlContent))
+                if (node.Props.TryGetValue(UiProperty.Content, out var htmlContent))
                 {
                     WriteLine($"{indentStr}{htmlContent}");
                 }
                 break;
 
             case UiKind.Spacer:
-                var height = node.Props.TryGetValue("height", out var h) && h is int ht ? ht : 1;
+                var height = node.Props.TryGetValue(UiProperty.Height, out var h) && h is int ht ? ht : 1;
                 for (int i = 0; i < height; i++)
                 {
                     WriteLine();
@@ -828,8 +828,8 @@ public class Terminal : CUiBase
                 break;
 
             case UiKind.Accordion:
-                var title = node.Props.TryGetValue("title", out var t2) ? t2?.ToString() : "Accordion";
-                var isExpanded = node.Props.TryGetValue("expanded", out var exp) && exp is bool e && e;
+                var title = node.Props.TryGetValue(UiProperty.Title, out var t2) ? t2?.ToString() : "Accordion";
+                var isExpanded = node.Props.TryGetValue(UiProperty.Expanded, out var exp) && exp is bool e && e;
 
                 ForegroundColor = isFocused ? ConsoleColor.Yellow : ConsoleColor.Cyan;
                 WriteLine($"{indentStr}{(isExpanded ? "▼" : "▶")} {title}");
@@ -885,7 +885,7 @@ public class Terminal : CUiBase
                 // Sort by zIndex if present, stable otherwise.
                 IEnumerable<UiNode> overlayNodes = overlaysContainer.Children;
                 overlayNodes = overlayNodes
-                    .Select(n => (n, z: TryGetIntProp(n.Props, UiProps.ZIndex) ?? 0))
+                    .Select(n => (n, z: TryGetIntProp(n.Props, UiProperty.ZIndex) ?? 0))
                     .OrderBy(t => t.z)
                     .Select(t => t.n);
 
@@ -975,7 +975,7 @@ public class Terminal : CUiBase
                 case UiKind.Column:
                 case UiKind.Row:
                     // Support split layout (label/control 50/50) with wrapping
-                    if (node.Props.TryGetValue("layout", out var layout) && layout?.ToString() == "split-50-50" && node.Children.Count >= 2)
+                    if (node.Props.TryGetValue(UiProperty.Layout, out var layout) && layout?.ToString() == "split-50-50" && node.Children.Count >= 2)
                     {
                         int contentWidth = Math.Max(10, width - indent * 2);
                         int colWidth = contentWidth / 2;
@@ -1022,21 +1022,21 @@ public class Terminal : CUiBase
                     break;
 
                 case UiKind.Label:
-                    if (node.Props.TryGetValue("text", out var labelText))
+                    if (node.Props.TryGetValue(UiProperty.Text, out var labelText))
                     {
-                        var fg = node.Props.TryGetValue("color", out var color) && color is ConsoleColor cc
+                        var fg = node.Props.TryGetValue(UiProperty.Color, out var color) && color is ConsoleColor cc
                             ? cc
                             : ConsoleColor.Gray;
                         var bg = isFocused ? ConsoleColor.DarkGray : ConsoleColor.Black;
 
-                        bool center = node.Props.TryGetValue("align", out var al) && (al?.ToString()?.Equals("center", StringComparison.OrdinalIgnoreCase) == true);
+                        bool center = node.Props.TryGetValue(UiProperty.Align, out var al) && (al?.ToString()?.Equals("center", StringComparison.OrdinalIgnoreCase) == true);
                         var textOut = center ? "[[CENTER]]" + labelText?.ToString() : ($"{indentStr}{labelText}");
                         lines.Add(new TermLine(textOut, fg, bg));
                     }
                     break;
 
                 case UiKind.Button:
-                    if (node.Props.TryGetValue("text", out var btnText))
+                    if (node.Props.TryGetValue(UiProperty.Text, out var btnText))
                     {
                         var fg = isFocused ? ConsoleColor.Black : ConsoleColor.White;
                         var bg = isFocused ? ConsoleColor.White : ConsoleColor.DarkGray;
@@ -1048,8 +1048,8 @@ public class Terminal : CUiBase
                 case UiKind.TextBox:
                 case UiKind.TextArea:
                     // Prefer "text" prop (UiNode-based), fallback to legacy "value"
-                    var value = node.Props.TryGetValue("text", out var v) ? v?.ToString() : (node.Props.TryGetValue("value", out var v2) ? v2?.ToString() : "");
-                    var placeholder = node.Props.TryGetValue("placeholder", out var p) ? p?.ToString() : "";
+                    var value = node.Props.TryGetValue(UiProperty.Text, out var v) ? v?.ToString() : (node.Props.TryGetValue(UiProperty.Value, out var v2) ? v2?.ToString() : "");
+                    var placeholder = node.Props.TryGetValue(UiProperty.Placeholder, out var p) ? p?.ToString() : "";
                     var displayText = string.IsNullOrEmpty(value) ? placeholder : value;
 
                     var textFg = isFocused ? ConsoleColor.Black : (string.IsNullOrEmpty(value) ? ConsoleColor.DarkGray : ConsoleColor.White);
@@ -1067,9 +1067,9 @@ public class Terminal : CUiBase
 
                 case UiKind.CheckBox:
                 case UiKind.Toggle:
-                    var isChecked = node.Props.TryGetValue("checked", out var chk) && chk is bool c && c;
+                    var isChecked = node.Props.TryGetValue(UiProperty.Checked, out var chk) && chk is bool c && c;
                     var checkbox = isChecked ? "[✓]" : "[ ]";
-                    var cbLabel = node.Props.TryGetValue("text", out var cbt) ? cbt?.ToString() : "";
+                    var cbLabel = node.Props.TryGetValue(UiProperty.Text, out var cbt) ? cbt?.ToString() : "";
 
                     var cbFg = isFocused ? ConsoleColor.Black : ConsoleColor.Gray;
                     var cbBg = isFocused ? ConsoleColor.White : ConsoleColor.Black;
@@ -1078,9 +1078,9 @@ public class Terminal : CUiBase
                     break;
 
                 case UiKind.ListView:
-                    if (node.Props.TryGetValue("items", out var itemsObj) && itemsObj is IEnumerable<object> items)
+                    if (node.Props.TryGetValue(UiProperty.Items, out var itemsObj) && itemsObj is IEnumerable<object> items)
                     {
-                        var selectedIndex = node.Props.TryGetValue("selectedIndex", out var si) && si is int idx ? idx : -1;
+                        var selectedIndex = node.Props.TryGetValue(UiProperty.SelectedIndex, out var si) && si is int idx ? idx : -1;
                         var itemList = items.ToList();
 
                         for (int i = 0; i < itemList.Count; i++)
@@ -1095,14 +1095,14 @@ public class Terminal : CUiBase
                     break;
 
                 case UiKind.Html:
-                    if (node.Props.TryGetValue("content", out var htmlContent))
+                    if (node.Props.TryGetValue(UiProperty.Content, out var htmlContent))
                     {
                         lines.Add(new TermLine($"{indentStr}{htmlContent}", ConsoleColor.Gray, ConsoleColor.Black));
                     }
                     break;
 
                 case UiKind.Spacer:
-                    var height = node.Props.TryGetValue("height", out var h) && h is int ht ? ht : 1;
+                    var height = node.Props.TryGetValue(UiProperty.Height, out var h) && h is int ht ? ht : 1;
                     for (int i = 0; i < height; i++)
                     {
                         lines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black));
@@ -1110,8 +1110,8 @@ public class Terminal : CUiBase
                     break;
 
                 case UiKind.Accordion:
-                    var title = node.Props.TryGetValue("title", out var t2) ? t2?.ToString() : "Accordion";
-                    var isExpanded = node.Props.TryGetValue("expanded", out var exp) && exp is bool e && e;
+                    var title = node.Props.TryGetValue(UiProperty.Title, out var t2) ? t2?.ToString() : "Accordion";
+                    var isExpanded = node.Props.TryGetValue(UiProperty.Expanded, out var exp) && exp is bool e && e;
 
                     var accFg = isFocused ? ConsoleColor.Yellow : ConsoleColor.Cyan;
                     lines.Add(new TermLine($"{indentStr}{(isExpanded ? "▼" : "▶")} {title}", accFg, ConsoleColor.Black));
@@ -1247,7 +1247,7 @@ public class Terminal : CUiBase
             return result;
         }
 
-        private static int? TryGetIntProp(IReadOnlyDictionary<string, object?> props, string key)
+        private static int? TryGetIntProp(IReadOnlyDictionary<UiProperty, object?> props, UiProperty key)
         {
             if (props.TryGetValue(key, out var val))
             {
@@ -1258,11 +1258,11 @@ public class Terminal : CUiBase
             return null;
         }
 
-        private static int ParseWidth(IReadOnlyDictionary<string, object?> props, int screenWidth)
+        private static int ParseWidth(IReadOnlyDictionary<UiProperty, object?> props, int screenWidth)
         {
             // default 80%
             int defaultWidth = Math.Max(20, (int)(screenWidth * 0.8));
-            if (!props.TryGetValue("width", out var w) || w is null) return defaultWidth;
+            if (!props.TryGetValue(UiProperty.Width, out var w) || w is null) return defaultWidth;
             if (w is int wi) return Math.Clamp(wi, 1, screenWidth);
             var s = w.ToString() ?? string.Empty;
             s = s.Trim();
@@ -1341,8 +1341,6 @@ public sealed class TerminalInputRouter : IInputRouter
 {
     private IUi? _ui;
     private readonly StringBuilder _inputBuffer = new();
-    private TaskCompletionSource<string?>? _readLineTcs;
-    private CommandManager? _commands;
     private ConsoleKeyInfo _lastKey;
 
     public event Action<string>? OnInputChanged;
@@ -1365,125 +1363,6 @@ public sealed class TerminalInputRouter : IInputRouter
         return null;
     }
 
-    [Obsolete("Use TryReadKey and ReadInputAsync instead")]
-    public async Task<string?> ReadLineAsync(CommandManager commands)
-    {
-        if (_ui == null)
-            throw new InvalidOperationException("InputRouter not attached to UI");
-
-        _commands = commands;
-        _readLineTcs = new TaskCompletionSource<string?>();
-        _inputBuffer.Clear();
-
-        // Start reading from console in background
-        _ = Task.Run(() => ReadConsoleInput());
-
-        return await _readLineTcs.Task;
-    }
-
-    private async void ReadConsoleInput()
-    {
-        if (_ui == null || _readLineTcs == null) return;
-        
-        var lines = new List<string>();
-
-        while (!_readLineTcs.Task.IsCompleted)
-        {
-            var maybe = TryReadKey();
-            if (maybe is null)
-            {
-                await Task.Delay(10);
-                continue;
-            }
-
-            var key = maybe.Value;
-
-            // Handle Escape (command palette)
-            if (key.Key == ConsoleKey.Escape && _commands != null)
-            {
-                try
-                {
-                    await _commands.Action();
-                    // Focus back to input after command
-                    await _ui.FocusAsync("input");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Command error: {ex.Message}");
-                }
-                continue;
-            }
-
-            // Handle Enter (submit) vs Shift+Enter (newline)
-            if (key.Key == ConsoleKey.Enter)
-            {
-                if ((key.Modifiers & ConsoleModifiers.Shift) != 0)
-                {
-                    // Shift+Enter: Insert newline (add current line to buffer and start new line)
-                    lines.Add(_inputBuffer.ToString());
-                    _inputBuffer.Clear();
-                    var multilineText = string.Join("\n", lines) + "\n";
-                    
-                    // Update the UI node
-                    await UpdateInputNode(multilineText);
-                    OnInputChanged?.Invoke(multilineText);
-                }
-                else
-                {
-                    // Enter: Submit
-                    lines.Add(_inputBuffer.ToString());
-                    var result = string.Join("\n", lines).Trim();
-                    _readLineTcs.TrySetResult(string.IsNullOrWhiteSpace(result) ? null : result);
-                    return;
-                }
-            }
-            // Handle Backspace
-            else if (key.Key == ConsoleKey.Backspace)
-            {
-                if (_inputBuffer.Length > 0)
-                {
-                    _inputBuffer.Length--;
-                    var currentText = _inputBuffer.ToString();
-                    if (lines.Count > 0)
-                    {
-                        currentText = string.Join("\n", lines) + "\n" + currentText;
-                    }
-                    await UpdateInputNode(currentText);
-                    OnInputChanged?.Invoke(currentText);
-                }
-                else if (lines.Count > 0)
-                {
-                    // Backspace at start of line - go back to previous line
-                    var lastLine = lines[lines.Count - 1];
-                    lines.RemoveAt(lines.Count - 1);
-                    _inputBuffer.Clear();
-                    _inputBuffer.Append(lastLine);
-                    var currentText = lines.Count > 0 ? string.Join("\n", lines) + "\n" + _inputBuffer.ToString() : _inputBuffer.ToString();
-                    await UpdateInputNode(currentText);
-                    OnInputChanged?.Invoke(currentText);
-                }
-            }
-            // Handle UpArrow (recall last input if available)
-            else if (key.Key == ConsoleKey.UpArrow)
-            {
-                // Let the caller handle history - for now just ignore
-                continue;
-            }
-            // Handle printable characters
-            else if (!char.IsControl(key.KeyChar))
-            {
-                _inputBuffer.Append(key.KeyChar);
-                var currentText = _inputBuffer.ToString();
-                if (lines.Count > 0)
-                {
-                    currentText = string.Join("\n", lines) + "\n" + currentText;
-                }
-                await UpdateInputNode(currentText);
-                OnInputChanged?.Invoke(currentText);
-            }
-        }
-    }
-
     /// <summary>
     /// Updates the input UiNode with the current text
     /// </summary>
@@ -1494,15 +1373,15 @@ public sealed class TerminalInputRouter : IInputRouter
         try
         {
             await _ui.PatchAsync(new UiPatch(
-                new UpdatePropsOp("input", new Dictionary<string, object?>
+                new UpdatePropsOp("input", new Dictionary<UiProperty, object?>
                 {
-                    ["text"] = text,
-                    ["placeholder"] = "Type a message..."
+                    [UiProperty.Text] = text,
+                    [UiProperty.Placeholder] = "Type a message..."
                 }),
-                new UpdatePropsOp("send-btn", new Dictionary<string, object?>
+                new UpdatePropsOp("send-btn", new Dictionary<UiProperty, object?>
                 {
-                    ["text"] = "Send",
-                    ["enabled"] = !string.IsNullOrWhiteSpace(text)
+                    [UiProperty.Text] = "Send",
+                    [UiProperty.Enabled] = !string.IsNullOrWhiteSpace(text)
                 })
             ));
         }

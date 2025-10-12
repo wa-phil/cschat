@@ -430,18 +430,18 @@ public sealed class PhotinoUi : CUiBase
 						if (node == null)
 							break;
 
-						// Map event name to handler property key
-						string handlerKey = name switch
+						// Map event name to handler property key (UiProperty)
+						UiProperty? handlerProp = name switch
 						{
-							"click" => "onClick",
-							"change" => "onChange",
-							"enter" => "onEnter",
-							"toggle" => "onToggle",
-							"itemActivated" => "onItemActivated",
-							_ => $"on{char.ToUpper(name[0])}{name.Substring(1)}"
+							"click" => UiProperty.OnClick,
+							"change" => UiProperty.OnChange,
+							"enter" => UiProperty.OnEnter,
+							"toggle" => UiProperty.OnToggle,
+							"itemActivated" => UiProperty.OnItemActivated,
+							_ => null
 						};
 
-						if (node.Props.TryGetValue(handlerKey, out var handlerObj) && handlerObj is UiHandler handler)
+						if (handlerProp.HasValue && node.Props.TryGetValue(handlerProp.Value, out var handlerObj) && handlerObj is UiHandler handler)
 						{
 							var evt = new UiEvent(key, name, value, null);
 							// Invoke the handler asynchronously
@@ -768,7 +768,6 @@ public sealed class PhotinoInputRouter : IInputRouter
     private IUi? _ui;
     private TaskCompletionSource<string?>? _readLineTcs;
     private string _currentInputText = "";
-    private CommandManager? _commands;
     private readonly Queue<ConsoleKeyInfo> _keyQueue = new();
     private ConsoleKeyInfo _lastKey;
 
@@ -807,38 +806,6 @@ public sealed class PhotinoInputRouter : IInputRouter
         {
             _keyQueue.Enqueue(key);
         }
-    }
-
-    [Obsolete("Use TryReadKey and ReadInputAsync instead")]
-    public async Task<string?> ReadLineAsync(CommandManager commands)
-    {
-        if (_ui == null)
-            throw new InvalidOperationException("InputRouter not attached to UI");
-
-        _commands = commands;
-        _readLineTcs = new TaskCompletionSource<string?>();
-        _currentInputText = "";
-
-        // Set up ESC key handling for command palette
-        _ = Task.Run(async () =>
-        {
-			while (_readLineTcs != null && !_readLineTcs.Task.IsCompleted)
-			{
-				var maybe = TryReadKey();
-				if (maybe is ConsoleKeyInfo k && k.Key == ConsoleKey.Escape && _commands != null)
-				{
-					await _commands.Action();
-					// Focus back to input after command
-					await _ui.FocusAsync("input");
-				}
-				else
-				{
-					await Task.Delay(10);
-				}
-			}
-        });
-
-        return await _readLineTcs.Task;
     }
 
     /// <summary>

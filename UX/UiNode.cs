@@ -24,12 +24,63 @@ public enum UiKind
 }
 
 /// <summary>
+/// Strongly-typed UI property keys used in UiNode.Props
+/// Values derived from all current usages across the UX layer
+/// </summary>
+public enum UiProperty
+{
+    // Semantic and layout
+    ZIndex,
+    Role,
+    Modal,
+    Focusable,
+    Width,
+    Height,
+    Padding,
+    Layout,
+
+    // Content and styling
+    Text,
+    Value,        // legacy fallback for Text
+    Placeholder,
+    Color,
+    Align,
+    Style,
+    Wrap,
+    Content,
+    Title,
+    Expanded,
+
+    // Collections / selection
+    Items,
+    SelectedIndex,
+
+    // State/metadata
+    Enabled,
+    Scrollable,
+    AutoScroll,
+    Timestamp,
+    State,
+    Min,
+    Max,
+    Label,
+    Checked,
+
+    // Event handlers
+    OnClick,
+    OnChange,
+    OnEnter,
+    OnToggle,
+    OnItemActivated,
+}
+
+/// <summary>
 /// Declarative UI node for retained-mode control layer
 /// </summary>
 public sealed record UiNode(
     string Key,
     UiKind Kind,
-    IReadOnlyDictionary<string, object?> Props,
+    IReadOnlyDictionary<UiProperty, object?> Props,
     IReadOnlyList<UiNode> Children
 );
 
@@ -69,7 +120,9 @@ public sealed record ReplaceOp(string Key, UiNode Node) : UiOp;
 /// <summary>
 /// Update properties of an existing node
 /// </summary>
-public sealed record UpdatePropsOp(string Key, IReadOnlyDictionary<string, object?> Props) : UiOp;
+// Replaced with enum-based props variant
+// public sealed record UpdatePropsOp(string Key, IReadOnlyDictionary<string, object?> Props) : UiOp;
+public sealed record UpdatePropsOp(string Key, IReadOnlyDictionary<UiProperty, object?> Props) : UiOp;
 
 /// <summary>
 /// Insert a child node at a specific index
@@ -143,7 +196,7 @@ public sealed class UiNodeTree
     /// <summary>
     /// Validates that props are appropriate for the node kind
     /// </summary>
-    private void ValidateProps(UiKind kind, IReadOnlyDictionary<string, object?> props)
+    private void ValidateProps(UiKind kind, IReadOnlyDictionary<UiProperty, object?> props)
     {
         // Basic validation - can be extended based on requirements
         if (props == null)
@@ -385,7 +438,7 @@ public sealed class UiNodeTree
     /// <summary>
     /// Applies an update props operation
     /// </summary>
-    public void ApplyUpdateProps(string key, IReadOnlyDictionary<string, object?> props)
+    public void ApplyUpdateProps(string key, IReadOnlyDictionary<UiProperty, object?> props)
     {
         if (!_nodeMap.TryGetValue(key, out var node))
             throw new KeyNotFoundException($"Node with key '{key}' not found");
@@ -561,17 +614,6 @@ public sealed record UiFrame(
 );
 
 /// <summary>
-/// Marker props we standardize in node.Props for routing & layout
-/// </summary>
-public static class UiProps
-{
-    public const string ZIndex = "zIndex";          // int
-    public const string Role   = "role";            // "frame|header|content|overlay"
-    public const string Modal  = "modal";           // bool
-    public const string Focusable = "focusable";   // bool
-}
-
-/// <summary>
 /// Creates and manipulates frame trees with semantic keys for stable patching
 /// </summary>
 public static class UiFrameBuilder
@@ -598,16 +640,16 @@ public static class UiFrameBuilder
         // Build overlays container
         var overlayChildren = frame.Overlays
             .Select((overlay, idx) => AddRoleIfMissing(
-                AddZIndexIfMissing(overlay, 1000 + idx), 
+                AddZIndexIfMissing(overlay, 1000 + idx),
                 "overlay"))
             .ToList();
 
         var overlaysContainer = new UiNode(
             "frame.overlays",
             UiKind.Column,
-            new Dictionary<string, object?>
+            new Dictionary<UiProperty, object?>
             {
-                [UiProps.Role] = "overlay"
+                [UiProperty.Role] = "overlay"
             },
             overlayChildren
         );
@@ -616,9 +658,9 @@ public static class UiFrameBuilder
         return new UiNode(
             "frame.root",
             UiKind.Column,
-            new Dictionary<string, object?>
+            new Dictionary<UiProperty, object?>
             {
-                [UiProps.Role] = "frame"
+                [UiProperty.Role] = "frame"
             },
             new[] { headerWithRole, contentWithRole, overlaysContainer }
         );
@@ -634,7 +676,7 @@ public static class UiFrameBuilder
 
         var contentWithRole = AddRoleIfMissing(newContent, "content");
         return new UiPatch(new ReplaceOp("frame.content", contentWithRole));
-    }
+    }    
 
     /// <summary>
     /// Creates a patch to push an overlay onto the stack (top-most modal)
@@ -676,16 +718,16 @@ public static class UiFrameBuilder
         var headerWithRole = AddRoleIfMissing(newHeader, "header");
         return new UiPatch(new ReplaceOp("frame.header", headerWithRole));
     }
-
+    
     // Helper: adds role prop if not present, preserving other props
     private static UiNode AddRoleIfMissing(UiNode node, string role)
     {
-        if (node.Props.ContainsKey(UiProps.Role))
+        if (node.Props.ContainsKey(UiProperty.Role))
             return node;
 
-        var newProps = new Dictionary<string, object?>(node.Props)
+        var newProps = new Dictionary<UiProperty, object?>(node.Props)
         {
-            [UiProps.Role] = role
+            [UiProperty.Role] = role
         };
 
         return node with { Props = newProps };
@@ -694,12 +736,12 @@ public static class UiFrameBuilder
     // Helper: adds zIndex prop if not present
     private static UiNode AddZIndexIfMissing(UiNode node, int zIndex)
     {
-        if (node.Props.ContainsKey(UiProps.ZIndex))
+        if (node.Props.ContainsKey(UiProperty.ZIndex))
             return node;
 
-        var newProps = new Dictionary<string, object?>(node.Props)
+        var newProps = new Dictionary<UiProperty, object?>(node.Props)
         {
-            [UiProps.ZIndex] = zIndex
+            [UiProperty.ZIndex] = zIndex
         };
 
         return node with { Props = newProps };
