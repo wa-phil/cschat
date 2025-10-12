@@ -150,8 +150,6 @@ public class Terminal : CUiBase
         }
     }
 
-    private string? lastInput = null;
-
     public override Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
     {
         Write($"{question} {(defaultAnswer ? "[Y/n]" : "[y/N]")} ");
@@ -350,106 +348,11 @@ public class Terminal : CUiBase
         return string.IsNullOrWhiteSpace(result) ? null : Path.GetFullPath(result);
     }
 
-    public override async Task<string?> ReadInputAsync(CommandManager commandManager)
-    {
-        var buffer = new List<char>();
-        var lines = new List<string>();
-        int cursor = 0;
-        ConsoleKeyInfo key;
-
-        while (true)
-        {
-            key = ReadKey(intercept: true);
-            if (key.Key == ConsoleKey.Enter && key.Modifiers.HasFlag(ConsoleModifiers.Shift))
-            {
-                // Soft new line
-                lines.Add(new string(buffer.ToArray()));
-                buffer.Clear();
-                cursor = 0;
-                Write("\n> ");
-                continue;
-            }
-            if (key.Key == ConsoleKey.Enter)
-            {
-                // erase the contents of the current line, and do not advance to the next line
-                SetCursorPosition(0, CursorTop);
-                Write(new string(' ', Width - 1));
-                SetCursorPosition(0, CursorTop);
-                break;
-            }
-            if (key.Key == ConsoleKey.Backspace)
-            {
-                if (cursor > 0)
-                {
-                    buffer.RemoveAt(cursor - 1);
-                    cursor--;
-                    Write("\b \b");
-                }
-                continue;
-            }
-            if (key.Key == ConsoleKey.Escape)
-            {
-                var result = await commandManager.Action();
-                if (result == Command.Result.Failed)
-                {
-                    WriteLine("Command failed.");
-                }
-                Write("[press ESC to open menu]\n> ");
-                buffer.Clear();
-                cursor = 0;
-                continue;
-            }
-            if (key.Key == ConsoleKey.UpArrow)
-            {
-                if (lastInput != null)
-                {
-                    // Clear current buffer display
-                    for (int i = 0; i < buffer.Count; i++)
-                    {
-                        Write("\b \b");
-                    }
-
-                    // Set buffer to last input
-                    buffer.Clear();
-                    buffer.AddRange(lastInput.ToCharArray());
-                    cursor = buffer.Count;
-
-                    // Display the recalled input
-                    Write(lastInput);
-                }
-                continue;
-            }
-            if (key.KeyChar != '\0')
-            {
-                buffer.Insert(cursor, key.KeyChar);
-                cursor++;
-                Write(key.KeyChar.ToString());
-            }
-        }
-        lines.Add(new string(buffer.ToArray()));
-        var input = string.Join("\n", lines).Trim();
-
-        // Store the input for history if it's not empty
-        if (!string.IsNullOrWhiteSpace(input))
-        {
-            lastInput = input;
-        }
-
-        return string.IsNullOrWhiteSpace(input) ? null : input;
-    }
-
-    [Obsolete("Use ReadInputAsync instead")]
-    public override async Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager)
-    {
-        return await ReadInputAsync(commandManager);
-    }
-
     public override IInputRouter GetInputRouter()
     {
         if (_inputRouter == null)
         {
             _inputRouter = new TerminalInputRouter();
-            _inputRouter.Attach(this);
         }
         return _inputRouter;
     }
@@ -919,7 +822,7 @@ public class Terminal : CUiBase
                 else if (oldLine != null && newLine == null)
                 {
                     // Line removed
-                    edits.Add(new TermEdit(i, new TermLine("", ConsoleColor.Gray, ConsoleColor.Black)));
+                    edits.Add(new TermEdit(i, new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left)));
                 }
                 else if (oldLine != null && newLine != null && !oldLine.Equals(newLine))
                 {
@@ -946,6 +849,22 @@ public class Terminal : CUiBase
                 // Pad or truncate to console width
                 var text = edit.Line.Text;
                 var width = Console.WindowWidth;
+                // If requested, center within full console width for base content lines
+                if (edit.Line.Align == TextAlign.Center)
+                {
+                    // Avoid re-centering overlay border lines that include box-drawing chars
+                    bool hasOverlayGlyph = text.IndexOf('┌') >= 0 || text.IndexOf('┐') >= 0 || text.IndexOf('└') >= 0 ||
+                                           text.IndexOf('┘') >= 0 || text.IndexOf('│') >= 0 || text.IndexOf('─') >= 0 ||
+                                           text.IndexOf('█') >= 0;
+                    if (!hasOverlayGlyph)
+                    {
+                        var content = text ?? string.Empty;
+                        if (content.Length > Math.Max(1, width))
+                            content = (width <= 1) ? "…" : content.Substring(0, Math.Max(0, width - 1)) + "…";
+                        int leftPad = Math.Max(0, (width - content.Length) / 2);
+                        text = new string(' ', leftPad) + content;
+                    }
+                }
                 if (text.Length < width)
                     text = text.PadRight(width);
                 else if (text.Length > width)
@@ -969,6 +888,47 @@ public class Terminal : CUiBase
             var startLine = lines.Count;
             var indentStr = new string(' ', indent * 2);
             var isFocused = node.Key == focusedKey;
+
+            // Helpers to resolve styles with legacy fallback
+            static bool TryParseColor(object? val, out ConsoleColor color)
+            {
+                if (val is ConsoleColor cc) { color = cc; return true; }
+                if (val is string s && Enum.TryParse<ConsoleColor>(s, true, out var parsed)) { color = parsed; return true; }
+                color = ConsoleColor.Gray; return false;
+            }
+
+            ConsoleColor ResolveFg(UiNode n, ConsoleColor @default)
+            {
+                if (n.Styles.Get<object?>(UiStyleKey.ForegroundColor) is object st && TryParseColor(st, out var c)) return c;
+                if (n.Props.TryGetValue(UiProperty.Color, out var legacy) && TryParseColor(legacy, out var c2)) return c2;
+                // Bold hint if no explicit color
+                var boldObj = n.Styles.Get<object?>(UiStyleKey.Bold);
+                if (boldObj is bool isBold && isBold) return ConsoleColor.White;
+                // simple style hint: dim
+                var styleStr = n.Styles.Get<string>(UiStyleKey.Style) ?? (n.Props.TryGetValue(UiProperty.Style, out var ls) ? ls as string : null);
+                if (string.Equals(styleStr, "dim", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkGray;
+                return @default;
+            }
+
+            ConsoleColor ResolveBg(UiNode n, ConsoleColor @default)
+            {
+                if (n.Styles.Get<object?>(UiStyleKey.BackgroundColor) is object st && TryParseColor(st, out var c)) return c;
+                return @default;
+            }
+
+            TextAlign ResolveAlign(UiNode n)
+            {
+                var a = n.Styles.Get<string>(UiStyleKey.Align) ?? (n.Props.TryGetValue(UiProperty.Align, out var la) ? la?.ToString() : null);
+                return string.Equals(a, "center", StringComparison.OrdinalIgnoreCase) ? TextAlign.Center : TextAlign.Left;
+            }
+
+            bool ResolveWrap(UiNode n)
+            {
+                var sv = n.Styles.Get<object?>(UiStyleKey.Wrap);
+                if (sv is bool b) return b;
+                if (n.Props.TryGetValue(UiProperty.Wrap, out var lv) && lv is bool lb) return lb;
+                return false;
+            }
 
             switch (node.Kind)
             {
@@ -1006,7 +966,7 @@ public class Terminal : CUiBase
                             if (leftText.Length > colWidth) leftText = leftText.Substring(0, Math.Max(0, colWidth - 1)) + "…";
                             if (rightText.Length > colWidth) rightText = rightText.Substring(0, Math.Max(0, colWidth - 1)) + "…";
                             var composed = indentStr + leftText.PadRight(colWidth) + rightText.PadRight(colWidth);
-                            lines.Add(new TermLine(composed, lineFg, lineBg));
+                            lines.Add(new TermLine(composed, lineFg, lineBg, TextAlign.Left));
                         }
 
                         // Record mapping for row key to the composed region
@@ -1024,14 +984,26 @@ public class Terminal : CUiBase
                 case UiKind.Label:
                     if (node.Props.TryGetValue(UiProperty.Text, out var labelText))
                     {
-                        var fg = node.Props.TryGetValue(UiProperty.Color, out var color) && color is ConsoleColor cc
-                            ? cc
-                            : ConsoleColor.Gray;
-                        var bg = isFocused ? ConsoleColor.DarkGray : ConsoleColor.Black;
+                        var align = ResolveAlign(node);
+                        var wrap = ResolveWrap(node);
+                        var fg = ResolveFg(node, ConsoleColor.Gray);
+                        var bg = ResolveBg(node, isFocused ? ConsoleColor.DarkGray : ConsoleColor.Black);
 
-                        bool center = node.Props.TryGetValue(UiProperty.Align, out var al) && (al?.ToString()?.Equals("center", StringComparison.OrdinalIgnoreCase) == true);
-                        var textOut = center ? "[[CENTER]]" + labelText?.ToString() : ($"{indentStr}{labelText}");
-                        lines.Add(new TermLine(textOut, fg, bg));
+                        string raw = labelText?.ToString() ?? string.Empty;
+                        if (wrap)
+                        {
+                            int labAvail = Math.Max(1, width - indent * 2);
+                            foreach (var seg in WrapText(raw, labAvail))
+                            {
+                                var textOut = (align == TextAlign.Center) ? seg : ($"{indentStr}{seg}");
+                                lines.Add(new TermLine(textOut, fg, bg, align));
+                            }
+                        }
+                        else
+                        {
+                            var textOut = (align == TextAlign.Center) ? raw : ($"{indentStr}{raw}");
+                            lines.Add(new TermLine(textOut, fg, bg, align));
+                        }
                     }
                     break;
 
@@ -1041,7 +1013,7 @@ public class Terminal : CUiBase
                         var fg = isFocused ? ConsoleColor.Black : ConsoleColor.White;
                         var bg = isFocused ? ConsoleColor.White : ConsoleColor.DarkGray;
 
-                        lines.Add(new TermLine($"{indentStr}[ {btnText} ]", fg, bg));
+                        lines.Add(new TermLine($"{indentStr}[ {btnText} ]", fg, bg, TextAlign.Left));
                     }
                     break;
 
@@ -1052,8 +1024,8 @@ public class Terminal : CUiBase
                     var placeholder = node.Props.TryGetValue(UiProperty.Placeholder, out var p) ? p?.ToString() : "";
                     var displayText = string.IsNullOrEmpty(value) ? placeholder : value;
 
-                    var textFg = isFocused ? ConsoleColor.Black : (string.IsNullOrEmpty(value) ? ConsoleColor.DarkGray : ConsoleColor.White);
-                    var textBg = isFocused ? ConsoleColor.White : ConsoleColor.Black;
+                    var textFg = isFocused ? ConsoleColor.Black : (string.IsNullOrEmpty(value) ? ConsoleColor.DarkGray : ResolveFg(node, ConsoleColor.White));
+                    var textBg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
 
                     // Wrap display text to available width
                     int avail = Math.Max(1, width - indent * 2);
@@ -1061,7 +1033,7 @@ public class Terminal : CUiBase
                     var wrapped = WrapText(displayText, avail);
                     foreach (var wline in wrapped)
                     {
-                        lines.Add(new TermLine($"{indentStr}{wline}", textFg, textBg));
+                        lines.Add(new TermLine($"{indentStr}{wline}", textFg, textBg, TextAlign.Left));
                     }
                     break;
 
@@ -1071,10 +1043,10 @@ public class Terminal : CUiBase
                     var checkbox = isChecked ? "[✓]" : "[ ]";
                     var cbLabel = node.Props.TryGetValue(UiProperty.Text, out var cbt) ? cbt?.ToString() : "";
 
-                    var cbFg = isFocused ? ConsoleColor.Black : ConsoleColor.Gray;
-                    var cbBg = isFocused ? ConsoleColor.White : ConsoleColor.Black;
+                    var cbFg = isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.Gray);
+                    var cbBg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
 
-                    lines.Add(new TermLine($"{indentStr}{checkbox} {cbLabel}", cbFg, cbBg));
+                    lines.Add(new TermLine($"{indentStr}{checkbox} {cbLabel}", cbFg, cbBg, TextAlign.Left));
                     break;
 
                 case UiKind.ListView:
@@ -1091,12 +1063,12 @@ public class Terminal : CUiBase
                         if (count == 0)
                         {
                             // Render an empty placeholder line to keep consistent height
-                            var fgEmpty = isFocused ? ConsoleColor.Black : ConsoleColor.DarkGray;
-                            var bgEmpty = isFocused ? ConsoleColor.DarkGray : ConsoleColor.Black;
+                            var fgEmpty = isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.DarkGray);
+                            var bgEmpty = isFocused ? ConsoleColor.DarkGray : ResolveBg(node, ConsoleColor.Black);
                             var emptyText = $"{indentStr}  (empty)";
                             // Ensure line width to keep columns aligned (esp. inside split layout)
                             emptyText = EnsureWidth(emptyText, width);
-                            lines.Add(new TermLine(emptyText, fgEmpty, bgEmpty));
+                            lines.Add(new TermLine(emptyText, fgEmpty, bgEmpty, TextAlign.Left));
                             break;
                         }
 
@@ -1130,8 +1102,8 @@ public class Terminal : CUiBase
                         {
                             int i = offset + j;
                             var isSelected = i == selectedIndex;
-                            var fg = isSelected ? ConsoleColor.Black : (isFocused ? ConsoleColor.Black : ConsoleColor.Gray);
-                            var bg = isSelected ? ConsoleColor.White : (isFocused ? ConsoleColor.DarkGray : ConsoleColor.Black);
+                            var fg = isSelected ? ConsoleColor.Black : (isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.Gray));
+                            var bg = isSelected ? ConsoleColor.White : (isFocused ? ConsoleColor.DarkGray : ResolveBg(node, ConsoleColor.Black));
 
                             // Compose content within available width, placing scrollbar at right edge when shown
                             var prefix = $"{indentStr}  {(isSelected ? ">" : " ")} ";
@@ -1156,7 +1128,7 @@ public class Terminal : CUiBase
 
                             // Ensure total width alignment for parent composers
                             rowText = EnsureWidth(rowText, width);
-                            lines.Add(new TermLine(rowText, fg, bg));
+                            lines.Add(new TermLine(rowText, fg, bg, TextAlign.Left));
                         }
                     }
                     break;
@@ -1164,7 +1136,7 @@ public class Terminal : CUiBase
                 case UiKind.Html:
                     if (node.Props.TryGetValue(UiProperty.Content, out var htmlContent))
                     {
-                        lines.Add(new TermLine($"{indentStr}{htmlContent}", ConsoleColor.Gray, ConsoleColor.Black));
+                        lines.Add(new TermLine($"{indentStr}{htmlContent}", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
                     }
                     break;
 
@@ -1172,7 +1144,7 @@ public class Terminal : CUiBase
                     var height = node.Props.TryGetValue(UiProperty.Height, out var h) && h is int ht ? ht : 1;
                     for (int i = 0; i < height; i++)
                     {
-                        lines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black));
+                        lines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
                     }
                     break;
 
@@ -1181,7 +1153,7 @@ public class Terminal : CUiBase
                     var isExpanded = node.Props.TryGetValue(UiProperty.Expanded, out var exp) && exp is bool e && e;
 
                     var accFg = isFocused ? ConsoleColor.Yellow : ConsoleColor.Cyan;
-                    lines.Add(new TermLine($"{indentStr}{(isExpanded ? "▼" : "▶")} {title}", accFg, ConsoleColor.Black));
+                    lines.Add(new TermLine($"{indentStr}{(isExpanded ? "▼" : "▶")} {title}", accFg, ConsoleColor.Black, TextAlign.Left));
 
                     if (isExpanded)
                     {
@@ -1222,21 +1194,17 @@ public class Terminal : CUiBase
             // Convert to strings and clamp to content width
             int contentWidth = Math.Max(1, boxWidth - 2); // borders on left/right
             var content = innerLines
-                .Select(l => TrimLeadingSpaces(l.Text))
+                .Select(l => (text: TrimLeadingSpaces(l.Text), align: l.Align))
                 .Select(t =>
                 {
-                    const string CenterTag = "[[CENTER]]";
-                    if (t != null && t.StartsWith(CenterTag, StringComparison.Ordinal))
+                    var fit = FitToWidth(t.text ?? string.Empty, contentWidth);
+                    if (t.align == TextAlign.Center)
                     {
-                        var raw = t.Substring(CenterTag.Length);
-                        // If too long, trim with ellipsis first
-                        var fit = FitToWidth(raw, contentWidth);
-                        // Center within content width
                         int pad = Math.Max(0, contentWidth - fit.Length);
                         int left = pad / 2;
-                        return new string(' ', left) + fit; // right padding will be added later via PadRight
+                        return new string(' ', left) + fit;
                     }
-                    return FitToWidth(t ?? string.Empty, contentWidth);
+                    return fit;
                 })
                 .ToList();
 
@@ -1264,7 +1232,7 @@ public class Terminal : CUiBase
             int requiredLines = yStart + boxHeight;
             while (baseLines.Count < requiredLines)
             {
-                baseLines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black));
+                baseLines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
             }
 
             // Composite box over base lines, preserving text outside the box rectangle
@@ -1280,7 +1248,7 @@ public class Terminal : CUiBase
                 string newRow = left + overlayRow.PadRight(boxWidth) + right;
                 // Clamp to screen width
                 newRow = EnsureWidth(newRow, screenWidth);
-                baseLines[lineIndex] = new TermLine(newRow, ConsoleColor.Gray, ConsoleColor.Black);
+                baseLines[lineIndex] = new TermLine(newRow, ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left);
             }
 
             // Record region for overlay (helps focus mapping, etc.)
@@ -1374,12 +1342,18 @@ public class Terminal : CUiBase
     );
 
     /// <summary>
-    /// A single line in the terminal with styling
+    /// Alignment for a rendered terminal line
+    /// </summary>
+    private enum TextAlign { Left, Center }
+
+    /// <summary>
+    /// A single line in the terminal with styling and alignment metadata
     /// </summary>
     private sealed record TermLine(
         string Text,
         ConsoleColor Foreground,
-        ConsoleColor Background
+        ConsoleColor Background,
+        TextAlign Align
     );
 
     /// <summary>
@@ -1407,15 +1381,7 @@ public class Terminal : CUiBase
 public sealed class TerminalInputRouter : IInputRouter
 {
     private IUi? _ui;
-    private readonly StringBuilder _inputBuffer = new();
     private ConsoleKeyInfo _lastKey;
-
-    public event Action<string>? OnInputChanged;
-
-    public void Attach(IUi ui)
-    {
-        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
-    }
 
     /// <summary>
     /// Non-blocking poll for key input. Returns ConsoleKeyInfo if a key is available, otherwise null.
@@ -1428,33 +1394,5 @@ public sealed class TerminalInputRouter : IInputRouter
             return _lastKey;
         }
         return null;
-    }
-
-    /// <summary>
-    /// Updates the input UiNode with the current text
-    /// </summary>
-    private async Task UpdateInputNode(string text)
-    {
-        if (_ui == null) return;
-        
-        try
-        {
-            await _ui.PatchAsync(new UiPatch(
-                new UpdatePropsOp("input", new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Text] = text,
-                    [UiProperty.Placeholder] = "Type a message..."
-                }),
-                new UpdatePropsOp("send-btn", new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Text] = "Send",
-                    [UiProperty.Enabled] = !string.IsNullOrWhiteSpace(text)
-                })
-            ));
-        }
-        catch
-        {
-            // Ignore errors if UI is being torn down
-        }
     }
 }

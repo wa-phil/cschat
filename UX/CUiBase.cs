@@ -97,7 +97,7 @@ public abstract partial class CUiBase : IUi
     {
         return await FormOverlay.ShowAsync(this, form);
     }
-    
+
     public abstract Task<bool> ConfirmAsync(string question, bool defaultAnswer = false);
     public abstract Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt);
     public abstract void RenderTable(Table table, string? title = null);
@@ -106,9 +106,6 @@ public abstract partial class CUiBase : IUi
     public abstract string StartProgress(string title, CancellationTokenSource cts);
     public abstract void UpdateProgress(string id, ProgressSnapshot snapshot);
     public abstract void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown);
-    public abstract Task<string?> ReadInputAsync(CommandManager commands);
-    [Obsolete("Use ReadInputAsync instead")]
-    public abstract Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager);
     public abstract IInputRouter GetInputRouter();
     public abstract string? RenderMenu(string header, List<string> choices, int selected = 0);
     public abstract ConsoleKeyInfo ReadKey(bool intercept);

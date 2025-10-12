@@ -30,12 +30,9 @@ public static class MenuOverlay
                 UiKind.Label,
                 new Dictionary<UiProperty, object?>
                 {
-                    [UiProperty.Text] = title,
-                    [UiProperty.Style] = "bold",
-                    [UiProperty.Align] = "center"
+                    [UiProperty.Text] = title
                 },
-                Array.Empty<UiNode>()
-            ),
+                Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.Align, "center"), (UiStyleKey.Bold, true))),
 
             // Filter box (for future filtering support)
             new UiNode(

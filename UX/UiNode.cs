@@ -4,6 +4,42 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
+// Visual style keys usable with UiNode.Styles
+public enum UiStyleKey
+{
+    ForegroundColor,
+    BackgroundColor,
+    Bold,
+    Style,   // string tag (e.g., "dim")
+    Wrap,
+    Align,   // "left" | "center" | "right"
+    Justify  // reserved for future layout semantics
+}
+
+public sealed record UiStyles(IReadOnlyDictionary<UiStyleKey, object?> Values)
+{
+    public static readonly UiStyles Empty = new(new Dictionary<UiStyleKey, object?>());
+
+    public T? Get<T>(UiStyleKey key)
+    {
+        if (Values.TryGetValue(key, out var v) && v is T tv) return tv;
+        return default;
+    }
+
+    public UiStyles With(UiStyleKey key, object? value)
+    {
+        var dict = new Dictionary<UiStyleKey, object?>(Values) { [key] = value };
+        return new UiStyles(dict);
+    }
+
+    public static UiStyles Of(params (UiStyleKey key, object? value)[] entries)
+    {
+        var d = new Dictionary<UiStyleKey, object?>();
+        foreach (var (k, v) in entries) d[k] = v;
+        return new UiStyles(d);
+    }
+}
+
 /// <summary>
 /// Kinds of UI nodes supported in the declarative control layer
 /// </summary>
@@ -82,7 +118,18 @@ public sealed record UiNode(
     UiKind Kind,
     IReadOnlyDictionary<UiProperty, object?> Props,
     IReadOnlyList<UiNode> Children
-);
+)
+{
+    // New: optional styles bag separate from generic props
+    public UiStyles Styles { get; init; } = UiStyles.Empty;
+
+    // Convenience ctor to allow passing styles at construction time
+    public UiNode(string key, UiKind kind, IReadOnlyDictionary<UiProperty, object?> props, IReadOnlyList<UiNode> children, UiStyles styles)
+        : this(key, kind, props, children)
+    {
+        Styles = styles ?? UiStyles.Empty;
+    }
+}
 
 /// <summary>
 /// Event emitted from a UI node
@@ -747,3 +794,5 @@ public static class UiFrameBuilder
         return node with { Props = newProps };
     }
 }
+
+// Duplicate UiStyleKey/UiStyles removed (definitions are at the top of this file)

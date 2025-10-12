@@ -20,7 +20,6 @@ public sealed class PhotinoUi : CUiBase
 	private volatile bool _ready = false;
 	private volatile bool _uiAlive = false;
 
-	private TaskCompletionSource<string?>? _tcsReadLine;
 	private TaskCompletionSource<ConsoleKeyInfo>? _tcsKey;
 	private TaskCompletionSource<Dictionary<string, string?>?>? _tcsForm;
 
@@ -82,7 +81,6 @@ public sealed class PhotinoUi : CUiBase
 	private void NudgeWaitersAndStop()
 	{
 		_uiAlive = false;
-		_tcsReadLine?.TrySetResult(null);
 		_tcsKey?.TrySetResult(new ConsoleKeyInfo('\0', ConsoleKey.Escape, false, false, false));
 	}
 
@@ -307,7 +305,6 @@ public sealed class PhotinoUi : CUiBase
 					}
 
 				case "UserText":
-					_tcsReadLine?.TrySetResult(S("text", "Text"));
 					if (!string.IsNullOrWhiteSpace(S("text", "Text")))
 						_lastInput = S("text", "Text");
 					break;
@@ -415,11 +412,9 @@ public sealed class PhotinoUi : CUiBase
 							break;
 						}
 
-						// Legacy fallback: direct _tcsReadLine completion for old code paths
 						// (e.g., ReadInputWithFeaturesAsync before full InputRouter migration)
 						if ((key == "input" && name == "enter") || (key == "send-btn" && name == "click"))
 						{
-							_tcsReadLine?.TrySetResult(value);
 							if (!string.IsNullOrWhiteSpace(value))
 								_lastInput = value;
 							break;
@@ -472,43 +467,11 @@ public sealed class PhotinoUi : CUiBase
 	});
 
 	// ---------- Input ----------
-	public override async Task<string?> ReadInputAsync(CommandManager commandManager)
-	{
-		_tcsReadLine = new(TaskCreationOptions.RunContinuationsAsynchronously);
-		Post(new { type = "FocusInput" });
-
-		_ = Task.Run(async () =>
-		{
-			var keyWait = ReadKeyInternalAsync(intercept: true);
-			while (_uiAlive)
-			{
-				var k = await keyWait;
-				if (k.Key == ConsoleKey.Escape)
-				{
-					var result = await commandManager.Action();
-					// TODO: maybe find another/better way to do this...  if (result == Command.Result.Failed) WriteLine("Command failed.");
-					Post(new { type = "FocusInput" });
-				}
-				keyWait = ReadKeyInternalAsync(intercept: true);
-			}
-		});
-
-		var text = await _tcsReadLine.Task;
-		return string.IsNullOrWhiteSpace(text) ? null : text;
-	}
-
-	[Obsolete("Use ReadInputAsync instead")]
-	public override async Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager)
-	{
-		return await ReadInputAsync(commandManager);
-	}
-
 	public override IInputRouter GetInputRouter()
 	{
 		if (_inputRouter == null)
 		{
 			_inputRouter = new PhotinoInputRouter();
-			_inputRouter.Attach(this);
 		}
 		return _inputRouter;
 	}
@@ -761,24 +724,12 @@ public sealed class PhotinoUi : CUiBase
 
 /// <summary>
 /// Photino implementation of IInputRouter
-/// Reads ControlEvent from Photino and maps enter/click to submit; change → OnInputChanged
 /// </summary>
 public sealed class PhotinoInputRouter : IInputRouter
 {
-    private IUi? _ui;
-    private TaskCompletionSource<string?>? _readLineTcs;
     private string _currentInputText = "";
     private readonly Queue<ConsoleKeyInfo> _keyQueue = new();
     private ConsoleKeyInfo _lastKey;
-
-    public event Action<string>? OnInputChanged;
-
-    public void Attach(IUi ui)
-    {
-        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
-        // Attachment happens in Photino's constructor and ControlEvent handler
-        // The ControlEvent handler in PhotinoUi.HandleInbound already routes events to this router
-    }
 
 	/// <summary>
 	/// Non-blocking poll for key input. For Photino, this returns the next synthetic key from the queue
@@ -818,14 +769,12 @@ public sealed class PhotinoInputRouter : IInputRouter
         if (eventName == "change" && key == "input")
         {
             _currentInputText = value ?? "";
-            OnInputChanged?.Invoke(_currentInputText);
         }
         
         // Handle submit events (Enter key or Send button click)
         else if ((key == "input" && eventName == "enter") || (key == "send-btn" && eventName == "click"))
         {
             var textToSubmit = _currentInputText;
-            _readLineTcs?.TrySetResult(textToSubmit);
             
             // Also enqueue synthetic Enter key for TryReadKey consumers
             EnqueueKey(new ConsoleKeyInfo('\r', ConsoleKey.Enter, false, false, false));
@@ -834,16 +783,7 @@ public sealed class PhotinoInputRouter : IInputRouter
         // Handle cancel/escape
         else if (eventName == "escape")
         {
-            _readLineTcs?.TrySetResult(null);
             EnqueueKey(new ConsoleKeyInfo('\0', ConsoleKey.Escape, false, false, false));
         }
-    }
-
-    /// <summary>
-    /// Called when user closes the window or cancels input
-    /// </summary>
-    public void CancelInput()
-    {
-        _readLineTcs?.TrySetResult(null);
     }
 }

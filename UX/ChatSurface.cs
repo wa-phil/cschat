@@ -176,21 +176,15 @@ public static class ChatSurface
     {
         var title = string.IsNullOrEmpty(threadName) ? "Chat" : $"Chat: {threadName}";
         
-        var props = new Dictionary<UiProperty, object?>
+        var titleProps = new Dictionary<UiProperty, object?>
         {
-            [UiProperty.Text] = title,
-            [UiProperty.Color] = ConsoleColor.Cyan
+            [UiProperty.Text] = title
         };
 
-        var clearButtonProps = new Dictionary<UiProperty, object?>
+        var spacerProps = new Dictionary<UiProperty, object?>
         {
-            [UiProperty.Text] = "Clear"
+            [UiProperty.Width] = 1
         };
-        
-        if (onClear != null)
-        {
-            clearButtonProps[UiProperty.OnClick] = onClear;
-        }
 
         return new UiNode(
             "header",
@@ -198,9 +192,9 @@ public static class ChatSurface
             new Dictionary<UiProperty, object?>(),
             new[]
             {
-                new UiNode("thread-title", UiKind.Label, props, Array.Empty<UiNode>()),
-                new UiNode("spacer-header", UiKind.Spacer, new Dictionary<UiProperty, object?> { [UiProperty.Width] = 2 }, Array.Empty<UiNode>()),
-                new UiNode("clear-btn", UiKind.Button, clearButtonProps, Array.Empty<UiNode>())
+                new UiNode("thread-title", UiKind.Label, titleProps, Array.Empty<UiNode>(),
+                    UiStyles.Of((UiStyleKey.Align, "center"), (UiStyleKey.ForegroundColor, ConsoleColor.Cyan))),
+                new UiNode("spacer-header", UiKind.Spacer, spacerProps, Array.Empty<UiNode>())
             }
         );
     }
@@ -255,22 +249,17 @@ public static class ChatSurface
                 UiKind.Label,
                 new Dictionary<UiProperty, object?>
                 {
-                    [UiProperty.Text] = header,
-                    [UiProperty.Color] = color
+                    [UiProperty.Text] = header
                 },
-                Array.Empty<UiNode>()
-            ),
+                Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.ForegroundColor, color))),
             new UiNode(
                 $"msg-{message.Id}-content",
                 UiKind.Label,
                 new Dictionary<UiProperty, object?>
                 {
-                    [UiProperty.Text] = message.Content ?? "",
-                    [UiProperty.Color] = color,
-                    [UiProperty.Wrap] = true
+                    [UiProperty.Text] = message.Content ?? ""
                 },
-                Array.Empty<UiNode>()
-            )
+                Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.ForegroundColor, color), (UiStyleKey.Wrap, true)))
         };
 
         return new UiNode(
@@ -400,24 +389,6 @@ public static class ChatSurface
     }
 
     /// <summary>
-    /// Creates a patch to update the thread name in the toolbar
-    /// </summary>
-    public static UiPatch UpdateThreadName(string threadName)
-    {
-        var title = string.IsNullOrEmpty(threadName) ? "Chat" : $"Chat: {threadName}";
-        return new UiPatch(
-            new UpdatePropsOp(
-                "thread-title",
-                new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Text] = title,
-                    [UiProperty.Color] = ConsoleColor.Cyan
-                }
-            )
-        );
-    }
-
-    /// <summary>
     /// Creates a patch to update multiple messages at once (batch update)
     /// </summary>
     public static UiPatch UpdateMessages(IEnumerable<ChatMessage> messages)
@@ -441,14 +412,6 @@ public static class ChatSurface
                 )
             )
         );
-    }
-
-    /// <summary>
-    /// Creates a patch to remove a specific message
-    /// </summary>
-    public static UiPatch RemoveMessage(string messageId)
-    {
-        return new UiPatch(new RemoveOp($"msg-{messageId}"));
     }
 
     /// <summary>
@@ -535,19 +498,5 @@ public static class ChatSurface
             currentMessages = context.Messages(InluceSystemMessage: false).ToList();
             await ui.PatchAsync(AppendMessage(errorMsg, currentMessages.Count - 1));
         }
-    }
-
-    /// <summary>
-    /// Helper method to mount the chat surface with default options
-    /// </summary>
-    public static async Task MountAsync(
-        IUi ui,
-        IEnumerable<ChatMessage> messages,
-        string inputText = "",
-        UiHandler? onSend = null,
-        UiHandler? onInput = null)
-    {
-        var surface = Create(messages, inputText, onSend, onInput);
-        await ui.SetRootAsync(surface, new UiControlOptions(TrapKeys: true, InitialFocusKey: "input"));
     }
 }

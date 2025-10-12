@@ -231,9 +231,7 @@ static class Program
                 output.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
                 output.WriteLine();
 
-                // Get the input router and attach to UI
                 var inputRouter = ui.GetInputRouter();
-                inputRouter.Attach(ui);
 
                 // Mount frame and delegate the main loop to UiFrameController
                 var controller = new UiFrameController(ui, inputRouter, Context, commandManager, config);

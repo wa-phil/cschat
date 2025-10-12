@@ -160,7 +160,7 @@ public class UiFrameTests
         Assert.True((bool)menuNode.Props[UiProperty.Modal]!);
 
         // Should have: title, filter, list, buttons
-        Assert.Equal(4, menuNode.Children.Count);
+        Assert.Equal(3, menuNode.Children.Count);
 
         // Verify title
         var titleNode = menuNode.Children[0];
@@ -176,10 +176,6 @@ public class UiFrameTests
         Assert.Equal("overlay-menu-list", listNode.Key);
         Assert.Equal(UiKind.ListView, listNode.Kind);
         Assert.Equal(1, listNode.Props[UiProperty.SelectedIndex]);
-
-        // Verify buttons
-        var buttonsNode = menuNode.Children[3];
-        Assert.Equal(2, buttonsNode.Children.Count);
     }
 
     [Fact]

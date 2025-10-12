@@ -328,12 +328,9 @@ public static class FormOverlay
             UiKind.Label,
             new Dictionary<UiProperty, object?>
             {
-                [UiProperty.Text] = form.Title,
-                [UiProperty.Style] = "bold",
-                [UiProperty.Align] = "center"
+                [UiProperty.Text] = form.Title
             },
-            Array.Empty<UiNode>()
-        ));
+            Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.Bold, true), (UiStyleKey.Align, "center"))));
 
         // Iterate through fields and create row with label (left) + control (right)
         foreach (var field in form.Fields)
@@ -372,11 +369,9 @@ public static class FormOverlay
                     UiKind.Label,
                     new Dictionary<UiProperty, object?>
                     {
-                        [UiProperty.Text] = field.Help,
-                        [UiProperty.Style] = "dim"
+                        [UiProperty.Text] = field.Help
                     },
-                    Array.Empty<UiNode>()
-                ));
+                    Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.Style, "dim"))));
             }
 
             // Error placeholder (initially empty)
@@ -385,11 +380,10 @@ public static class FormOverlay
                 UiKind.Label,
                 new Dictionary<UiProperty, object?>
                 {
-                    [UiProperty.Text] = "",
-                    [UiProperty.Color] = "red"
+                    [UiProperty.Text] = ""
                 },
-                Array.Empty<UiNode>()
-            ));
+                Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.ForegroundColor, "Red")))
+            );
         }
 
         // Button row

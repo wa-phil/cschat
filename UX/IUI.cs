@@ -21,20 +21,10 @@ public interface IRealtimeWriter : IDisposable
 public interface IInputRouter
 {
     /// <summary>
-    /// Binds to IUi to receive ControlEvent / key events
-    /// </summary>
-    void Attach(IUi ui);
-
-    /// <summary>
     /// Non-blocking poll; returns a ConsoleKeyInfo if a key is available, else null.
     /// Backend must not block the caller. The actual key processing is deferred to the UI layer.
     /// </summary>
     ConsoleKeyInfo? TryReadKey();
-
-    /// <summary>
-    /// Optional: propagate TextBox onChange to callers
-    /// </summary>
-    event Action<string>? OnInputChanged;
 }
 
 public interface IUi
@@ -56,15 +46,6 @@ public interface IUi
     void UpdateProgress(string id, ProgressSnapshot snapshot);
     void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown);
 
-    // input
-    /// <summary>
-    /// Accumulates ConsoleKeyInfo from IInputRouter.TryReadKey into a buffer and resolves on submit (Enter),
-    /// honoring Shift+Enter for newline. Photino routes DOM "enter/click" to synthetic keys; Terminal uses real keys.
-    /// </summary>
-    Task<string?> ReadInputAsync(CommandManager commands);
-
-    [Obsolete("Use ReadInputAsync instead. This method delegates to ReadInputAsync and is kept for backward compatibility.")]
-    Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager);
     
     IInputRouter GetInputRouter();
     string? RenderMenu(string header, List<string> choices, int selected = 0);
