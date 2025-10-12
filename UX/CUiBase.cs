@@ -93,7 +93,11 @@ public abstract partial class CUiBase : IUi
 
     // ========== Abstract Methods (must be implemented by platform) ==========
 
-    public abstract Task<bool> ShowFormAsync(UiForm form);
+    public async Task<bool> ShowFormAsync(UiForm form)
+    {
+        return await FormOverlay.ShowAsync(this, form);
+    }
+    
     public abstract Task<bool> ConfirmAsync(string question, bool defaultAnswer = false);
     public abstract Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt);
     public abstract void RenderTable(Table table, string? title = null);

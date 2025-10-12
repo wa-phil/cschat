@@ -829,6 +829,9 @@
 					element.style.whiteSpace = 'pre-wrap';
 					element.style.wordBreak = 'break-word';
 				}
+				if (props.align && String(props.align).toLowerCase() === 'center') {
+					element.style.textAlign = 'center';
+				}
 				break;
 			
 			case 'Button':

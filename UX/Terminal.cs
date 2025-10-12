@@ -166,62 +166,6 @@ public class Terminal : CUiBase
         }
     }
 
-    public override async Task<bool> ShowFormAsync(UiForm form)
-    {
-        await Task.CompletedTask;
-        WriteLine(form.Title);
-        WriteLine(new string('-', Math.Min(Width - 1, Math.Max(8, form.Title.Length))));
-
-        foreach (var f in form.Fields)
-        {
-            while (true)
-            {
-                var current = f.Formatter(form.Model);
-                Write($"{(f.Required ? "*" : " ")}{f.Label}: ");
-                if (!string.IsNullOrWhiteSpace(f.Help)) { Write(f.Help); }
-                WriteLine($" [currently: {current}]");
-
-                // If this is an enum-style field with choices, render a menu selection
-                var choices = f.EnumChoices()?.ToList();
-                string? err = null;
-                if (f.Kind == UiFieldKind.Enum && choices != null && choices.Count > 0)
-                {
-                    var selected = RenderMenu($"Select {f.Label}:", choices, 0);
-                    if (selected == null) { WriteLine("(cancelled)"); return false; }
-                    if (!f.TrySetFromString(form.Model!, selected, out err))
-                    {
-                        WriteLine($"  {err}");
-                        continue;
-                    }
-                    break;
-                }
-
-                // read line with ESC cancel (reuse your input loop style)
-                var buffer = new List<char>();
-                while (true)
-                {
-                    var k = ReadKey(intercept: true);
-                    if (k.Key == ConsoleKey.Escape) { WriteLine("\n(cancelled)"); return false; }
-                    if (k.Key == ConsoleKey.Enter) { WriteLine(); break; }
-                    if (k.Key == ConsoleKey.Backspace && buffer.Count > 0) { buffer.RemoveAt(buffer.Count - 1); Write("\b \b"); continue; }
-                    if (k.KeyChar != '\0' && !char.IsControl(k.KeyChar)) { buffer.Add(k.KeyChar); Write(k.KeyChar.ToString()); }
-                }
-
-                var raw = new string(buffer.ToArray());
-                if (string.IsNullOrWhiteSpace(raw)) raw = current; // leave as-is if blank
-
-                if (!f.TrySetFromString(form.Model!, raw, out err))
-                {
-                    WriteLine($"  {err}");
-                    continue;
-                }
-
-                break;
-            }
-        }
-        return true;
-    }
-
     public override async Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt)
     {
         var path = await ReadPathWithAutocompleteAsync(false);
@@ -744,8 +688,25 @@ public class Terminal : CUiBase
 
     protected override Task PostFocusAsync(string key)
     {
-        // In Terminal UI, we could move cursor to the focused element
-        // For now, just mark it as focused in the tree (already done in base)
+        // Recompute layout to reflect focus highlight changes and apply minimal edits
+        if (_uiTree.Root != null)
+        {
+            var newSnapshot = _termDom.Layout(_uiTree.Root, Width, _uiTree.FocusedKey);
+
+            if (_lastSnapshot != null)
+            {
+                var edits = _termDom.Diff(_lastSnapshot, newSnapshot);
+                _termDom.Apply(edits);
+            }
+            else
+            {
+                Clear();
+                _termDom.Apply(_termDom.GetFullRender(newSnapshot));
+            }
+
+            _lastSnapshot = newSnapshot;
+        }
+
         return Task.CompletedTask;
     }
 
@@ -899,7 +860,40 @@ public class Terminal : CUiBase
             var lines = new List<TermLine>();
             var keyMap = new Dictionary<string, TermRegion>();
 
-            LayoutNode(root, 0, width, focusedKey, lines, keyMap);
+            // Base layout (header + content). Skip overlays container; we'll composite overlays later.
+            UiNode? overlaysContainer = null;
+            if (root.Key == "frame.root")
+            {
+                foreach (var child in root.Children)
+                {
+                    if (child.Key == "frame.overlays")
+                    {
+                        overlaysContainer = child;
+                        continue;
+                    }
+                    LayoutNode(child, 0, width, focusedKey, lines, keyMap);
+                }
+            }
+            else
+            {
+                LayoutNode(root, 0, width, focusedKey, lines, keyMap);
+            }
+
+            // Composite overlays on top (modal). Later overlays in the list have higher z-order.
+            if (overlaysContainer != null && overlaysContainer.Children.Count > 0)
+            {
+                // Sort by zIndex if present, stable otherwise.
+                IEnumerable<UiNode> overlayNodes = overlaysContainer.Children;
+                overlayNodes = overlayNodes
+                    .Select(n => (n, z: TryGetIntProp(n.Props, UiProps.ZIndex) ?? 0))
+                    .OrderBy(t => t.z)
+                    .Select(t => t.n);
+
+                foreach (var overlay in overlayNodes)
+                {
+                    CompositeOverlayBox(overlay, width, focusedKey, lines, keyMap);
+                }
+            }
 
             return new TermSnapshot(lines, keyMap);
         }
@@ -980,10 +974,50 @@ public class Terminal : CUiBase
             {
                 case UiKind.Column:
                 case UiKind.Row:
-                    // Layout containers - just layout children
-                    foreach (var child in node.Children)
+                    // Support split layout (label/control 50/50) with wrapping
+                    if (node.Props.TryGetValue("layout", out var layout) && layout?.ToString() == "split-50-50" && node.Children.Count >= 2)
                     {
-                        LayoutNode(child, node.Kind == UiKind.Column ? indent : indent + 1, width, focusedKey, lines, keyMap);
+                        int contentWidth = Math.Max(10, width - indent * 2);
+                        int colWidth = contentWidth / 2;
+
+                        // Render label and control into temporary lines
+                        var leftLines = new List<TermLine>();
+                        var rightLines = new List<TermLine>();
+                        var tmpMapL = new Dictionary<string, TermRegion>();
+                        var tmpMapR = new Dictionary<string, TermRegion>();
+
+                        // Left (label)
+                        LayoutNode(node.Children[0], 0, colWidth, focusedKey, leftLines, tmpMapL);
+                        // Right (control)
+                        LayoutNode(node.Children[1], 0, colWidth, focusedKey, rightLines, tmpMapR);
+
+                        bool leftFocused = !string.IsNullOrEmpty(focusedKey) && tmpMapL.ContainsKey(focusedKey!);
+                        bool rightFocused = !string.IsNullOrEmpty(focusedKey) && tmpMapR.ContainsKey(focusedKey!);
+                        var lineFg = (leftFocused || rightFocused) ? ConsoleColor.Black : ConsoleColor.Gray;
+                        var lineBg = (leftFocused || rightFocused) ? ConsoleColor.White : ConsoleColor.Black;
+
+                        int maxLines = Math.Max(leftLines.Count, rightLines.Count);
+                        for (int i = 0; i < maxLines; i++)
+                        {
+                            var leftText = i < leftLines.Count ? leftLines[i].Text : string.Empty;
+                            var rightText = i < rightLines.Count ? rightLines[i].Text : string.Empty;
+                            leftText = TrimLeadingSpaces(leftText);
+                            rightText = TrimLeadingSpaces(rightText);
+                            if (leftText.Length > colWidth) leftText = leftText.Substring(0, Math.Max(0, colWidth - 1)) + "…";
+                            if (rightText.Length > colWidth) rightText = rightText.Substring(0, Math.Max(0, colWidth - 1)) + "…";
+                            var composed = indentStr + leftText.PadRight(colWidth) + rightText.PadRight(colWidth);
+                            lines.Add(new TermLine(composed, lineFg, lineBg));
+                        }
+
+                        // Record mapping for row key to the composed region
+                        keyMap[node.Key] = new TermRegion(startLine, Math.Max(1, maxLines));
+                    }
+                    else
+                    {
+                        foreach (var child in node.Children)
+                        {
+                            LayoutNode(child, node.Kind == UiKind.Column ? indent : indent + 1, width, focusedKey, lines, keyMap);
+                        }
                     }
                     break;
 
@@ -995,7 +1029,9 @@ public class Terminal : CUiBase
                             : ConsoleColor.Gray;
                         var bg = isFocused ? ConsoleColor.DarkGray : ConsoleColor.Black;
 
-                        lines.Add(new TermLine($"{indentStr}{labelText}", fg, bg));
+                        bool center = node.Props.TryGetValue("align", out var al) && (al?.ToString()?.Equals("center", StringComparison.OrdinalIgnoreCase) == true);
+                        var textOut = center ? "[[CENTER]]" + labelText?.ToString() : ($"{indentStr}{labelText}");
+                        lines.Add(new TermLine(textOut, fg, bg));
                     }
                     break;
 
@@ -1011,14 +1047,22 @@ public class Terminal : CUiBase
 
                 case UiKind.TextBox:
                 case UiKind.TextArea:
-                    var value = node.Props.TryGetValue("value", out var v) ? v?.ToString() : "";
+                    // Prefer "text" prop (UiNode-based), fallback to legacy "value"
+                    var value = node.Props.TryGetValue("text", out var v) ? v?.ToString() : (node.Props.TryGetValue("value", out var v2) ? v2?.ToString() : "");
                     var placeholder = node.Props.TryGetValue("placeholder", out var p) ? p?.ToString() : "";
                     var displayText = string.IsNullOrEmpty(value) ? placeholder : value;
 
                     var textFg = isFocused ? ConsoleColor.Black : (string.IsNullOrEmpty(value) ? ConsoleColor.DarkGray : ConsoleColor.White);
                     var textBg = isFocused ? ConsoleColor.White : ConsoleColor.Black;
 
-                    lines.Add(new TermLine($"{indentStr}{displayText}", textFg, textBg));
+                    // Wrap display text to available width
+                    int avail = Math.Max(1, width - indent * 2);
+                    if (string.IsNullOrEmpty(displayText)) displayText = "";
+                    var wrapped = WrapText(displayText, avail);
+                    foreach (var wline in wrapped)
+                    {
+                        lines.Add(new TermLine($"{indentStr}{wline}", textFg, textBg));
+                    }
                     break;
 
                 case UiKind.CheckBox:
@@ -1042,8 +1086,8 @@ public class Terminal : CUiBase
                         for (int i = 0; i < itemList.Count; i++)
                         {
                             var isSelected = i == selectedIndex;
-                            var fg = (isSelected || isFocused) ? ConsoleColor.Black : ConsoleColor.Gray;
-                            var bg = (isSelected || isFocused) ? ConsoleColor.White : ConsoleColor.Black;
+                            var fg = isSelected ? ConsoleColor.Black : (isFocused ? ConsoleColor.Black : ConsoleColor.Gray);
+                            var bg = isSelected ? ConsoleColor.White : (isFocused ? ConsoleColor.DarkGray : ConsoleColor.Black);
 
                             lines.Add(new TermLine($"{indentStr}  {(isSelected ? ">" : " ")} {itemList[i]}", fg, bg));
                         }
@@ -1088,6 +1132,169 @@ public class Terminal : CUiBase
             {
                 keyMap[node.Key] = new TermRegion(startLine, endLine - startLine);
             }
+        }
+
+        /// <summary>
+        /// Compose a modal overlay rectangle centered in the viewport over existing lines.
+        /// Preserves text outside the rectangle, so background content remains visible.
+        /// </summary>
+        private void CompositeOverlayBox(UiNode overlay, int screenWidth, string? focusedKey, List<TermLine> baseLines, Dictionary<string, TermRegion> keyMap)
+        {
+            // Determine overlay box width from props (supports "80%" or absolute int), with sensible bounds
+            int boxWidth = Math.Clamp(ParseWidth(overlay.Props, screenWidth), Math.Min(20, Math.Max(1, screenWidth - 2)), Math.Max(10, screenWidth - 2));
+            int xStart = Math.Max(0, (screenWidth - boxWidth) / 2);
+
+            // Render overlay content into temporary lines (no outer indentation)
+            var innerLines = new List<TermLine>();
+            var tmpMap = new Dictionary<string, TermRegion>();
+            foreach (var child in overlay.Children)
+            {
+                LayoutNode(child, 0, screenWidth, focusedKey, innerLines, tmpMap);
+            }
+
+            // Convert to strings and clamp to content width
+            int contentWidth = Math.Max(1, boxWidth - 2); // borders on left/right
+            var content = innerLines
+                .Select(l => TrimLeadingSpaces(l.Text))
+                .Select(t =>
+                {
+                    const string CenterTag = "[[CENTER]]";
+                    if (t != null && t.StartsWith(CenterTag, StringComparison.Ordinal))
+                    {
+                        var raw = t.Substring(CenterTag.Length);
+                        // If too long, trim with ellipsis first
+                        var fit = FitToWidth(raw, contentWidth);
+                        // Center within content width
+                        int pad = Math.Max(0, contentWidth - fit.Length);
+                        int left = pad / 2;
+                        return new string(' ', left) + fit; // right padding will be added later via PadRight
+                    }
+                    return FitToWidth(t ?? string.Empty, contentWidth);
+                })
+                .ToList();
+
+            // Build box lines (top border, content, bottom border)
+            var boxLines = new List<string>();
+            string top = "┌" + new string('─', contentWidth) + "┐";
+            string bottom = "└" + new string('─', contentWidth) + "┘";
+            boxLines.Add(top);
+            if (content.Count == 0)
+            {
+                content.Add("");
+            }
+            foreach (var line in content)
+            {
+                boxLines.Add("│" + line.PadRight(contentWidth) + "│");
+            }
+            boxLines.Add(bottom);
+
+            // Compute vertical placement: center in current visible area approximation
+            int viewportHeight = Math.Max(10, Console.WindowHeight);
+            int boxHeight = boxLines.Count;
+            int yStart = Math.Max(0, (Math.Min(baseLines.Count, viewportHeight) - boxHeight) / 2);
+
+            // Ensure base lines list is long enough
+            int requiredLines = yStart + boxHeight;
+            while (baseLines.Count < requiredLines)
+            {
+                baseLines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black));
+            }
+
+            // Composite box over base lines, preserving text outside the box rectangle
+            for (int i = 0; i < boxHeight; i++)
+            {
+                int lineIndex = yStart + i;
+                var baseText = baseLines[lineIndex].Text;
+                var row = EnsureWidth(baseText, screenWidth);
+                var overlayRow = boxLines[i];
+                // Build new row: left + overlay + right
+                string left = row.Substring(0, Math.Min(xStart, row.Length));
+                string right = (xStart + boxWidth <= row.Length) ? row.Substring(xStart + boxWidth) : string.Empty;
+                string newRow = left + overlayRow.PadRight(boxWidth) + right;
+                // Clamp to screen width
+                newRow = EnsureWidth(newRow, screenWidth);
+                baseLines[lineIndex] = new TermLine(newRow, ConsoleColor.Gray, ConsoleColor.Black);
+            }
+
+            // Record region for overlay (helps focus mapping, etc.)
+            keyMap[overlay.Key] = new TermRegion(yStart, boxHeight);
+        }
+
+        private static List<string> WrapText(string text, int width)
+        {
+            var result = new List<string>();
+            if (width <= 0) { result.Add(""); return result; }
+            if (string.IsNullOrEmpty(text)) { result.Add(""); return result; }
+
+            int idx = 0;
+            while (idx < text.Length)
+            {
+                int take = Math.Min(width, text.Length - idx);
+                // Try to break on whitespace when possible
+                int end = idx + take;
+                if (end < text.Length && !char.IsWhiteSpace(text[end - 1]))
+                {
+                    int lastSpace = text.LastIndexOf(' ', end - 1, take);
+                    if (lastSpace > idx)
+                    {
+                        end = lastSpace + 1;
+                    }
+                }
+                var segment = text.Substring(idx, end - idx).TrimEnd();
+                result.Add(segment);
+                idx = end;
+            }
+            return result;
+        }
+
+        private static int? TryGetIntProp(IReadOnlyDictionary<string, object?> props, string key)
+        {
+            if (props.TryGetValue(key, out var val))
+            {
+                if (val is int i) return i;
+                if (val is long l) return (int)l;
+                if (val is string s && int.TryParse(s, out var p)) return p;
+            }
+            return null;
+        }
+
+        private static int ParseWidth(IReadOnlyDictionary<string, object?> props, int screenWidth)
+        {
+            // default 80%
+            int defaultWidth = Math.Max(20, (int)(screenWidth * 0.8));
+            if (!props.TryGetValue("width", out var w) || w is null) return defaultWidth;
+            if (w is int wi) return Math.Clamp(wi, 1, screenWidth);
+            var s = w.ToString() ?? string.Empty;
+            s = s.Trim();
+            if (s.EndsWith("%") && int.TryParse(s.TrimEnd('%'), out var pct))
+            {
+                pct = Math.Clamp(pct, 1, 100);
+                return Math.Max(1, (int)Math.Round(screenWidth * (pct / 100.0)));
+            }
+            if (int.TryParse(s, out var abs)) return Math.Clamp(abs, 1, screenWidth);
+            return defaultWidth;
+        }
+
+        private static string TrimLeadingSpaces(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return string.Empty;
+            int i = 0;
+            while (i < text.Length && text[i] == ' ') i++;
+            return text.Substring(i);
+        }
+
+        private static string EnsureWidth(string text, int width)
+        {
+            if (text.Length < width) return text.PadRight(width);
+            if (text.Length > width) return text.Substring(0, width);
+            return text;
+        }
+
+        private static string FitToWidth(string text, int width)
+        {
+            if (text.Length <= width) return text;
+            if (width <= 1) return new string('…', Math.Max(1, width));
+            return text.Substring(0, Math.Max(0, width - 1)) + "…";
         }
     }
 

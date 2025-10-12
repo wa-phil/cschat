@@ -31,7 +31,8 @@ public static class MenuOverlay
                 new Dictionary<string, object?>
                 {
                     ["text"] = title,
-                    ["style"] = "bold"
+                    ["style"] = "bold",
+                    ["align"] = "center"
                 },
                 Array.Empty<UiNode>()
             ),
@@ -59,36 +60,6 @@ public static class MenuOverlay
                     [UiProps.Focusable] = true
                 },
                 Array.Empty<UiNode>()
-            ),
-
-            // Button row
-            new UiNode(
-                "overlay-menu-buttons",
-                UiKind.Row,
-                new Dictionary<string, object?>(),
-                new[]
-                {
-                    new UiNode(
-                        "overlay-menu-ok",
-                        UiKind.Button,
-                        new Dictionary<string, object?>
-                        {
-                            ["text"] = "OK",
-                            [UiProps.Focusable] = true
-                        },
-                        Array.Empty<UiNode>()
-                    ),
-                    new UiNode(
-                        "overlay-menu-cancel",
-                        UiKind.Button,
-                        new Dictionary<string, object?>
-                        {
-                            ["text"] = "Cancel",
-                            [UiProps.Focusable] = true
-                        },
-                        Array.Empty<UiNode>()
-                    )
-                }
             )
         };
 
@@ -274,106 +245,5 @@ public static class MenuOverlay
         // Pop the overlay and return
         await ui.PatchAsync(UiFrameBuilder.PopOverlay("overlay-menu"));
         return result;
-    }
-
-    /// <summary>
-    /// Creates a menu overlay with event handlers attached
-    /// </summary>
-    private static UiNode CreateWithHandlers(
-        string title, 
-        IReadOnlyList<string> choices, 
-        int selectedIndex,
-        UiHandler onListChange,
-        UiHandler onFilterChange,
-        UiHandler onOk,
-        UiHandler onCancel)
-    {
-        var children = new List<UiNode>
-        {
-            // Title
-            new UiNode(
-                "overlay-menu-title",
-                UiKind.Label,
-                new Dictionary<string, object?>
-                {
-                    ["text"] = title,
-                    ["style"] = "bold"
-                },
-                Array.Empty<UiNode>()
-            ),
-
-            // Filter box
-            new UiNode(
-                "overlay-menu-filter",
-                UiKind.TextBox,
-                new Dictionary<string, object?>
-                {
-                    ["placeholder"] = "Filter...",
-                    ["onChange"] = onFilterChange,
-                    [UiProps.Focusable] = true
-                },
-                Array.Empty<UiNode>()
-            ),
-
-            // List view with choices
-            new UiNode(
-                "overlay-menu-list",
-                UiKind.ListView,
-                new Dictionary<string, object?>
-                {
-                    ["items"] = choices.ToList(),
-                    ["selectedIndex"] = selectedIndex,
-                    ["onChange"] = onListChange,
-                    ["onEnter"] = onOk,  // Enter key submits
-                    [UiProps.Focusable] = true
-                },
-                Array.Empty<UiNode>()
-            ),
-
-            // Button row
-            new UiNode(
-                "overlay-menu-buttons",
-                UiKind.Row,
-                new Dictionary<string, object?>(),
-                new[]
-                {
-                    new UiNode(
-                        "overlay-menu-ok",
-                        UiKind.Button,
-                        new Dictionary<string, object?>
-                        {
-                            ["text"] = "OK",
-                            ["onClick"] = onOk,
-                            [UiProps.Focusable] = true
-                        },
-                        Array.Empty<UiNode>()
-                    ),
-                    new UiNode(
-                        "overlay-menu-cancel",
-                        UiKind.Button,
-                        new Dictionary<string, object?>
-                        {
-                            ["text"] = "Cancel",
-                            ["onClick"] = onCancel,
-                            [UiProps.Focusable] = true
-                        },
-                        Array.Empty<UiNode>()
-                    )
-                }
-            )
-        };
-
-        return new UiNode(
-            "overlay-menu",
-            UiKind.Column,
-            new Dictionary<string, object?>
-            {
-                [UiProps.Modal] = true,
-                [UiProps.Role] = "overlay",
-                ["width"] = "80%",
-                ["padding"] = "2"
-            },
-            children
-        );
     }
 }
