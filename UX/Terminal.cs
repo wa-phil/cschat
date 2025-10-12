@@ -1083,13 +1083,80 @@ public class Terminal : CUiBase
                         var selectedIndex = node.Props.TryGetValue(UiProperty.SelectedIndex, out var si) && si is int idx ? idx : -1;
                         var itemList = items.ToList();
 
-                        for (int i = 0; i < itemList.Count; i++)
+                        // Fixed viewport height for list view so surrounding content doesn't shift
+                        int maxVisible = TryGetIntProp(node.Props, UiProperty.Height) ?? Program.config.MaxMenuItems;
+                        maxVisible = Math.Max(1, maxVisible);
+
+                        int count = itemList.Count;
+                        if (count == 0)
                         {
+                            // Render an empty placeholder line to keep consistent height
+                            var fgEmpty = isFocused ? ConsoleColor.Black : ConsoleColor.DarkGray;
+                            var bgEmpty = isFocused ? ConsoleColor.DarkGray : ConsoleColor.Black;
+                            var emptyText = $"{indentStr}  (empty)";
+                            // Ensure line width to keep columns aligned (esp. inside split layout)
+                            emptyText = EnsureWidth(emptyText, width);
+                            lines.Add(new TermLine(emptyText, fgEmpty, bgEmpty));
+                            break;
+                        }
+
+                        // Clamp selection
+                        if (selectedIndex < 0) selectedIndex = 0;
+                        if (selectedIndex >= count) selectedIndex = count - 1;
+
+                        int visibleCount = Math.Min(maxVisible, count);
+
+                        // Compute scrolling offset so selected item remains visible
+                        int offset = Math.Min(Math.Max(0, selectedIndex - visibleCount + 1), Math.Max(0, count - visibleCount));
+
+                        bool showScrollbar = count > visibleCount;
+                        int contentRight = showScrollbar ? (width - 1) : width; // reserve 1 col for scrollbar when needed
+
+                        // Scrollbar metrics
+                        int trackHeight = visibleCount;
+                        int thumbHeight = 1;
+                        int thumbTop = 0;
+                        if (showScrollbar)
+                        {
+                            thumbHeight = Math.Max(1, (int)Math.Round((double)trackHeight * visibleCount / Math.Max(1, count)));
+                            thumbHeight = Math.Min(thumbHeight, trackHeight);
+                            int maxThumbTop = Math.Max(0, trackHeight - thumbHeight);
+                            int scrollRange = Math.Max(1, count - visibleCount);
+                            thumbTop = (int)Math.Round((double)offset / scrollRange * maxThumbTop);
+                            thumbTop = Math.Clamp(thumbTop, 0, maxThumbTop);
+                        }
+
+                        for (int j = 0; j < visibleCount; j++)
+                        {
+                            int i = offset + j;
                             var isSelected = i == selectedIndex;
                             var fg = isSelected ? ConsoleColor.Black : (isFocused ? ConsoleColor.Black : ConsoleColor.Gray);
                             var bg = isSelected ? ConsoleColor.White : (isFocused ? ConsoleColor.DarkGray : ConsoleColor.Black);
 
-                            lines.Add(new TermLine($"{indentStr}  {(isSelected ? ">" : " ")} {itemList[i]}", fg, bg));
+                            // Compose content within available width, placing scrollbar at right edge when shown
+                            var prefix = $"{indentStr}  {(isSelected ? ">" : " ")} ";
+                            int availForItem = Math.Max(1, contentRight - prefix.Length);
+                            var itemText = itemList[i]?.ToString() ?? string.Empty;
+                            // Fit item text
+                            if (itemText.Length > availForItem)
+                                itemText = itemText.Substring(0, Math.Max(0, availForItem - 1)) + "…";
+
+                            var rowText = prefix + itemText;
+                            if (rowText.Length < contentRight)
+                                rowText = rowText.PadRight(contentRight);
+                            else if (rowText.Length > contentRight)
+                                rowText = rowText.Substring(0, contentRight);
+
+                            if (showScrollbar)
+                            {
+                                // Choose scrollbar glyph for this row
+                                char sb = (j >= thumbTop && j < thumbTop + thumbHeight) ? '█' : '│';
+                                rowText += sb;
+                            }
+
+                            // Ensure total width alignment for parent composers
+                            rowText = EnsureWidth(rowText, width);
+                            lines.Add(new TermLine(rowText, fg, bg));
                         }
                     }
                     break;

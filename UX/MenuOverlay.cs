@@ -22,7 +22,7 @@ public static class MenuOverlay
         if (selectedIndex < 0 || selectedIndex >= choices.Count)
             selectedIndex = 0;
 
-    var children = new List<UiNode>
+        var children = new List<UiNode>
         {
             // Title
             new UiNode(
@@ -60,36 +60,6 @@ public static class MenuOverlay
                     [UiProperty.Focusable] = true
                 },
                 Array.Empty<UiNode>()
-            ),
-
-            // Buttons row: OK and Cancel
-            new UiNode(
-                "overlay-menu-buttons",
-                UiKind.Row,
-                new Dictionary<UiProperty, object?>(),
-                new[]
-                {
-                    new UiNode(
-                        "overlay-menu-ok",
-                        UiKind.Button,
-                        new Dictionary<UiProperty, object?>
-                        {
-                            [UiProperty.Text] = "OK",
-                            [UiProperty.Focusable] = true
-                        },
-                        Array.Empty<UiNode>()
-                    ),
-                    new UiNode(
-                        "overlay-menu-cancel",
-                        UiKind.Button,
-                        new Dictionary<UiProperty, object?>
-                        {
-                            [UiProperty.Text] = "Cancel",
-                            [UiProperty.Focusable] = true
-                        },
-                        Array.Empty<UiNode>()
-                    )
-                }
             )
         };
 
