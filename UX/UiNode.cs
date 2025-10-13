@@ -40,6 +40,20 @@ public sealed record UiStyles(IReadOnlyDictionary<UiStyleKey, object?> Values)
     }
 }
 
+// Structured grid column specification
+public enum GridUnitKind { Percent, Fr }
+
+public sealed record GridColumnSpec(GridUnitKind Kind, double Value)
+{
+    public static GridColumnSpec Percent(double p) => new(GridUnitKind.Percent, p);
+    public static GridColumnSpec Fr(double f) => new(GridUnitKind.Fr, f);
+}
+
+public sealed record GridColumns(IReadOnlyList<GridColumnSpec> Columns)
+{
+    public static GridColumns Of(params GridColumnSpec[] cols) => new(cols);
+}
+
 /// <summary>
 /// Kinds of UI nodes supported in the declarative control layer
 /// </summary>
@@ -74,6 +88,7 @@ public enum UiProperty
     Height,
     Padding,
     Layout,
+    Columns,
 
     // Content and styling
     Text,

@@ -350,13 +350,14 @@ public static class FormOverlay
 
             var inputNode = CreateFieldInput(fieldKey, field, currentText);
 
-            // Compose the field line as a split row (50/50)
+            // Compose the field line as a grid row (20% / 80%)
             children.Add(new UiNode(
                 $"{fieldKey}-row",
                 UiKind.Row,
                 new Dictionary<UiProperty, object?>
                 {
-                    [UiProperty.Layout] = "split-50-50"
+                    [UiProperty.Layout] = "grid",
+                    [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80))
                 },
                 new[] { labelNode, inputNode }
             ));
@@ -386,13 +387,14 @@ public static class FormOverlay
             );
         }
 
-        // Button row
+        // Button row (grid 1fr 1fr)
         children.Add(new UiNode(
             "overlay-form-buttons",
             UiKind.Row,
             new Dictionary<UiProperty, object?>
             {
-                [UiProperty.Layout] = "split-50-50"
+                [UiProperty.Layout] = "grid",
+                [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Fr(1), GridColumnSpec.Fr(1))
             },
             new[]
             {
@@ -476,7 +478,8 @@ public static class FormOverlay
                 bool focused = (i == focusIndex);
                 ops.Add(new UpdatePropsOp(rowKey, new Dictionary<UiProperty, object?>
                 {
-                    [UiProperty.Layout] = "split-50-50",
+                    [UiProperty.Layout] = "grid",
+                    [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)),
                     // 'focused' is a view concern; keep as string-key for now if needed
                     [UiProperty.State] = focused
                 }));

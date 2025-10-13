@@ -824,7 +824,7 @@ public class Terminal : CUiBase
                     // Line removed
                     edits.Add(new TermEdit(i, new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left)));
                 }
-                else if (oldLine != null && newLine != null && !oldLine.Equals(newLine))
+                else if (oldLine != null && newLine != null && !TermLineEqual(oldLine, newLine))
                 {
                     // Line changed
                     edits.Add(new TermEdit(i, newLine));
@@ -832,6 +832,28 @@ public class Terminal : CUiBase
             }
 
             return edits;
+        }
+
+        private static bool TermLineEqual(TermLine a, TermLine b)
+        {
+            if (a.Align != b.Align) return false;
+            // If either side uses runs, compare runs content+colors
+            if (a.Runs is { } ar || b.Runs is { } br)
+            {
+                var aRuns = a.Runs ?? new List<TermRun> { new TermRun(a.Text ?? string.Empty, a.Foreground, a.Background) };
+                var bRuns = b.Runs ?? new List<TermRun> { new TermRun(b.Text ?? string.Empty, b.Foreground, b.Background) };
+                if (aRuns.Count != bRuns.Count) return false;
+                for (int i = 0; i < aRuns.Count; i++)
+                {
+                    var arun = aRuns[i];
+                    var brun = bRuns[i];
+                    if (!string.Equals(arun.Text, brun.Text, StringComparison.Ordinal) || arun.Foreground != brun.Foreground || arun.Background != brun.Background)
+                        return false;
+                }
+                return true;
+            }
+            // Fallback to simple value comparison
+            return string.Equals(a.Text, b.Text, StringComparison.Ordinal) && a.Foreground == b.Foreground && a.Background == b.Background;
         }
 
         /// <summary>
@@ -843,35 +865,80 @@ public class Terminal : CUiBase
             foreach (var edit in edits)
             {
                 Console.SetCursorPosition(0, edit.LineIndex);
-                Console.ForegroundColor = edit.Line.Foreground;
-                Console.BackgroundColor = edit.Line.Background;
-
-                // Pad or truncate to console width
-                var text = edit.Line.Text;
                 var width = Console.WindowWidth;
-                // If requested, center within full console width for base content lines
-                if (edit.Line.Align == TextAlign.Center)
-                {
-                    // Avoid re-centering overlay border lines that include box-drawing chars
-                    bool hasOverlayGlyph = text.IndexOf('┌') >= 0 || text.IndexOf('┐') >= 0 || text.IndexOf('└') >= 0 ||
-                                           text.IndexOf('┘') >= 0 || text.IndexOf('│') >= 0 || text.IndexOf('─') >= 0 ||
-                                           text.IndexOf('█') >= 0;
-                    if (!hasOverlayGlyph)
-                    {
-                        var content = text ?? string.Empty;
-                        if (content.Length > Math.Max(1, width))
-                            content = (width <= 1) ? "…" : content.Substring(0, Math.Max(0, width - 1)) + "…";
-                        int leftPad = Math.Max(0, (width - content.Length) / 2);
-                        text = new string(' ', leftPad) + content;
-                    }
-                }
-                if (text.Length < width)
-                    text = text.PadRight(width);
-                else if (text.Length > width)
-                    text = text.Substring(0, width);
 
-                Console.Write(text);
-                Console.ResetColor();
+                if (edit.Line.Runs is { } runs)
+                {
+                    // Optional centering for runs: compute total length
+                    int totalLen = 0;
+                    foreach (var r in runs) totalLen += r.Text?.Length ?? 0;
+                    int leftPad = 0;
+                    if (edit.Line.Align == TextAlign.Center)
+                    {
+                        leftPad = Math.Max(0, (width - Math.Min(width, totalLen)) / 2);
+                    }
+
+                    // Left pad if needed
+                    if (leftPad > 0)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Gray;
+                        Console.BackgroundColor = ConsoleColor.Black;
+                        Console.Write(new string(' ', Math.Min(width, leftPad)));
+                    }
+
+                    int remaining = Math.Max(0, width - leftPad);
+                    foreach (var r in runs)
+                    {
+                        if (remaining <= 0) break;
+                        var t = r.Text ?? string.Empty;
+                        if (t.Length > remaining) t = t.Substring(0, remaining);
+                        Console.ForegroundColor = r.Foreground;
+                        Console.BackgroundColor = r.Background;
+                        Console.Write(t);
+                        remaining -= t.Length;
+                    }
+                    // Pad out remainder of the line
+                    if (remaining > 0)
+                    {
+                        // Use last run colors if available
+                        var last = runs.Count > 0 ? runs[^1] : new TermRun("", ConsoleColor.Gray, ConsoleColor.Black);
+                        Console.ForegroundColor = last.Foreground;
+                        Console.BackgroundColor = last.Background;
+                        Console.Write(new string(' ', remaining));
+                    }
+                    Console.ResetColor();
+                }
+                else
+                {
+                    Console.ForegroundColor = edit.Line.Foreground;
+                    Console.BackgroundColor = edit.Line.Background;
+
+                    // Pad or truncate to console width
+                    var text = edit.Line.Text;
+                    // If requested, center within full console width for base content lines
+                    if (edit.Line.Align == TextAlign.Center)
+                    {
+                        // Avoid re-centering overlay border lines that include box-drawing chars
+                        bool hasOverlayGlyph = text.IndexOf('┌') >= 0 || text.IndexOf('┐') >= 0 || text.IndexOf('└') >= 0 ||
+                                               text.IndexOf('┘') >= 0 || text.IndexOf('│') >= 0 || text.IndexOf('─') >= 0 ||
+                                               text.IndexOf('█') >= 0;
+                        if (!hasOverlayGlyph)
+                        {
+                            var content = text ?? string.Empty;
+                            if (content.Length > Math.Max(1, width))
+                                content = (width <= 1) ? "…" : content.Substring(0, Math.Max(0, width - 1)) + "…";
+                            int leftPad = Math.Max(0, (width - content.Length) / 2);
+                            text = new string(' ', leftPad) + content;
+                        }
+                    }
+                    if (text.Length < width)
+                        text = text.PadRight(width);
+                    else if (text.Length > width)
+                        text = text.Substring(0, width);
+
+                    Console.Write(text);
+                    Console.ResetColor();
+                }
             }
         }
 
@@ -1100,43 +1167,109 @@ public class Terminal : CUiBase
                         // Region for this node
                         keyMap[node.Key] = new TermRegion(startLine, Math.Max(1, lines.Count - startLine));
                     }
-                    // Support split layout (label/control 50/50) with wrapping
-                    else if (node.Props.TryGetValue(UiProperty.Layout, out var layout) && layout?.ToString() == "split-50-50" && node.Children.Count >= 2)
+                    // CSS-like grid layout with Columns property: structured GridColumns only
+                    else if (node.Props.TryGetValue(UiProperty.Layout, out var gl) && string.Equals(gl?.ToString(), "grid", StringComparison.OrdinalIgnoreCase) &&
+                             node.Props.TryGetValue(UiProperty.Columns, out var colsObj) && node.Children.Count > 0)
                     {
-                        int contentWidth = Math.Max(10, width - indent * 2);
-                        int colWidth = contentWidth / 2;
-
-                        // Render label and control into temporary lines
-                        var leftLines = new List<TermLine>();
-                        var rightLines = new List<TermLine>();
-                        var tmpMapL = new Dictionary<string, TermRegion>();
-                        var tmpMapR = new Dictionary<string, TermRegion>();
-
-                        // Left (label)
-                        LayoutNode(node.Children[0], 0, colWidth, screenHeight, focusedKey, leftLines, tmpMapL);
-                        // Right (control)
-                        LayoutNode(node.Children[1], 0, colWidth, screenHeight, focusedKey, rightLines, tmpMapR);
-
-                        bool leftFocused = !string.IsNullOrEmpty(focusedKey) && tmpMapL.ContainsKey(focusedKey!);
-                        bool rightFocused = !string.IsNullOrEmpty(focusedKey) && tmpMapR.ContainsKey(focusedKey!);
-                        var lineFg = (leftFocused || rightFocused) ? ConsoleColor.Black : ConsoleColor.Gray;
-                        var lineBg = (leftFocused || rightFocused) ? ConsoleColor.White : ConsoleColor.Black;
-
-                        int maxLines = Math.Max(leftLines.Count, rightLines.Count);
-                        for (int i = 0; i < maxLines; i++)
+                        var specs = new List<(double val, bool isPercent, bool isFr)>();
+                        if (colsObj is GridColumns gc)
                         {
-                            var leftText = i < leftLines.Count ? leftLines[i].Text : string.Empty;
-                            var rightText = i < rightLines.Count ? rightLines[i].Text : string.Empty;
-                            leftText = TrimLeadingSpaces(leftText);
-                            rightText = TrimLeadingSpaces(rightText);
-                            if (leftText.Length > colWidth) leftText = leftText.Substring(0, Math.Max(0, colWidth - 1)) + "…";
-                            if (rightText.Length > colWidth) rightText = rightText.Substring(0, Math.Max(0, colWidth - 1)) + "…";
-                            var composed = indentStr + leftText.PadRight(colWidth) + rightText.PadRight(colWidth);
-                            lines.Add(new TermLine(composed, lineFg, lineBg, TextAlign.Left));
+                            foreach (var col in gc.Columns)
+                            {
+                                if (col.Kind == GridUnitKind.Percent) specs.Add((col.Value, true, false));
+                                else specs.Add((col.Value, false, true));
+                            }
+                        }
+                        else
+                        {
+                            // default 50/50
+                            specs.Add((50, true, false));
+                            specs.Add((50, true, false));
+                        }
+                        if (specs.Count == 0)
+                        {
+                            specs.Add((50, true, false));
+                            specs.Add((50, true, false));
                         }
 
-                        // Record mapping for row key to the composed region
-                        keyMap[node.Key] = new TermRegion(startLine, Math.Max(1, maxLines));
+                        int contentWidth = Math.Max(10, width - indent * 2);
+                        // Compute pixel widths
+                        int fixedPxFromPercent = 0;
+                        double frTotal = 0;
+                        foreach (var (val, isPercent, isFr) in specs)
+                        {
+                            if (isPercent) fixedPxFromPercent += (int)Math.Round(contentWidth * (val / 100.0));
+                            else if (isFr) frTotal += Math.Max(0.0001, val);
+                        }
+                        int remaining = Math.Max(0, contentWidth - fixedPxFromPercent);
+                        var widths = new List<int>(specs.Count);
+                        foreach (var (val, isPercent, isFr) in specs)
+                        {
+                            if (isPercent) widths.Add((int)Math.Round(contentWidth * (val / 100.0)));
+                            else if (isFr) widths.Add(frTotal > 0 ? (int)Math.Round(remaining * (val / frTotal)) : 0);
+                            else widths.Add((int)Math.Round(val));
+                        }
+
+                        // Render each child into its column box
+                        var childLines = new List<List<TermLine>>();
+                        var childMaps = new List<Dictionary<string, TermRegion>>();
+                        for (int i = 0; i < Math.Min(node.Children.Count, widths.Count); i++)
+                        {
+                            var list = new List<TermLine>();
+                            var map = new Dictionary<string, TermRegion>();
+                            LayoutNode(node.Children[i], 0, widths[i], screenHeight, focusedKey, list, map);
+                            childLines.Add(list);
+                            childMaps.Add(map);
+                        }
+
+                        // Compose rows line-by-line using per-column colors
+                        int maxRows = childLines.Max(l => l.Count);
+                        for (int r = 0; r < maxRows; r++)
+                        {
+                            var runs = new List<TermRun>();
+                            // left indentation keeps base colors
+                            if (indent > 0)
+                                runs.Add(new TermRun(new string(' ', indent * 2), ConsoleColor.Gray, ConsoleColor.Black));
+                            for (int colIdx = 0; colIdx < childLines.Count; colIdx++)
+                            {
+                                var childLine = r < childLines[colIdx].Count ? childLines[colIdx][r] : new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left);
+                                var txt = TrimLeadingSpaces(childLine.Text ?? string.Empty);
+                                bool colFocused = !string.IsNullOrEmpty(focusedKey) && childMaps[colIdx].ContainsKey(focusedKey!);
+                                bool isButtonCell = node.Children[colIdx].Kind == UiKind.Button;
+                                // Suppress caret for buttons; keep for other controls
+                                var marker = isButtonCell ? "  " : (colFocused ? "> " : "  ");
+                                int inner = Math.Max(1, widths[colIdx] - marker.Length);
+
+                                if (isButtonCell)
+                                {
+                                    // Center button text within inner space; color only the bracketed region
+                                    if (txt.Length > inner) txt = txt.Substring(0, Math.Max(0, inner));
+                                    int leftPad = Math.Max(0, (inner - txt.Length) / 2);
+                                    int rightPad = Math.Max(0, inner - leftPad - txt.Length);
+
+                                    // marker spaces (neutral)
+                                    if (marker.Length > 0) runs.Add(new TermRun(marker, ConsoleColor.Gray, ConsoleColor.Black));
+                                    // left padding (neutral)
+                                    if (leftPad > 0) runs.Add(new TermRun(new string(' ', leftPad), ConsoleColor.Gray, ConsoleColor.Black));
+                                    // bracketed button text (use child's colors)
+                                    runs.Add(new TermRun(txt, childLine.Foreground, childLine.Background));
+                                    // right padding (neutral)
+                                    if (rightPad > 0) runs.Add(new TermRun(new string(' ', rightPad), ConsoleColor.Gray, ConsoleColor.Black));
+                                }
+                                else
+                                {
+                                    if (txt.Length > inner) txt = txt.Substring(0, Math.Max(0, inner - 1)) + "…";
+                                    var padded = txt.PadRight(inner);
+                                    // Use the child's fg/bg so focused controls can invert independently
+                                    runs.Add(new TermRun(marker, childLine.Foreground, childLine.Background));
+                                    runs.Add(new TermRun(padded, childLine.Foreground, childLine.Background));
+                                }
+                            }
+                            lines.Add(new TermLine(string.Empty, ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left) { Runs = runs });
+                        }
+
+                        // Map this row region
+                        keyMap[node.Key] = new TermRegion(startLine, Math.Max(1, maxRows));
                     }
                     else
                     {
@@ -1363,41 +1496,36 @@ public class Terminal : CUiBase
                 LayoutNode(child, 0, screenWidth, screenHeight, focusedKey, innerLines, tmpMap);
             }
 
-            // Convert to strings and clamp to content width
+            // Build box lines as colored runs (top border, content, bottom border)
             int contentWidth = Math.Max(1, boxWidth - 2); // borders on left/right
-            var content = innerLines
-                .Select(l => (text: TrimLeadingSpaces(l.Text), align: l.Align))
-                .Select(t =>
-                {
-                    var fit = FitToWidth(t.text ?? string.Empty, contentWidth);
-                    if (t.align == TextAlign.Center)
-                    {
-                        int pad = Math.Max(0, contentWidth - fit.Length);
-                        int left = pad / 2;
-                        return new string(' ', left) + fit;
-                    }
-                    return fit;
-                })
-                .ToList();
+            var boxRunLines = new List<List<TermRun>>();
 
-            // Build box lines (top border, content, bottom border)
-            var boxLines = new List<string>();
-            string top = "┌" + new string('─', contentWidth) + "┐";
-            string bottom = "└" + new string('─', contentWidth) + "┘";
-            boxLines.Add(top);
-            if (content.Count == 0)
+            var borderFg = ConsoleColor.Gray;
+            var borderBg = ConsoleColor.Black;
+            boxRunLines.Add(new List<TermRun> { new TermRun("┌" + new string('─', contentWidth) + "┐", borderFg, borderBg) });
+
+            if (innerLines.Count == 0)
+                innerLines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
+
+            foreach (var il in innerLines)
             {
-                content.Add("");
+                // Flatten line into runs and trim leading spaces
+                var ilRuns = RunsFromLine(il);
+                TrimLeadingSpaces(ilRuns);
+                var clipped = ClipOrPadRuns(ilRuns, contentWidth, il.Align);
+                // Surround with borders
+                var rowRuns = new List<TermRun>();
+                rowRuns.Add(new TermRun("│", borderFg, borderBg));
+                rowRuns.AddRange(clipped);
+                rowRuns.Add(new TermRun("│", borderFg, borderBg));
+                boxRunLines.Add(rowRuns);
             }
-            foreach (var line in content)
-            {
-                boxLines.Add("│" + line.PadRight(contentWidth) + "│");
-            }
-            boxLines.Add(bottom);
+
+            boxRunLines.Add(new List<TermRun> { new TermRun("└" + new string('─', contentWidth) + "┘", borderFg, borderBg) });
 
             // Compute vertical placement: center in current visible area approximation
             int viewportHeight = Math.Max(10, screenHeight);
-            int boxHeight = boxLines.Count;
+            int boxHeight = boxRunLines.Count;
             int yStart = Math.Max(0, (Math.Min(baseLines.Count, viewportHeight) - boxHeight) / 2);
 
             // Ensure base lines list is long enough
@@ -1411,16 +1539,21 @@ public class Terminal : CUiBase
             for (int i = 0; i < boxHeight; i++)
             {
                 int lineIndex = yStart + i;
-                var baseText = baseLines[lineIndex].Text;
-                var row = EnsureWidth(baseText, screenWidth);
-                var overlayRow = boxLines[i];
-                // Build new row: left + overlay + right
-                string left = row.Substring(0, Math.Min(xStart, row.Length));
-                string right = (xStart + boxWidth <= row.Length) ? row.Substring(xStart + boxWidth) : string.Empty;
-                string newRow = left + overlayRow.PadRight(boxWidth) + right;
-                // Clamp to screen width
-                newRow = EnsureWidth(newRow, screenWidth);
-                baseLines[lineIndex] = new TermLine(newRow, ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left);
+                // Expand base line into exact-width runs preserving original colors
+                var baseRuns = ToExactWidthRuns(baseLines[lineIndex], screenWidth);
+                var leftRuns = SliceRuns(baseRuns, 0, Math.Min(xStart, screenWidth));
+                var overlayRuns = boxRunLines[i];
+                // Ensure overlay runs exactly fill boxWidth
+                overlayRuns = ClipOrPadRuns(overlayRuns, boxWidth, TextAlign.Left);
+                var rightStart = Math.Min(screenWidth, xStart + boxWidth);
+                var rightLen = Math.Max(0, screenWidth - rightStart);
+                var rightRuns = SliceRuns(baseRuns, rightStart, rightLen);
+
+                var composed = new List<TermRun>(leftRuns.Count + overlayRuns.Count + rightRuns.Count);
+                composed.AddRange(leftRuns);
+                composed.AddRange(overlayRuns);
+                composed.AddRange(rightRuns);
+                baseLines[lineIndex] = new TermLine(string.Empty, ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left) { Runs = composed };
             }
 
             // Record region for overlay (helps focus mapping, etc.)
@@ -1519,6 +1652,113 @@ public class Terminal : CUiBase
             if (width <= 1) return new string('…', Math.Max(1, width));
             return text.Substring(0, Math.Max(0, width - 1)) + "…";
         }
+
+        // --- Runs helpers for colored segments ---
+        private static List<TermRun> RunsFromLine(TermLine l)
+        {
+            if (l.Runs is { } r) return new List<TermRun>(r);
+            return new List<TermRun> { new TermRun(l.Text ?? string.Empty, l.Foreground, l.Background) };
+        }
+
+        private static void TrimLeadingSpaces(List<TermRun> runs)
+        {
+            int i = 0;
+            while (i < runs.Count)
+            {
+                var t = runs[i].Text ?? string.Empty;
+                int j = 0;
+                while (j < t.Length && t[j] == ' ') j++;
+                if (j == 0) break;
+                t = t.Substring(j);
+                runs[i] = new TermRun(t, runs[i].Foreground, runs[i].Background);
+                if (t.Length > 0) break;
+                i++;
+            }
+            if (i > 0 && i < runs.Count)
+            {
+                runs.RemoveRange(0, i);
+            }
+            else if (i >= runs.Count)
+            {
+                runs.Clear();
+            }
+        }
+
+        private static List<TermRun> ClipOrPadRuns(IReadOnlyList<TermRun> input, int width, TextAlign align)
+        {
+            // Compute total length
+            int total = 0; foreach (var r in input) total += r.Text?.Length ?? 0;
+            int leftPad = 0;
+            if (align == TextAlign.Center && total < width)
+            {
+                leftPad = (width - total) / 2;
+            }
+            var result = new List<TermRun>();
+            if (leftPad > 0)
+                result.Add(new TermRun(new string(' ', leftPad), ConsoleColor.Gray, ConsoleColor.Black));
+
+            int remaining = Math.Max(0, width - leftPad);
+            foreach (var r in input)
+            {
+                if (remaining <= 0) break;
+                var t = r.Text ?? string.Empty;
+                if (t.Length > remaining) t = t.Substring(0, remaining);
+                result.Add(new TermRun(t, r.Foreground, r.Background));
+                remaining -= t.Length;
+            }
+            if (remaining > 0)
+            {
+                // pad using last background
+                var last = result.Count > 0 ? result[^1] : new TermRun("", ConsoleColor.Gray, ConsoleColor.Black);
+                result.Add(new TermRun(new string(' ', remaining), last.Foreground, last.Background));
+            }
+            return result;
+        }
+
+        private static List<TermRun> ToExactWidthRuns(TermLine line, int width)
+        {
+            var runs = RunsFromLine(line);
+            return ClipOrPadRuns(runs, width, TextAlign.Left);
+        }
+
+        private static List<TermRun> SliceRuns(IReadOnlyList<TermRun> input, int start, int length)
+        {
+            var result = new List<TermRun>();
+            if (length <= 0) return result;
+
+            int pos = 0;
+            int remaining = length;
+            foreach (var r in input)
+            {
+                if (remaining <= 0) break;
+                var t = r.Text ?? string.Empty;
+                int runLen = t.Length;
+                if (pos + runLen <= start)
+                {
+                    pos += runLen;
+                    continue; // before window
+                }
+                // overlap starts here
+                int localStart = Math.Max(0, start - pos);
+                int take = Math.Min(remaining, Math.Max(0, runLen - localStart));
+                if (take > 0)
+                {
+                    var slice = t.Substring(localStart, take);
+                    result.Add(new TermRun(slice, r.Foreground, r.Background));
+                    remaining -= take;
+                }
+                pos += runLen;
+            }
+
+            if (remaining > 0)
+            {
+                // pad with space using last known colors (or gray/black)
+                var last = result.Count > 0 ? result[^1] : new TermRun("", ConsoleColor.Gray, ConsoleColor.Black);
+                result.Add(new TermRun(new string(' ', remaining), last.Foreground, last.Background));
+            }
+
+            return result;
+        }
     }
 
     /// <summary>
@@ -1537,12 +1777,18 @@ public class Terminal : CUiBase
     /// <summary>
     /// A single line in the terminal with styling and alignment metadata
     /// </summary>
+    private sealed record TermRun(string Text, ConsoleColor Foreground, ConsoleColor Background);
+
     private sealed record TermLine(
         string Text,
         ConsoleColor Foreground,
         ConsoleColor Background,
         TextAlign Align
-    );
+    )
+    {
+        // Optional segmented runs for per-span coloring. When set, Apply() uses Runs instead of Text/Foreground/Background.
+        public IReadOnlyList<TermRun>? Runs { get; init; }
+    }
 
     /// <summary>
     /// Region occupied by a UiNode in the terminal
