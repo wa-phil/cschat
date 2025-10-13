@@ -556,7 +556,7 @@ public class Terminal : CUiBase
 
         // Clear the console and do initial render using TermDom
         Clear();
-        _lastSnapshot = _termDom.Layout(root, Width, _uiTree.FocusedKey);
+        _lastSnapshot = _termDom.Layout(root, Width, Height, _uiTree.FocusedKey);
         _termDom.Apply(_termDom.GetFullRender(_lastSnapshot));
 
         ctx.Succeeded();
@@ -568,7 +568,7 @@ public class Terminal : CUiBase
         // Use incremental rendering if enabled, otherwise fall back to full re-render
         if (_uiTree.Root != null)
         {
-            var newSnapshot = _termDom.Layout(_uiTree.Root, Width, _uiTree.FocusedKey);
+            var newSnapshot = _termDom.Layout(_uiTree.Root, Width, Height, _uiTree.FocusedKey);
 
             if (_lastSnapshot != null)
             {
@@ -594,7 +594,7 @@ public class Terminal : CUiBase
         // Recompute layout to reflect focus highlight changes and apply minimal edits
         if (_uiTree.Root != null)
         {
-            var newSnapshot = _termDom.Layout(_uiTree.Root, Width, _uiTree.FocusedKey);
+            var newSnapshot = _termDom.Layout(_uiTree.Root, Width, Height, _uiTree.FocusedKey);
 
             if (_lastSnapshot != null)
             {
@@ -758,7 +758,7 @@ public class Terminal : CUiBase
         /// <summary>
         /// Flattens UiNode -> lines with attributes (fg/bg), maintains key→region map
         /// </summary>
-        public TermSnapshot Layout(UiNode root, int width, string? focusedKey)
+        public TermSnapshot Layout(UiNode root, int width, int screenHeight, string? focusedKey)
         {
             var lines = new List<TermLine>();
             var keyMap = new Dictionary<string, TermRegion>();
@@ -774,12 +774,12 @@ public class Terminal : CUiBase
                         overlaysContainer = child;
                         continue;
                     }
-                    LayoutNode(child, 0, width, focusedKey, lines, keyMap);
+                    LayoutNode(child, 0, width, screenHeight, focusedKey, lines, keyMap);
                 }
             }
             else
             {
-                LayoutNode(root, 0, width, focusedKey, lines, keyMap);
+                LayoutNode(root, 0, width, screenHeight, focusedKey, lines, keyMap);
             }
 
             // Composite overlays on top (modal). Later overlays in the list have higher z-order.
@@ -794,7 +794,7 @@ public class Terminal : CUiBase
 
                 foreach (var overlay in overlayNodes)
                 {
-                    CompositeOverlayBox(overlay, width, focusedKey, lines, keyMap);
+                    CompositeOverlayBox(overlay, width, screenHeight, focusedKey, lines, keyMap);
                 }
             }
 
@@ -883,7 +883,7 @@ public class Terminal : CUiBase
             return snapshot.Lines.Select((line, index) => new TermEdit(index, line));
         }
 
-        private void LayoutNode(UiNode node, int indent, int width, string? focusedKey, List<TermLine> lines, Dictionary<string, TermRegion> keyMap)
+        private void LayoutNode(UiNode node, int indent, int width, int screenHeight, string? focusedKey, List<TermLine> lines, Dictionary<string, TermRegion> keyMap)
         {
             var startLine = lines.Count;
             var indentStr = new string(' ', indent * 2);
@@ -934,8 +934,174 @@ public class Terminal : CUiBase
             {
                 case UiKind.Column:
                 case UiKind.Row:
+                    // Support special row layout that composes two children inline with right child right-aligned.
+                    if (node.Kind == UiKind.Row &&
+                        node.Children.Count == 2 &&
+                        node.Props.TryGetValue(UiProperty.Layout, out var layoutRow) &&
+                        string.Equals(layoutRow?.ToString(), "row-justify", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int contentWidth = Math.Max(10, width - indent * 2);
+
+                        // Helper to render a compact, single-line representation of a child control
+                        static string RenderInline(UiNode c)
+                        {
+                            switch (c.Kind)
+                            {
+                                case UiKind.Button:
+                                    var btnText = c.Props.TryGetValue(UiProperty.Text, out var bt) ? bt?.ToString() : "";
+                                    return $"[ {btnText} ]";
+                                case UiKind.TextBox:
+                                case UiKind.TextArea:
+                                    var value = c.Props.TryGetValue(UiProperty.Text, out var v) ? v?.ToString() : (c.Props.TryGetValue(UiProperty.Value, out var v2) ? v2?.ToString() : "");
+                                    var placeholder = c.Props.TryGetValue(UiProperty.Placeholder, out var p) ? p?.ToString() : "";
+                                    return string.IsNullOrEmpty(value) ? (placeholder ?? string.Empty) : value!;
+                                case UiKind.Label:
+                                    return c.Props.TryGetValue(UiProperty.Text, out var lt) ? lt?.ToString() ?? string.Empty : string.Empty;
+                                default:
+                                    return string.Empty;
+                            }
+                        }
+
+                        var leftStr = RenderInline(node.Children[0]) ?? string.Empty;
+                        var rightStr = RenderInline(node.Children[1]) ?? string.Empty;
+
+                        // Determine focus coloring: if any child focused, invert like other controls
+                        bool leftFocused = node.Children[0].Key == focusedKey;
+                        bool rightFocused = node.Children[1].Key == focusedKey;
+                        var lineFg = (leftFocused || rightFocused) ? ConsoleColor.Black : ConsoleColor.Gray;
+                        var lineBg = (leftFocused || rightFocused) ? ConsoleColor.White : ConsoleColor.Black;
+
+                        // Fit right segment first, then allocate remainder to left
+                        rightStr = FitToWidth(TrimLeadingSpaces(rightStr), Math.Max(0, contentWidth / 3)); // clamp to a reasonable width
+                        int availForLeft = Math.Max(0, contentWidth - rightStr.Length - 1); // 1 space gap
+                        leftStr = FitToWidth(TrimLeadingSpaces(leftStr), availForLeft);
+                        int gap = Math.Max(1, contentWidth - leftStr.Length - rightStr.Length);
+
+                        var composed = indentStr + leftStr + new string(' ', gap) + rightStr;
+                        lines.Add(new TermLine(composed, lineFg, lineBg, TextAlign.Left));
+
+                        // Record mapping for row and its children to this single composed line
+                        keyMap[node.Key] = new TermRegion(startLine, 1);
+                        keyMap[node.Children[0].Key] = new TermRegion(startLine, 1);
+                        keyMap[node.Children[1].Key] = new TermRegion(startLine, 1);
+                    }
+                    // Support bottom-dock layout for column containers: last child pinned to bottom
+                    else if (node.Kind == UiKind.Column &&
+                             node.Children.Count >= 1 &&
+                             node.Props.TryGetValue(UiProperty.Layout, out var layoutCol) &&
+                             string.Equals(layoutCol?.ToString(), "dock-bottom", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int availableHeight = Math.Max(1, screenHeight - startLine);
+
+                        // Render top children (all except last) into temp buffer
+                        var topLines = new List<TermLine>();
+                        var topMap = new Dictionary<string, TermRegion>();
+                        for (int i = 0; i < node.Children.Count - 1; i++)
+                        {
+                            LayoutNode(node.Children[i], indent, width, screenHeight, focusedKey, topLines, topMap);
+                        }
+
+                        // Render bottom child into temp buffer
+                        var bottomLines = new List<TermLine>();
+                        var bottomMap = new Dictionary<string, TermRegion>();
+                        LayoutNode(node.Children[^1], indent, width, screenHeight, focusedKey, bottomLines, bottomMap);
+
+                        // Determine visible space for top section
+                        int maxTopVisible = Math.Max(0, availableHeight - bottomLines.Count);
+
+                        // Honor AutoScroll/Min (used as scroll offset) when provided on the messages child
+                        UiNode? messagesChild = null;
+                        for (int i = 0; i < node.Children.Count - 1; i++)
+                        {
+                            if (node.Children[i].Key == "messages") { messagesChild = node.Children[i]; break; }
+                        }
+                        bool autoScroll = messagesChild != null && messagesChild.Props.TryGetValue(UiProperty.AutoScroll, out var asv) && asv is bool ab && ab;
+                        int requestedScroll = (messagesChild != null) ? (TryGetIntProp(messagesChild.Props, UiProperty.Min) ?? 0) : 0; // 0=bottom, higher=scroll up
+                        requestedScroll = Math.Max(0, requestedScroll);
+
+                        int totalTop = topLines.Count;
+                        int dropFromTop;
+                        if (!autoScroll && maxTopVisible > 0)
+                        {
+                            // Choose a window so that 'requestedScroll' lines remain above the bottom of top
+                            dropFromTop = Math.Clamp(totalTop - maxTopVisible - requestedScroll, 0, Math.Max(0, totalTop - maxTopVisible));
+                        }
+                        else
+                        {
+                            // Auto-scroll to bottom
+                            int overflow = Math.Max(0, (topLines.Count + bottomLines.Count) - availableHeight);
+                            dropFromTop = Math.Min(overflow, topLines.Count);
+                        }
+
+                        // Build visible subset of top
+                        var visibleTopLines = (dropFromTop > 0)
+                            ? topLines.Skip(dropFromTop).Take(maxTopVisible).ToList()
+                            : topLines.Take(maxTopVisible).ToList();
+
+                        // Append top
+                        int topStart = lines.Count;
+                        lines.AddRange(visibleTopLines);
+
+                        // Remap child key regions within visible window
+                        foreach (var kv in topMap)
+                        {
+                            int relStart = kv.Value.StartLine;
+                            int relEnd = kv.Value.StartLine + kv.Value.LineCount;
+                            int newStart = Math.Max(0, relStart - dropFromTop);
+                            int newEnd = Math.Max(0, relEnd - dropFromTop);
+                            newStart = Math.Min(newStart, maxTopVisible);
+                            newEnd = Math.Min(newEnd, maxTopVisible);
+                            int len = Math.Max(0, newEnd - newStart);
+                            if (len > 0)
+                                keyMap[kv.Key] = new TermRegion(topStart + newStart, len);
+                        }
+
+                        // Add filler to pin bottom child to the bottom when there's spare space
+                        int usedTop = visibleTopLines.Count;
+                        int usedTotal = usedTop + bottomLines.Count;
+                        int filler = Math.Max(0, availableHeight - usedTotal);
+                        for (int i = 0; i < filler; i++)
+                        {
+                            lines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
+                        }
+
+                        // Simple right-edge scrollbar when top overflowed
+                        bool overflowed = totalTop > maxTopVisible;
+                        if (overflowed && maxTopVisible > 0)
+                        {
+                            int trackH = maxTopVisible;
+                            int thumbH = Math.Max(1, (int)Math.Round(trackH * (maxTopVisible / (double)Math.Max(1, totalTop))));
+                            int maxThumbTop = Math.Max(0, trackH - thumbH);
+                            int scrolled = Math.Clamp(totalTop - maxTopVisible - dropFromTop, 0, Math.Max(0, totalTop - maxTopVisible));
+                            int scrollRange = Math.Max(1, totalTop - maxTopVisible);
+                            int thumbTop = (int)Math.Round(scrolled / (double)scrollRange * maxThumbTop);
+
+                            for (int j = 0; j < maxTopVisible; j++)
+                            {
+                                int idx = topStart + j;
+                                var l = lines[idx];
+                                var baseText = l.Text ?? string.Empty;
+                                var ensured = baseText.Length < width ? baseText.PadRight(width) : (baseText.Length > width ? baseText.Substring(0, width) : baseText);
+                                char sb = (j >= thumbTop && j < thumbTop + thumbH) ? '█' : '│';
+                                if (ensured.Length > 0)
+                                    ensured = ensured.Substring(0, Math.Max(0, width - 1)) + sb;
+                                lines[idx] = new TermLine(ensured, l.Foreground, l.Background, l.Align);
+                            }
+                        }
+
+                        // Append bottom (composer)
+                        int bottomStart = lines.Count;
+                        lines.AddRange(bottomLines);
+                        foreach (var kv in bottomMap)
+                        {
+                            keyMap[kv.Key] = new TermRegion(bottomStart + kv.Value.StartLine, kv.Value.LineCount);
+                        }
+
+                        // Region for this node
+                        keyMap[node.Key] = new TermRegion(startLine, Math.Max(1, lines.Count - startLine));
+                    }
                     // Support split layout (label/control 50/50) with wrapping
-                    if (node.Props.TryGetValue(UiProperty.Layout, out var layout) && layout?.ToString() == "split-50-50" && node.Children.Count >= 2)
+                    else if (node.Props.TryGetValue(UiProperty.Layout, out var layout) && layout?.ToString() == "split-50-50" && node.Children.Count >= 2)
                     {
                         int contentWidth = Math.Max(10, width - indent * 2);
                         int colWidth = contentWidth / 2;
@@ -947,9 +1113,9 @@ public class Terminal : CUiBase
                         var tmpMapR = new Dictionary<string, TermRegion>();
 
                         // Left (label)
-                        LayoutNode(node.Children[0], 0, colWidth, focusedKey, leftLines, tmpMapL);
+                        LayoutNode(node.Children[0], 0, colWidth, screenHeight, focusedKey, leftLines, tmpMapL);
                         // Right (control)
-                        LayoutNode(node.Children[1], 0, colWidth, focusedKey, rightLines, tmpMapR);
+                        LayoutNode(node.Children[1], 0, colWidth, screenHeight, focusedKey, rightLines, tmpMapR);
 
                         bool leftFocused = !string.IsNullOrEmpty(focusedKey) && tmpMapL.ContainsKey(focusedKey!);
                         bool rightFocused = !string.IsNullOrEmpty(focusedKey) && tmpMapR.ContainsKey(focusedKey!);
@@ -976,7 +1142,7 @@ public class Terminal : CUiBase
                     {
                         foreach (var child in node.Children)
                         {
-                            LayoutNode(child, node.Kind == UiKind.Column ? indent : indent + 1, width, focusedKey, lines, keyMap);
+                            LayoutNode(child, node.Kind == UiKind.Column ? indent : indent + 1, width, screenHeight, focusedKey, lines, keyMap);
                         }
                     }
                     break;
@@ -993,6 +1159,7 @@ public class Terminal : CUiBase
                         if (wrap)
                         {
                             int labAvail = Math.Max(1, width - indent * 2);
+                            // Wrap while respecting explicit newlines
                             foreach (var seg in WrapText(raw, labAvail))
                             {
                                 var textOut = (align == TextAlign.Center) ? seg : ($"{indentStr}{seg}");
@@ -1001,8 +1168,13 @@ public class Terminal : CUiBase
                         }
                         else
                         {
-                            var textOut = (align == TextAlign.Center) ? raw : ($"{indentStr}{raw}");
-                            lines.Add(new TermLine(textOut, fg, bg, align));
+                            // Even without wrapping, respect explicit newlines to avoid emitting '\n' inside a single TermLine
+                            var parts = (raw ?? string.Empty).Replace("\r\n", "\n").Split('\n');
+                            foreach (var part in parts)
+                            {
+                                var textOut = (align == TextAlign.Center) ? part : ($"{indentStr}{part}");
+                                lines.Add(new TermLine(textOut, fg, bg, align));
+                            }
                         }
                     }
                     break;
@@ -1159,7 +1331,7 @@ public class Terminal : CUiBase
                     {
                         foreach (var child in node.Children)
                         {
-                            LayoutNode(child, indent + 1, width, focusedKey, lines, keyMap);
+                            LayoutNode(child, indent + 1, width, screenHeight, focusedKey, lines, keyMap);
                         }
                     }
                     break;
@@ -1177,7 +1349,7 @@ public class Terminal : CUiBase
         /// Compose a modal overlay rectangle centered in the viewport over existing lines.
         /// Preserves text outside the rectangle, so background content remains visible.
         /// </summary>
-        private void CompositeOverlayBox(UiNode overlay, int screenWidth, string? focusedKey, List<TermLine> baseLines, Dictionary<string, TermRegion> keyMap)
+        private void CompositeOverlayBox(UiNode overlay, int screenWidth, int screenHeight, string? focusedKey, List<TermLine> baseLines, Dictionary<string, TermRegion> keyMap)
         {
             // Determine overlay box width from props (supports "80%" or absolute int), with sensible bounds
             int boxWidth = Math.Clamp(ParseWidth(overlay.Props, screenWidth), Math.Min(20, Math.Max(1, screenWidth - 2)), Math.Max(10, screenWidth - 2));
@@ -1188,7 +1360,7 @@ public class Terminal : CUiBase
             var tmpMap = new Dictionary<string, TermRegion>();
             foreach (var child in overlay.Children)
             {
-                LayoutNode(child, 0, screenWidth, focusedKey, innerLines, tmpMap);
+                LayoutNode(child, 0, screenWidth, screenHeight, focusedKey, innerLines, tmpMap);
             }
 
             // Convert to strings and clamp to content width
@@ -1224,7 +1396,7 @@ public class Terminal : CUiBase
             boxLines.Add(bottom);
 
             // Compute vertical placement: center in current visible area approximation
-            int viewportHeight = Math.Max(10, Console.WindowHeight);
+            int viewportHeight = Math.Max(10, screenHeight);
             int boxHeight = boxLines.Count;
             int yStart = Math.Max(0, (Math.Min(baseLines.Count, viewportHeight) - boxHeight) / 2);
 
@@ -1259,26 +1431,42 @@ public class Terminal : CUiBase
         {
             var result = new List<string>();
             if (width <= 0) { result.Add(""); return result; }
-            if (string.IsNullOrEmpty(text)) { result.Add(""); return result; }
+            if (text == null) { result.Add(""); return result; }
 
-            int idx = 0;
-            while (idx < text.Length)
+            // Respect explicit newlines: wrap each paragraph independently and preserve blank lines
+            var paragraphs = text.Replace("\r\n", "\n").Split('\n');
+
+            foreach (var para in paragraphs)
             {
-                int take = Math.Min(width, text.Length - idx);
-                // Try to break on whitespace when possible
-                int end = idx + take;
-                if (end < text.Length && !char.IsWhiteSpace(text[end - 1]))
+                var p = para ?? string.Empty;
+                if (p.Length == 0)
                 {
-                    int lastSpace = text.LastIndexOf(' ', end - 1, take);
-                    if (lastSpace > idx)
-                    {
-                        end = lastSpace + 1;
-                    }
+                    // Preserve empty line
+                    result.Add("");
+                    continue;
                 }
-                var segment = text.Substring(idx, end - idx).TrimEnd();
-                result.Add(segment);
-                idx = end;
+
+                int idx = 0;
+                while (idx < p.Length)
+                {
+                    int take = Math.Min(width, p.Length - idx);
+                    int end = idx + take;
+                    // Prefer breaking on whitespace when the chunk overflows
+                    if (end < p.Length && !char.IsWhiteSpace(p[end - 1]))
+                    {
+                        int lastSpace = p.LastIndexOf(' ', end - 1, take);
+                        if (lastSpace > idx)
+                        {
+                            end = lastSpace + 1; // include the space we break at
+                        }
+                    }
+
+                    var segment = p.Substring(idx, end - idx).TrimEnd();
+                    result.Add(segment);
+                    idx = end;
+                }
             }
+
             return result;
         }
 
@@ -1380,7 +1568,6 @@ public class Terminal : CUiBase
 /// </summary>
 public sealed class TerminalInputRouter : IInputRouter
 {
-    private IUi? _ui;
     private ConsoleKeyInfo _lastKey;
 
     /// <summary>

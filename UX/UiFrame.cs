@@ -35,21 +35,12 @@ public sealed class UiFrameController
     {
         // Header with Clear button
         var header = ChatSurface.CreateHeader(
-            threadName: Program.config.ChatThreadSettings.ActiveThreadName,
-            onClear: async (e) =>
-            {
-                _context.Clear();
-                _context.AddSystemMessage(_config.SystemPrompt);
-                await _ui.PatchAsync(ChatSurface.ClearMessages());
-                // also reset input state
-                _chatState = new ChatSurface.ChatInputState();
-                await _ui.PatchAsync(ChatSurface.UpdateInput(""));
-            }
+            threadName: Program.config.ChatThreadSettings.ActiveThreadName
         );
 
         // Content: messages + composer; input handlers are managed by ChatSurface via input router
         var messages = _context.Messages(InluceSystemMessage: false).ToList();
-        var content = ChatSurface.Create(messages, inputText: "", onSend: null, onInput: null);
+        var content = ChatSurface.Create(messages);
 
         var frame = new UiFrame(Header: header, Content: content, Overlays: Array.Empty<UiNode>());
         var root = UiFrameBuilder.Create(frame);

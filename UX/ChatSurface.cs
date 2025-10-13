@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Azure.Pipelines.WebApi;
 
 /// <summary>
 /// ChatSurface builds a UiNode tree for the chat interface
@@ -28,29 +29,47 @@ public static class ChatSurface
     /// Creates the root UiNode for the chat surface (Content area only - no toolbar)
     /// </summary>
     /// <param name="messages">List of chat messages to display</param>
-    /// <param name="inputText">Current text in the input field</param>
-    /// <param name="onSend">Handler for send button click</param>
-    /// <param name="onInput">Handler for input text changes</param>
     /// <returns>Root UiNode representing the chat surface content</returns>
-    public static UiNode Create(
-        IEnumerable<ChatMessage> messages,
-        string inputText = "",
-        UiHandler? onSend = null,
-        UiHandler? onInput = null)
+    public static UiNode Create(IEnumerable<ChatMessage> messages)
     {
         var messageNodes = messages
             .Select((msg, index) => CreateMessageNode(msg, index))
             .ToArray();
 
+        UiHandler onInput = async e => {
+            var currentInputText = e.Value ?? "";
+            await Program.ui.PatchAsync(ChatSurface.UpdateInput(currentInputText));
+        };
+
+        // Wire Send/Enter events to the chat pipeline so GUI and terminal behave the same
+        UiHandler onSend = async e => {
+            var text = e.Value ?? "";
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            // Delegate to shared ChatSurface processing which appends user msg, calls provider, and appends response
+            await ProcessChatInputAsync(
+                Program.ui,
+                text,
+                Program.Context,
+                async (ctx) => await Engine.PostChatAsync(ctx)
+            );
+
+            // Focus back to input after sending
+            try { await Program.ui.FocusAsync("input"); } catch { /* best effort */ }
+        };
+
         return new UiNode(
             "chat-root",
             UiKind.Column,
-            new Dictionary<UiProperty, object?>(),
+            new Dictionary<UiProperty, object?>
+            {
+                [UiProperty.Layout] = "dock-bottom"
+            },
             new UiNode[]
             {
                 CreateMessagesPanel(messageNodes),
-                new UiNode("spacer", UiKind.Spacer, new Dictionary<UiProperty, object?> { [UiProperty.Height] = 1 }, Array.Empty<UiNode>()),
-                CreateComposer(inputText, onSend, onInput)
+                new UiNode("spacer", UiKind.Spacer, new Dictionary<UiProperty, object?> { [UiProperty.Height] = 1 }, Array.Empty<UiNode>()),                
+                CreateComposer(string.Empty, onSend, onInput)
             }
         );
     }
@@ -165,14 +184,38 @@ public static class ChatSurface
             return (current, ChatInputAction.None);
         }
 
-        // Up/Down/PageUp/PageDown reserved for scroll – not implemented yet
+        // Scroll the messages panel with Up/Down/PageUp/PageDown/Home/End
+        // We model scroll as an offset from the bottom (0 = bottom, larger = scrolled up)
+        int page = Math.Max(3, (int)Math.Round(ui.Height * 0.7));
+        bool scrolled = false;
+
+        if (key.Key == ConsoleKey.UpArrow) { current = current with { Scroll = Math.Max(0, current.Scroll + 1) }; scrolled = true; }
+        else if (key.Key == ConsoleKey.DownArrow) { current = current with { Scroll = Math.Max(0, current.Scroll - 1) }; scrolled = true; }
+        else if (key.Key == ConsoleKey.PageUp) { current = current with { Scroll = Math.Max(0, current.Scroll + page) }; scrolled = true; }
+        else if (key.Key == ConsoleKey.PageDown) { current = current with { Scroll = Math.Max(0, current.Scroll - page) }; scrolled = true; }
+        else if (key.Key == ConsoleKey.Home) { current = current with { Scroll = int.MaxValue }; scrolled = true; }
+        else if (key.Key == ConsoleKey.End) { current = current with { Scroll = 0 }; scrolled = true; }
+
+        if (scrolled)
+        {
+            await ui.PatchAsync(new UiPatch(new UpdatePropsOp(
+                "messages",
+                new Dictionary<UiProperty, object?>
+                {
+                    [UiProperty.AutoScroll] = false,
+                    // Using Min as a simple numeric holder for scroll offset (from bottom)
+                    [UiProperty.Min] = current.Scroll
+                })));
+            return (current, ChatInputAction.None);
+        }
+
         return (current, ChatInputAction.None);
     }
 
     /// <summary>
     /// Creates the header/toolbar for the frame (thread title and action buttons)
     /// </summary>
-    public static UiNode CreateHeader(string? threadName, UiHandler? onClear)
+    public static UiNode CreateHeader(string? threadName)
     {
         var title = string.IsNullOrEmpty(threadName) ? "Chat" : $"Chat: {threadName}";
         
@@ -302,16 +345,30 @@ public static class ChatSurface
         {
             sendButtonProps[UiProperty.OnClick] = onSend;
         }
+        var composerStyle = UiStyles.Of(
+            (UiStyleKey.Align, "bottom"),
+            (UiStyleKey.BackgroundColor, ConsoleColor.DarkGray)
+        );
+        var inputStyle = UiStyles.Of(
+            (UiStyleKey.Justify, "left")
+        );
+        var buttonStyle = UiStyles.Of(
+            (UiStyleKey.Justify, "right")
+        );
 
         return new UiNode(
             "composer",
             UiKind.Row,
-            new Dictionary<UiProperty, object?>(),
+            new Dictionary<UiProperty, object?>
+            {
+                [UiProperty.Layout] = "row-justify"
+            },
             new[]
             {
-                new UiNode("input", UiKind.TextBox, inputProps, Array.Empty<UiNode>()),
-                new UiNode("send-btn", UiKind.Button, sendButtonProps, Array.Empty<UiNode>())
-            }
+                new UiNode("input", UiKind.TextBox, inputProps, Array.Empty<UiNode>(), inputStyle),
+                new UiNode("send-btn", UiKind.Button, sendButtonProps, Array.Empty<UiNode>(), buttonStyle)
+            },
+            composerStyle
         );
     }
 
@@ -321,7 +378,8 @@ public static class ChatSurface
     public static UiPatch AppendMessage(ChatMessage message, int index)
     {
         var messageNode = CreateMessageNode(message, index);
-        return new UiPatch(new InsertChildOp("messages", index, messageNode));
+        // Use int.MaxValue to clamp to append at end; the Term UI tree will append safely.
+        return new UiPatch(new InsertChildOp("messages", int.MaxValue, messageNode));
     }
 
     /// <summary>
@@ -463,28 +521,38 @@ public static class ChatSurface
 
         // Clear the input box
         await ui.PatchAsync(UpdateInput(""));
+        // Ensure view snaps to bottom after sending
+        await ui.PatchAsync(new UiPatch(new UpdatePropsOp(
+            "messages",
+            new Dictionary<UiProperty, object?>
+            {
+                [UiProperty.AutoScroll] = true,
+                [UiProperty.Min] = 0
+            })));
 
         try
         {
             // Get response from AI
             var (response, updatedContext) = await getAIResponse(context);
-            
-            // Create assistant message
-            var assistantMessage = new ChatMessage 
-            { 
-                Role = Roles.Assistant, 
-                Content = response,
-                CreatedAt = DateTime.Now 
-            };
-            
-            // Add assistant message to context (already done by getAIResponse, but update our reference)
-            currentMessages = updatedContext.Messages(InluceSystemMessage: false).ToList();
-            
+
+            // Persist assistant reply in conversation history if provider pipeline didn't
+            var last = updatedContext.Messages().LastOrDefault();
+            bool alreadyAdded = last != null && last.Role == Roles.Assistant && string.Equals(last.Content ?? string.Empty, response, StringComparison.Ordinal);
+            if (!alreadyAdded)
+            {
+                updatedContext.AddAssistantMessage(response);
+                last = updatedContext.Messages().LastOrDefault();
+            }
+
+            // Keep Program.Context in sync for other subsystems
+            Program.Context = updatedContext;
+
             // Append assistant message bubble
-            await ui.PatchAsync(AppendMessage(assistantMessage, currentMessages.Count - 1));
-            
-            // Update content (for streaming, this would be called incrementally)
-            await ui.PatchAsync(UpdateMessageContent(assistantMessage.Id, response));
+            currentMessages = updatedContext.Messages(InluceSystemMessage: false).ToList();
+            if (last != null)
+            {
+                await ui.PatchAsync(AppendMessage(last, currentMessages.Count - 1));
+            }
         }
         catch (Exception ex)
         {

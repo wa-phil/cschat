@@ -23,26 +23,11 @@ public partial class CommandManager
                         
                         // Create header with new thread name
                         var header = ChatSurface.CreateHeader(
-                            threadName: forked.Name,
-                            onClear: async (e) => 
-                            {
-                                Program.Context.Clear();
-                                Program.Context.AddSystemMessage(Program.config.SystemPrompt);
-                                await Program.ui.PatchAsync(ChatSurface.ClearMessages());
-                            }
+                            threadName: forked.Name
                         );
                         
                         // Create ChatSurface content for new thread
-                        var chatContent = ChatSurface.Create(
-                            Array.Empty<ChatMessage>(),
-                            inputText: "",
-                            onSend: null,
-                            onInput: async (e) =>
-                            {
-                                var currentInputText = e.Value ?? "";
-                                await Program.ui.PatchAsync(ChatSurface.UpdateInput(currentInputText));
-                            }
-                        );
+                        var chatContent = ChatSurface.Create(Array.Empty<ChatMessage>());
                         
                         // Wrap in UiFrame and mount
                         var frame = new UiFrame(
@@ -85,27 +70,12 @@ public partial class CommandManager
                         
                         // Create header with new thread name
                         var header = ChatSurface.CreateHeader(
-                            threadName: target.Name,
-                            onClear: async (e) => 
-                            {
-                                Program.Context.Clear();
-                                Program.Context.AddSystemMessage(Program.config.SystemPrompt);
-                                await Program.ui.PatchAsync(ChatSurface.ClearMessages());
-                            }
+                            threadName: target.Name
                         );
                         
                         // Remount ChatSurface with new thread's messages
                         var messages = Program.Context.Messages(InluceSystemMessage: false).ToList();
-                        var chatContent = ChatSurface.Create(
-                            messages,
-                            inputText: "",
-                            onSend: null,
-                            onInput: async (e) =>
-                            {
-                                var currentInputText = e.Value ?? "";
-                                await Program.ui.PatchAsync(ChatSurface.UpdateInput(currentInputText));
-                            }
-                        );
+                        var chatContent = ChatSurface.Create(messages);
                         
                         // Wrap in UiFrame and mount
                         var frame = new UiFrame(
@@ -127,27 +97,12 @@ public partial class CommandManager
                     {
                         // Create header
                         var header = ChatSurface.CreateHeader(
-                            threadName: Program.config.ChatThreadSettings.ActiveThreadName,
-                            onClear: async (e) => 
-                            {
-                                Program.Context.Clear();
-                                Program.Context.AddSystemMessage(Program.config.SystemPrompt);
-                                await Program.ui.PatchAsync(ChatSurface.ClearMessages());
-                            }
+                            threadName: Program.config.ChatThreadSettings.ActiveThreadName
                         );
                         
                         // Remount ChatSurface to refresh display
                         var messages = Program.Context.Messages(InluceSystemMessage: false).ToList();
-                        var chatContent = ChatSurface.Create(
-                            messages,
-                            inputText: "",
-                            onSend: null,
-                            onInput: async (e) =>
-                            {
-                                var currentInputText = e.Value ?? "";
-                                await Program.ui.PatchAsync(ChatSurface.UpdateInput(currentInputText));
-                            }
-                        );
+                        var chatContent = ChatSurface.Create(messages);
                         
                         // Wrap in UiFrame and mount
                         var frame = new UiFrame(
