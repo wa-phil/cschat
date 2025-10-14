@@ -464,24 +464,6 @@ public class Terminal : CUiBase
         RenderChatMessage(msg);
     }
 
-    private sealed class TermRealtimeWriter : IRealtimeWriter
-    {
-        public void Write(string text) => Console.Write(text ?? "");
-        public void WriteLine(string? text = null) => Console.WriteLine(text);
-        public void Dispose() { /* no-op */ }
-    }
-
-    public override IRealtimeWriter BeginRealtime(string title)
-    {
-        // Give a small heading so it's visible, then pass-through
-        if (!string.IsNullOrWhiteSpace(title))
-        {
-            WriteLine(title);
-            WriteLine(new string('-', Math.Min(title.Length, Math.Max(10, Width - 1))));
-        }
-        return new TermRealtimeWriter();
-    }
-
     // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
     public override string? RenderMenu(string header, List<string> choices, int selected = 0)
     {
@@ -1451,7 +1433,7 @@ public class Terminal : CUiBase
                             thumbHeight = Math.Min(thumbHeight, trackHeight);
                             int maxThumbTop = Math.Max(0, trackHeight - thumbHeight);
                             int scrollRange = Math.Max(1, count - visibleCount);
-                            thumbTop = (int)Math.Round((double)offset / scrollRange * maxThumbTop);
+                            thumbTop = (int)Math.Round(offset / (double)scrollRange * maxThumbTop);
                             thumbTop = Math.Clamp(thumbTop, 0, maxThumbTop);
                         }
 

@@ -208,46 +208,60 @@ static class Program
                 ui = new Terminal();
                 break;
         }
-        
-        using IRealtimeWriter output = ui.BeginRealtime($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
 
         try
         {
             // ----- Run the application loop via the UI -----
             await ui.RunAsync(async () =>
             {
-                await InitProgramAsync(output);
-
-                if (string.IsNullOrWhiteSpace(config.Model))
+                // Initialize a minimal context first (needed for chat surface)
+                Context = new Context(config.SystemPrompt);
+                
+                // Mount the chat surface early so realtime output can be displayed properly
+                var inputRouter = ui.GetInputRouter();
+                var controller = new UiFrameController(ui, inputRouter, Context, config);
+                await controller.InitializeAsync(); // Mounts the chat surface
+                
+                // Now run initialization with realtime output
+                using (IRealtimeWriter output = ui.BeginRealtime($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})"))
                 {
-                    var selected = await Engine.SelectModelAsync();
-                    if (selected == null) return;
-                    config.Model = selected;
+                    await InitProgramAsync(output);
+
+                    if (string.IsNullOrWhiteSpace(config.Model))
+                    {
+                        var selected = await Engine.SelectModelAsync();
+                        if (selected == null) return;
+                        config.Model = selected;
+                    }
+
+                    Config.Save(config, ConfigFilePath);
+
+                    output.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
+                    output.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
+                    output.WriteLine();
                 }
 
-                Config.Save(config, ConfigFilePath);
+                // Attach the initialized command manager, update the controller's context reference to 
+                // the loaded one, and then refresh the chat surface with loaded messages from the thread
+                controller.SetCommandManager(commandManager);                
+                controller.UpdateContext(Context);
+                await controller.RefreshMessagesAsync();
 
-                output.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
-                output.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
-                output.WriteLine();
-
-                var inputRouter = ui.GetInputRouter();
-
-                // Mount frame and delegate the main loop to UiFrameController
-                var controller = new UiFrameController(ui, inputRouter, Context, commandManager, config);
-                await controller.InitializeAsync();
                 await controller.RunLoopAsync();
             });
         }
         catch (Exception ex)
         {
-            output.WriteLine($"Exception: {ex.Message}");
-            output.WriteLine("Log Entries:");
+            // write crash data to crash.txt in the current directory
+            var crashFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash.txt");
+            using var writer = new StreamWriter(crashFile, append: true);
+            writer.WriteLine($"----- Crash at {DateTime.Now} -----");
+            writer.WriteLine("Chat History:");
+            Context.Messages().ToList().ForEach(msg => writer.WriteLine($"{msg.Role}: {msg.Content}"));
             var entries = Log.GetOutput().ToList();
-            output.WriteLine($"Log Entries [{entries.Count}]:");
-            entries.ToList().ForEach(entry => output.WriteLine(entry));
-            output.WriteLine("Chat History:");
-            ui.RenderChatHistory(Context.Messages());
+            writer.WriteLine($"Log Entries [{entries.Count}]:");
+            entries.ToList().ForEach(entry => writer.WriteLine(entry));
+            writer.WriteLine($"Exception: {ex.Message}");
             throw; // unhandled exceptions result in a stack trace in the Program.ui.
         }
         finally

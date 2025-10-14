@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
@@ -47,17 +48,30 @@ public abstract partial class CUiBase : IUi
     /// <summary>
     /// Applies a patch to the mounted UI tree
     /// </summary>
-    public virtual Task PatchAsync(UiPatch patch)
+    public virtual Task PatchAsync(UiPatch patch) => Log.Method(ctx =>
     {
+        ctx.OnlyEmitOnFailure();
         if (patch == null)
+        {
+            ctx.Append(Log.Data.Error, "Patch is null");
             throw new ArgumentNullException(nameof(patch));
+        }
 
         // Apply the patch atomically to the tree (validates operations)
         _uiTree.ApplyPatch(patch);
 
+        // Debug: Log the messages panel child count after applying realtime patches
+        var messagesNode = _uiTree.FindNode("messages");
+        if (messagesNode != null && patch.Ops.Any(op => op is InsertChildOp ico && ico.ParentKey == "messages"))
+        {
+            ctx.Append(Log.Data.Message, $"Messages panel has {messagesNode.Children.Count} children after patch");
+        }
+
         // Delegate to platform-specific patching
-        return PostPatchAsync(patch);
-    }
+        var result = PostPatchAsync(patch);
+        ctx.Succeeded();
+        return result;
+    });
 
     /// <summary>
     /// Moves input focus to the specified node
@@ -102,7 +116,15 @@ public abstract partial class CUiBase : IUi
     public abstract Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt);
     public abstract void RenderTable(Table table, string? title = null);
     public abstract void RenderReport(Report report);
-    public abstract IRealtimeWriter BeginRealtime(string title);
+    public virtual IRealtimeWriter BeginRealtime(string title) => Log.Method(ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        ctx.Append(Log.Data.Name, title);
+        var result = new RealtimeWriterImpl(this, title);
+        ctx.Succeeded();
+        return result;
+    });
+
     public abstract string StartProgress(string title, CancellationTokenSource cts);
     public abstract void UpdateProgress(string id, ProgressSnapshot snapshot);
     public abstract void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown);
@@ -124,4 +146,130 @@ public abstract partial class CUiBase : IUi
     public abstract void WriteLine(string? text = null);
     public abstract void Clear();
     public abstract Task RunAsync(Func<Task> appMain);
+
+    private class RealtimeWriterImpl : IRealtimeWriter
+    {
+        private readonly CUiBase _ui;
+        private readonly string _realtimeKey;
+        private readonly StringBuilder _content;
+        private bool _disposed;
+        private bool _nodeInserted;
+
+        public RealtimeWriterImpl(CUiBase ui, string title)
+        {
+            _ui = ui;
+            _realtimeKey = $"realtime_{Guid.NewGuid():N}";
+            _content = new StringBuilder();
+            _nodeInserted = false;
+
+            // Try to insert an ephemeral message into the messages panel
+            // This makes realtime output scrollable with chat history but not persisted
+            try
+            {
+                if (_ui._uiTree.Root != null && _ui._uiTree.FindNode("messages") != null)
+                {
+                    _content.AppendLine(title);
+                    
+                    // Insert as an ephemeral message in the messages panel
+                    var patch = ChatSurface.InsertRealtimeMessage(_realtimeKey, _content.ToString());
+                    _ui.PatchAsync(patch).GetAwaiter().GetResult();
+                    _nodeInserted = true;
+                }
+                else
+                {
+                    // Chat surface not mounted yet - queue the title for later display
+                    _content.AppendLine(title);
+                }
+            }
+            catch
+            {
+                // If we can't insert into the UI tree, queue content for when surface is ready
+                _content.AppendLine(title);
+            }
+        }
+
+        public void Write(string text)
+        {
+            if (_disposed) throw new ObjectDisposedException(nameof(RealtimeWriterImpl));
+            
+            _content.Append(text);
+            UpdateContent();
+        }
+
+        public void WriteLine(string? text = null)
+        {
+            if (_disposed) throw new ObjectDisposedException(nameof(RealtimeWriterImpl));
+            
+            _content.AppendLine(text);
+            UpdateContent();
+        }
+
+        private void UpdateContent() => Log.Method(ctx =>
+        {
+            ctx.OnlyEmitOnFailure();
+            // Always check if we can insert/update in the UI tree
+            try
+            {
+                // Check if messages panel exists
+                if (_ui._uiTree.Root != null && _ui._uiTree.FindNode("messages") != null)
+                {
+                    // Check if our node exists
+                    var nodeExists = _ui._uiTree.FindNode($"msg-{_realtimeKey}") != null;
+
+                    if (nodeExists)
+                    {
+                        // Update existing node
+                        ctx.Append(Log.Data.Message, $"Updating realtime node {_realtimeKey}");
+                        var patch = ChatSurface.UpsertRealtimeMessage(_realtimeKey, _content.ToString());
+                        _ui.PatchAsync(patch).GetAwaiter().GetResult();
+                        _nodeInserted = true;
+                    }
+                    else
+                    {
+                        // Node doesn't exist (maybe tree was replaced) - insert it
+                        ctx.Append(Log.Data.Message, $"Inserting realtime node {_realtimeKey}");
+                        var patch = ChatSurface.InsertRealtimeMessage(_realtimeKey, _content.ToString());
+                        _ui.PatchAsync(patch).GetAwaiter().GetResult();
+                        _nodeInserted = true;
+                    }
+                }
+                else
+                {
+                    // Messages panel not found - log for debugging
+                    ctx.Append(Log.Data.Message, $"Messages panel not found for realtime key {_realtimeKey}, root={_ui._uiTree.Root != null}, messages={_ui._uiTree.FindNode("messages") != null}");
+                }
+                
+                ctx.Succeeded(_nodeInserted);
+            }
+            catch (Exception ex)
+            {
+                // If we can't update, content remains queued in _content for next attempt
+                _nodeInserted = false;
+                ctx.Failed($"Failed to update realtime content for key {_realtimeKey}: {ex.GetType().Name}: {ex.Message}", ex);
+            }
+        });
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            // Mark the realtime message as finalized instead of removing it
+            // This keeps it visible in the chat but marks it as non-ephemeral
+            // so it won't be persisted to chat history (EphemeralActive messages are filtered out on save)
+            if (_nodeInserted)
+            {
+                try
+                {
+                    // Update state to Finalized so it stays visible but won't be saved
+                    var patch = ChatSurface.UpdateMessageState(_realtimeKey, ChatMessageState.Finalized);
+                    _ui.PatchAsync(patch).GetAwaiter().GetResult();
+                }
+                catch
+                {
+                    // Ignore errors during disposal
+                }
+            }
+        }
+    }
 }

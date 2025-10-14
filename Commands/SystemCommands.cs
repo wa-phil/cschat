@@ -272,14 +272,17 @@ public partial class CommandManager
         subCommands.Add(new Command
         {
             Name = "about", Description = () => "Show information about Console# Chat",
-            Action = () =>
+            Action = () => Log.Method(ctx=>
             {
+                ctx.OnlyEmitOnFailure();
                 using var output = Program.ui.BeginRealtime("About CSChat");
+                ctx.Append(Log.Data.Message, "Realtime output started");
                 output.WriteLine($"CSChat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
                 output.WriteLine("A chat application with RAG capabilities.");
                 output.WriteLine("For more information, visit: https://github.com/wa-phil/cschat");
+                ctx.Succeeded();
                 return Task.FromResult(Command.Result.Success);
-            }
+            })
         });
 
         return new Command { Name = "system", Description = () => "System commands", SubCommands = subCommands };

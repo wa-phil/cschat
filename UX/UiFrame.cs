@@ -13,20 +13,54 @@ public sealed class UiFrameController
     private readonly IUi _ui;
     private readonly IInputRouter _inputRouter;
     private Context _context;
-    private readonly CommandManager _commands;
+    private CommandManager? _commands;
     private readonly Config _config;
 
     // chat input state is owned by ChatSurface
     private ChatSurface.ChatInputState _chatState = new ChatSurface.ChatInputState();
 
-    public UiFrameController(IUi ui, IInputRouter inputRouter, Context context, CommandManager commands, Config config)
+    public UiFrameController(IUi ui, IInputRouter inputRouter, Context context, Config config)
     {
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _inputRouter = inputRouter ?? throw new ArgumentNullException(nameof(inputRouter));
         _context = context ?? throw new ArgumentNullException(nameof(context));
-        _commands = commands ?? throw new ArgumentNullException(nameof(commands));
         _config = config ?? throw new ArgumentNullException(nameof(config));
     }
+
+    /// <summary>
+    /// Attaches the command manager after initialization (for startup scenarios where commands aren't ready yet)
+    /// </summary>
+    public void SetCommandManager(CommandManager commands)
+    {
+        _commands = commands ?? throw new ArgumentNullException(nameof(commands));
+    }
+
+    /// <summary>
+    /// Updates the controller's context reference (needed after Program.Context is modified)
+    /// </summary>
+    public void UpdateContext(Context context)
+    {
+        _context = context ?? throw new ArgumentNullException(nameof(context));
+    }
+
+    /// <summary>
+    /// Refreshes the chat surface with current context messages (e.g., after loading thread history)
+    /// Uses AppendMessage to add messages individually, preserving any realtime nodes
+    /// </summary>
+    public async Task RefreshMessagesAsync() => await Log.MethodAsync(async ctx =>
+    {
+        ctx.OnlyEmitOnFailure();
+        var messages = _context.Messages(InluceSystemMessage: false).ToList();
+        ctx.Append(Log.Data.Count, messages.Count);
+        
+        // Append messages one by one to preserve realtime nodes
+        for (int i = 0; i < messages.Count; i++)
+        {
+            await _ui.PatchAsync(ChatSurface.AppendMessage(messages[i], i));
+        }
+        
+        ctx.Succeeded();
+    });
 
     /// <summary>
     /// Builds and mounts the initial frame (header + chat surface).
@@ -68,24 +102,32 @@ public sealed class UiFrameController
             // Toggle menu on ESC
             if (key.Key == ConsoleKey.Escape)
             {
-                var choices = _commands.SubCommands
-                    .Select(c => $"{c.Name} - {c.Description()}")
-                    .ToList();
-
-                var selected = await MenuOverlay.ShowAsync(_ui, "Commands", choices, 0);
-                if (!string.IsNullOrWhiteSpace(selected))
+                if (_commands != null)
                 {
-                    var commandName = selected.Split('-')[0].Trim();
-                    var command = _commands.SubCommands.FirstOrDefault(c =>
-                        c.Name.Equals(commandName, StringComparison.OrdinalIgnoreCase));
-                    if (command != null)
-                    {
-                        await command.Action.Invoke();
-                    }
-                }
+                    var choices = _commands.SubCommands
+                        .Select(c => $"{c.Name} - {c.Description()}")
+                        .ToList();
 
-                // restore focus to input after overlay closes
-                await _ui.FocusAsync("input");
+                    var selected = await MenuOverlay.ShowAsync(_ui, "Commands", choices, 0);
+                    if (!string.IsNullOrWhiteSpace(selected))
+                    {
+                        var commandName = selected.Split('-')[0].Trim();
+                        var command = _commands.SubCommands.FirstOrDefault(c =>
+                            c.Name.Equals(commandName, StringComparison.OrdinalIgnoreCase));
+                        if (command != null)
+                        {
+                            await command.Action.Invoke();
+                        }
+                    }
+
+                    // restore focus to input after overlay closes
+                    await _ui.FocusAsync("input");
+                }
+                else
+                {
+                    // Commands not yet initialized - restore focus
+                    await _ui.FocusAsync("input");
+                }
                 _chatState.FocusKey = "input";
                 continue;
             }

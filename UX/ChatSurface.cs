@@ -501,6 +501,66 @@ public static class ChatSurface
     }
 
     /// <summary>
+    /// Creates or updates an ephemeral realtime message in the messages panel
+    /// These messages are not persisted to chat history but are scrollable
+    /// </summary>
+    public static UiPatch UpsertRealtimeMessage(string key, string content)
+    {
+        var realtimeMessage = new ChatMessage
+        {
+            Id = key,
+            Role = Roles.System,
+            Content = content,
+            CreatedAt = DateTime.Now,
+            State = ChatMessageState.EphemeralActive
+        };
+
+        // Check if node exists - if so, update; otherwise insert
+        var messageNode = CreateMessageNode(realtimeMessage, -1);
+        
+        // Try to update first, fallback to insert if not found
+        // The caller should handle the potential KeyNotFoundException
+        return new UiPatch(
+            new UpdatePropsOp(
+                $"msg-{key}-content",
+                new Dictionary<UiProperty, object?>
+                {
+                    [UiProperty.Text] = content,
+                    [UiProperty.Wrap] = true
+                }
+            )
+        );
+    }
+
+    /// <summary>
+    /// Inserts a new realtime message node
+    /// </summary>
+    public static UiPatch InsertRealtimeMessage(string key, string content)
+    {
+        var realtimeMessage = new ChatMessage
+        {
+            Id = key,
+            Role = Roles.System,
+            Content = content,
+            CreatedAt = DateTime.Now,
+            State = ChatMessageState.EphemeralActive
+        };
+
+        var messageNode = CreateMessageNode(realtimeMessage, -1);
+        
+        // Insert at the end of messages panel (before composer)
+        return new UiPatch(new InsertChildOp("messages", int.MaxValue, messageNode));
+    }
+
+    /// <summary>
+    /// Removes a realtime message from the UI
+    /// </summary>
+    public static UiPatch RemoveRealtimeMessage(string key)
+    {
+        return new UiPatch(new RemoveOp($"msg-{key}"));
+    }
+
+    /// <summary>
     /// Processes chat input: adds user message, gets AI response, updates UI
     /// </summary>
     public static async Task ProcessChatInputAsync(

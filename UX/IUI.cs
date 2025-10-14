@@ -67,7 +67,9 @@ public interface IUi
     ConsoleColor BackgroundColor { get; set; }
     void ResetColor();
 
+    [Obsolete("Use IRealtimeWriter for streaming output")]
     void Write(string text);
+    [Obsolete("Use IRealtimeWriter for streaming output")]
     void WriteLine(string? text = null);
     void Clear();
 
