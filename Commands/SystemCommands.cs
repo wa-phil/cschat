@@ -227,9 +227,9 @@ public partial class CommandManager
                         Action = async () =>
                         {
                             var form = UiForm.Create("Configure menu items", Program.config);
-                form.AddInt<Config>("Max menu items", c => c.MaxMenuItems, (c,v) => c.MaxMenuItems = v)
-                                    .IntBounds(min: 1, max: 200)
-                                    .WithHelp("Controls how many choices are rendered at once, range is 1 to 200.");
+                            form.AddInt<Config>("Max menu items", c => c.MaxMenuItems, (c,v) => c.MaxMenuItems = v)
+                                .IntBounds(min: 1, max: 200)
+                                .WithHelp("Controls how many choices are rendered at once, range is 1 to 200.");
                             if (await Program.ui.ShowFormAsync(form))
                             {
                                 Program.config = (Config)form.Model!;        // commit the edited clone
@@ -245,9 +245,9 @@ public partial class CommandManager
                         Action = async () =>
                         {
                             var form = UiForm.Create("Configure maximum steps", Program.config);
-                form.AddInt<Config>("Max steps", c => c.MaxSteps, (c,v) => c.MaxSteps = v)
-                                    .IntBounds(min: 1, max: 100)
-                                    .WithHelp("Controls how many steps the planner can take, range is 1 to 100.");
+                            form.AddInt<Config>("Max steps", c => c.MaxSteps, (c,v) => c.MaxSteps = v)
+                                .IntBounds(min: 1, max: 100)
+                                .WithHelp("Controls how many steps the planner can take, range is 1 to 100.");
                             if (await Program.ui.ShowFormAsync(form))
                             {
                                 Program.config = (Config)form.Model!;        // commit the edited clone

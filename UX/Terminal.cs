@@ -1022,6 +1022,14 @@ public class Terminal : CUiBase
                                     var value = c.Props.TryGetValue(UiProperty.Text, out var v) ? v?.ToString() : (c.Props.TryGetValue(UiProperty.Value, out var v2) ? v2?.ToString() : "");
                                     var placeholder = c.Props.TryGetValue(UiProperty.Placeholder, out var p) ? p?.ToString() : "";
                                     return string.IsNullOrEmpty(value) ? (placeholder ?? string.Empty) : value!;
+                                case UiKind.ListView:
+                                    // Compact dropdown summary: current selection + chevron
+                                    var itemsObj = c.Props.TryGetValue(UiProperty.Items, out var io) ? io : null;
+                                    var items = (itemsObj as IEnumerable<object>)?.Select(o => o?.ToString() ?? string.Empty).ToList() ?? new List<string>();
+                                    var selIdx = c.Props.TryGetValue(UiProperty.SelectedIndex, out var si) && si is int idx2 ? idx2 : -1;
+                                    string current = (selIdx >= 0 && selIdx < items.Count) ? items[selIdx] : (items.Count > 0 ? items[0] : "");
+                                    if (string.IsNullOrWhiteSpace(current)) current = c.Props.TryGetValue(UiProperty.Placeholder, out var pl) ? (pl?.ToString() ?? "Select…") : "Select…";
+                                    return $"⭥[ {current} ]";
                                 case UiKind.Label:
                                     return c.Props.TryGetValue(UiProperty.Text, out var lt) ? lt?.ToString() ?? string.Empty : string.Empty;
                                 default:
@@ -1233,43 +1241,69 @@ public class Terminal : CUiBase
                             for (int colIdx = 0; colIdx < childLines.Count; colIdx++)
                             {
                                 var childLine = r < childLines[colIdx].Count ? childLines[colIdx][r] : new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left);
-                                var txt = TrimLeadingSpaces(childLine.Text ?? string.Empty);
-                                bool colFocused = !string.IsNullOrEmpty(focusedKey) && childMaps[colIdx].ContainsKey(focusedKey!);
                                 bool isButtonCell = node.Children[colIdx].Kind == UiKind.Button;
-                                // Suppress caret for buttons; keep for other controls
-                                var marker = isButtonCell ? "  " : (colFocused ? "> " : "  ");
+                                var marker = "  ";
                                 int inner = Math.Max(1, widths[colIdx] - marker.Length);
 
                                 if (isButtonCell)
                                 {
-                                    // Center button text within inner space; color only the bracketed region
-                                    if (txt.Length > inner) txt = txt.Substring(0, Math.Max(0, inner));
-                                    int leftPad = Math.Max(0, (inner - txt.Length) / 2);
-                                    int rightPad = Math.Max(0, inner - leftPad - txt.Length);
+                                    // Center the child's rendered runs within the inner width
+                                    var childRuns = RunsFromLine(childLine);
+                                    TrimLeadingSpaces(childRuns);
+                                    // Compute total length of child content
+                                    int total = 0; foreach (var rr in childRuns) total += rr.Text?.Length ?? 0;
+                                    total = Math.Min(total, Math.Max(1, inner));
+                                    int leftPad = Math.Max(0, (inner - total) / 2);
+                                    int rightPad = Math.Max(0, inner - leftPad - total);
 
                                     // marker spaces (neutral)
                                     if (marker.Length > 0) runs.Add(new TermRun(marker, ConsoleColor.Gray, ConsoleColor.Black));
                                     // left padding (neutral)
                                     if (leftPad > 0) runs.Add(new TermRun(new string(' ', leftPad), ConsoleColor.Gray, ConsoleColor.Black));
-                                    // bracketed button text (use child's colors)
-                                    runs.Add(new TermRun(txt, childLine.Foreground, childLine.Background));
+                                    // child runs, clipped to remaining inner space
+                                    var clippedButton = ClipOrPadRuns(childRuns, total, TextAlign.Left);
+                                    runs.AddRange(clippedButton);
                                     // right padding (neutral)
                                     if (rightPad > 0) runs.Add(new TermRun(new string(' ', rightPad), ConsoleColor.Gray, ConsoleColor.Black));
                                 }
                                 else
                                 {
-                                    if (txt.Length > inner) txt = txt.Substring(0, Math.Max(0, inner - 1)) + "…";
-                                    var padded = txt.PadRight(inner);
-                                    // Use the child's fg/bg so focused controls can invert independently
+                                    // Respect nested runs when present (e.g., inner grid rows for array items)
+                                    var childRuns = RunsFromLine(childLine);
+                                    TrimLeadingSpaces(childRuns);
+                                    var clipped = ClipOrPadRuns(childRuns, inner, childLine.Align);
+
+                                    // marker area (retain child's colors for consistency with previous behavior)
                                     runs.Add(new TermRun(marker, childLine.Foreground, childLine.Background));
-                                    runs.Add(new TermRun(padded, childLine.Foreground, childLine.Background));
+                                    // append clipped/padded child runs
+                                    runs.AddRange(clipped);
                                 }
                             }
                             lines.Add(new TermLine(string.Empty, ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left) { Runs = runs });
                         }
 
                         // Map this row region
-                        keyMap[node.Key] = new TermRegion(startLine, Math.Max(1, maxRows));
+                        int rowLen = Math.Max(1, maxRows);
+                        keyMap[node.Key] = new TermRegion(startLine, rowLen);
+                        // Also map child controls to the same vertical region so focus-based overlay scrolling can anchor to them
+                        for (int i = 0; i < Math.Min(node.Children.Count, widths.Count); i++)
+                        {
+                            keyMap[node.Children[i].Key] = new TermRegion(startLine, rowLen);
+                        }
+                        // Propagate nested child maps into composed coordinates so focused grandchildren (e.g., edit/delete buttons)
+                        // resolve to their actual row lines instead of forcing a top-of-body reset.
+                        for (int i = 0; i < childMaps.Count; i++)
+                        {
+                            foreach (var kv in childMaps[i])
+                            {
+                                int newStart = startLine + Math.Max(0, Math.Min(maxRows, kv.Value.StartLine));
+                                int newLen = Math.Max(0, Math.Min(kv.Value.LineCount, Math.Max(0, startLine + maxRows - newStart)));
+                                if (newLen > 0)
+                                {
+                                    keyMap[kv.Key] = new TermRegion(newStart, newLen);
+                                }
+                            }
+                        }
                     }
                     else
                     {
@@ -1357,8 +1391,26 @@ public class Terminal : CUiBase
                 case UiKind.ListView:
                     if (node.Props.TryGetValue(UiProperty.Items, out var itemsObj) && itemsObj is IEnumerable<object> items)
                     {
+                        // Collapsed dropdown representation
+                        var isDropdown = node.Props.TryGetValue(UiProperty.Role, out var role) && string.Equals(role?.ToString(), "dropdown", StringComparison.OrdinalIgnoreCase);
                         var selectedIndex = node.Props.TryGetValue(UiProperty.SelectedIndex, out var si) && si is int idx ? idx : -1;
                         var itemList = items.ToList();
+
+                        if (isDropdown)
+                        {
+                            string current = (selectedIndex >= 0 && selectedIndex < itemList.Count) ? (itemList[selectedIndex]?.ToString() ?? string.Empty) : string.Empty;
+                            if (string.IsNullOrWhiteSpace(current))
+                                current = node.Props.TryGetValue(UiProperty.Placeholder, out var phv) ? (phv?.ToString() ?? "Select…") : "Select…";
+
+                            var fg = isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.Gray);
+                            var bg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
+
+                            var text = $"⭥[ {current} ]";
+                            var outLine = $"{indentStr}{text}";
+                            outLine = EnsureWidth(outLine, width);
+                            lines.Add(new TermLine(outLine, fg, bg, TextAlign.Left));
+                            break;
+                        }
 
                         // Fixed viewport height for list view so surrounding content doesn't shift
                         int maxVisible = TryGetIntProp(node.Props, UiProperty.Height) ?? Program.config.MaxMenuItems;
@@ -1411,7 +1463,7 @@ public class Terminal : CUiBase
                             var bg = isSelected ? ConsoleColor.White : (isFocused ? ConsoleColor.DarkGray : ResolveBg(node, ConsoleColor.Black));
 
                             // Compose content within available width, placing scrollbar at right edge when shown
-                            var prefix = $"{indentStr}  {(isSelected ? ">" : " ")} ";
+                            var prefix = $"{indentStr}    ";
                             int availForItem = Math.Max(1, contentRight - prefix.Length);
                             var itemText = itemList[i]?.ToString() ?? string.Empty;
                             // Fit item text
@@ -1487,33 +1539,150 @@ public class Terminal : CUiBase
             // Determine overlay box width from props (supports "80%" or absolute int), with sensible bounds
             int boxWidth = Math.Clamp(ParseWidth(overlay.Props, screenWidth), Math.Min(20, Math.Max(1, screenWidth - 2)), Math.Max(10, screenWidth - 2));
             int xStart = Math.Max(0, (screenWidth - boxWidth) / 2);
+            int contentWidth = Math.Max(1, boxWidth - 2); // borders on left/right
 
             // Render overlay content into temporary lines (no outer indentation)
             var innerLines = new List<TermLine>();
             var tmpMap = new Dictionary<string, TermRegion>();
             foreach (var child in overlay.Children)
             {
-                LayoutNode(child, 0, screenWidth, screenHeight, focusedKey, innerLines, tmpMap);
+                // Layout inner content to the overlay's content width so columns (e.g., edit/delete/add) fit inside the box
+                LayoutNode(child, 0, contentWidth, screenHeight, focusedKey, innerLines, tmpMap);
             }
 
-            // Build box lines as colored runs (top border, content, bottom border)
-            int contentWidth = Math.Max(1, boxWidth - 2); // borders on left/right
+            // Build box lines as colored runs with vertical scrolling support
+            // We support a scrollable "body" region inside the overlay; header/footer lines are pinned.
+            // contentWidth already computed above
             var boxRunLines = new List<List<TermRun>>();
-
             var borderFg = ConsoleColor.Gray;
             var borderBg = ConsoleColor.Black;
-            boxRunLines.Add(new List<TermRun> { new TermRun("┌" + new string('─', contentWidth) + "┐", borderFg, borderBg) });
 
             if (innerLines.Count == 0)
                 innerLines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
 
-            foreach (var il in innerLines)
+            // Determine visible window budget for inner content inside the box (excludes top/bottom borders)
+            int maxVisibleContent = Math.Max(1, screenHeight - 4); // leave at least 1 line margin overall
+            int totalContent = innerLines.Count;
+
+            // Identify scrollable body region among overlay children, preferring a child with AutoScroll flag or Min offset
+            UiNode? bodyChild = null;
+            foreach (var ch in overlay.Children)
             {
-                // Flatten line into runs and trim leading spaces
+                if (ch.Props.ContainsKey(UiProperty.AutoScroll) || ch.Props.ContainsKey(UiProperty.Min) ||
+                    (ch.Props.TryGetValue(UiProperty.Role, out var rv) && string.Equals(rv?.ToString(), "body", StringComparison.OrdinalIgnoreCase)))
+                {
+                    bodyChild = ch;
+                    break;
+                }
+            }
+
+            // Resolve body region bounds (within innerLines)
+            int bodyStart = 0;
+            int bodyLen = totalContent;
+            if (bodyChild != null && tmpMap.TryGetValue(bodyChild.Key, out var bodyRegion))
+            {
+                bodyStart = Math.Max(0, Math.Min(totalContent, bodyRegion.StartLine));
+                bodyLen = Math.Max(0, Math.Min(totalContent - bodyStart, bodyRegion.LineCount));
+            }
+
+            // Header/footer (non-scrollable) sizes
+            int headerCount = Math.Max(0, Math.Min(bodyStart, totalContent));
+            int footerCount = Math.Max(0, Math.Min(totalContent - (bodyStart + bodyLen), totalContent));
+
+            // Compute body viewport height from remaining space after header+footer
+            int bodyVisible = Math.Max(1, Math.Min(bodyLen, maxVisibleContent - headerCount - footerCount));
+            // If header+footer consume almost all the space, clamp so we still show something
+            if (headerCount + footerCount >= maxVisibleContent)
+            {
+                bodyVisible = 1;
+            }
+
+            // Compute focus target line and relative index within body when applicable
+            int targetLine = -1;
+            int targetRel = -1;
+            if (!string.IsNullOrEmpty(focusedKey))
+            {
+                if (tmpMap.TryGetValue(focusedKey, out var region))
+                    targetLine = Math.Max(0, Math.Min(totalContent - 1, region.StartLine));
+                else if (tmpMap.TryGetValue(focusedKey + "-row", out var rowRegion))
+                    targetLine = Math.Max(0, Math.Min(totalContent - 1, rowRegion.StartLine));
+
+                if (targetLine >= bodyStart && targetLine < bodyStart + bodyLen)
+                    targetRel = targetLine - bodyStart;
+            }
+
+            // Determine requested scroll offset from body child (AutoScroll=false + Min), if provided
+            int? requestedOffset = null;
+            if (bodyChild != null)
+            {
+                bool hasAuto = bodyChild.Props.TryGetValue(UiProperty.AutoScroll, out var asv) && asv is bool;
+                int? minProp = TryGetIntProp(bodyChild.Props, UiProperty.Min);
+                // If AutoScroll is explicitly false or Min is present, treat it as body-driven scroll
+                if ((bodyChild.Props.TryGetValue(UiProperty.AutoScroll, out var asv2) && asv2 is bool ab && !ab) || minProp.HasValue)
+                {
+                    requestedOffset = Math.Max(0, minProp ?? 0);
+                }
+            }
+
+            // Compute effective offset inside body region
+            int maxBodyOffset = Math.Max(0, bodyLen - bodyVisible);
+            int offset = 0;
+            if (maxBodyOffset > 0)
+            {
+                if (requestedOffset.HasValue)
+                {
+                    offset = Math.Clamp(requestedOffset.Value, 0, maxBodyOffset);
+                }
+
+                // If we have a focused row within the body and it's not visible with the current offset, center it
+                if (targetRel >= 0)
+                {
+                    int visStart = offset;
+                    int visEnd = offset + bodyVisible - 1;
+                    if (targetRel < visStart || targetRel > visEnd)
+                    {
+                        int centered = targetRel - (bodyVisible / 2);
+                        offset = Math.Clamp(centered, 0, maxBodyOffset);
+                    }
+                }
+                else if (!requestedOffset.HasValue)
+                {
+                    // No explicit request and no target inside body -> default to top
+                    offset = 0;
+                }
+            }
+
+            // Scrollbar metrics based on body region
+            bool overflow = bodyLen > bodyVisible;
+            int trackH = bodyVisible;
+            int thumbH = 1;
+            int thumbTop = 0;
+            if (overflow)
+            {
+                thumbH = Math.Max(1, (int)Math.Round(trackH * (bodyVisible / (double)Math.Max(1, bodyLen))));
+                thumbH = Math.Min(thumbH, trackH);
+                int maxThumbTop = Math.Max(0, trackH - thumbH);
+                int scrollRange = Math.Max(1, bodyLen - bodyVisible);
+                thumbTop = (int)Math.Round(offset / (double)scrollRange * maxThumbTop);
+                thumbTop = Math.Clamp(thumbTop, 0, maxThumbTop);
+            }
+
+            // Compute how many header/footer lines can be shown within the content budget
+            int headerVisible = Math.Min(headerCount, Math.Max(0, maxVisibleContent - bodyVisible));
+            int footerVisible = Math.Min(footerCount, Math.Max(0, maxVisibleContent - bodyVisible - headerVisible));
+            int visibleContent = Math.Min(maxVisibleContent, headerVisible + bodyVisible + footerVisible);
+
+            // Top border
+            boxRunLines.Add(new List<TermRun> { new TermRun("┌" + new string('─', contentWidth) + "┐", borderFg, borderBg) });
+
+            // Header rows (pinned)
+            for (int i = 0; i < headerVisible; i++)
+            {
+                var il = innerLines[i];
                 var ilRuns = RunsFromLine(il);
                 TrimLeadingSpaces(ilRuns);
                 var clipped = ClipOrPadRuns(ilRuns, contentWidth, il.Align);
-                // Surround with borders
+
                 var rowRuns = new List<TermRun>();
                 rowRuns.Add(new TermRun("│", borderFg, borderBg));
                 rowRuns.AddRange(clipped);
@@ -1521,6 +1690,46 @@ public class Terminal : CUiBase
                 boxRunLines.Add(rowRuns);
             }
 
+            // Body rows (scrollable)
+            for (int j = 0; j < bodyVisible; j++)
+            {
+                int contentIndex = Math.Min(totalContent - 1, bodyStart + Math.Min(bodyLen - 1, offset + j));
+                var il = innerLines[contentIndex];
+                var ilRuns = RunsFromLine(il);
+                TrimLeadingSpaces(ilRuns);
+                var clipped = ClipOrPadRuns(ilRuns, contentWidth, il.Align);
+
+                var rowRuns = new List<TermRun>();
+                rowRuns.Add(new TermRun("│", borderFg, borderBg));
+                rowRuns.AddRange(clipped);
+                // Right border doubles as scrollbar track only for body rows
+                char rightGlyph = '│';
+                if (overflow)
+                {
+                    rightGlyph = (j >= thumbTop && j < thumbTop + thumbH) ? '█' : '│';
+                }
+                rowRuns.Add(new TermRun(rightGlyph.ToString(), borderFg, borderBg));
+                boxRunLines.Add(rowRuns);
+            }
+
+            // Footer rows (pinned)
+            for (int k = 0; k < footerVisible; k++)
+            {
+                int idx = bodyStart + bodyLen + k;
+                if (idx < 0 || idx >= totalContent) break;
+                var il = innerLines[idx];
+                var ilRuns = RunsFromLine(il);
+                TrimLeadingSpaces(ilRuns);
+                var clipped = ClipOrPadRuns(ilRuns, contentWidth, il.Align);
+
+                var rowRuns = new List<TermRun>();
+                rowRuns.Add(new TermRun("│", borderFg, borderBg));
+                rowRuns.AddRange(clipped);
+                rowRuns.Add(new TermRun("│", borderFg, borderBg));
+                boxRunLines.Add(rowRuns);
+            }
+
+            // Bottom border
             boxRunLines.Add(new List<TermRun> { new TermRun("└" + new string('─', contentWidth) + "┘", borderFg, borderBg) });
 
             // Compute vertical placement: center in current visible area approximation

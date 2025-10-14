@@ -505,9 +505,16 @@ public sealed class UiNodeTree
         if (!_nodeMap.TryGetValue(key, out var node))
             throw new KeyNotFoundException($"Node with key '{key}' not found");
 
-        ValidateProps(node.Kind, props);
+        // Merge new props into existing rather than replace, so persistent props (e.g., Items, Role) are preserved
+        var merged = new Dictionary<UiProperty, object?>(node.Props);
+        foreach (var kv in props)
+        {
+            merged[kv.Key] = kv.Value;
+        }
 
-        var updatedNode = node with { Props = props };
+        ValidateProps(node.Kind, merged);
+
+        var updatedNode = node with { Props = merged };
         
         if (_root == null)
             throw new InvalidOperationException("No root node set");
