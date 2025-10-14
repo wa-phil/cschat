@@ -457,5 +457,100 @@ namespace CSChat.Tests
             Assert.Contains("child2", ex.Message);
             Assert.Contains("Available keys", ex.Message);
         }
+
+        [Fact]
+        public void UiNode_Progress_CreatesWithProgressProperties()
+        {
+            var progressItems = new List<(string name, double percent, ProgressState state, string? note, (int done, int total) steps)>
+            {
+                ("Item1", 50.0, ProgressState.Running, "Processing", (5, 10)),
+                ("Item2", 100.0, ProgressState.Completed, "Done", (10, 10))
+            };
+
+            var progressNode = new UiNode(
+                "progress-1",
+                UiKind.Progress,
+                new Dictionary<UiProperty, object?>
+                {
+                    [UiProperty.Title] = "Test Progress",
+                    [UiProperty.ProgressItems] = progressItems,
+                    [UiProperty.ProgressStats] = (1, 0, 1, 0, 0), // running, queued, completed, failed, canceled
+                    [UiProperty.EtaHint] = "5s",
+                    [UiProperty.IsActive] = true,
+                    [UiProperty.Cancellable] = true
+                },
+                Array.Empty<UiNode>()
+            );
+
+            Assert.Equal("progress-1", progressNode.Key);
+            Assert.Equal(UiKind.Progress, progressNode.Kind);
+            Assert.Equal("Test Progress", progressNode.Props[UiProperty.Title]);
+            Assert.Equal(progressItems, progressNode.Props[UiProperty.ProgressItems]);
+            Assert.True((bool?)progressNode.Props[UiProperty.IsActive]);
+            Assert.True((bool?)progressNode.Props[UiProperty.Cancellable]);
+        }
+
+        [Fact]
+        public void UiPatch_UpdateProgress_UpdatesProgressProperties()
+        {
+            var tree = new UiNodeTree();
+            
+            // Create a root with a messages panel
+            var messagesPanel = new UiNode(
+                "messages",
+                UiKind.Column,
+                new Dictionary<UiProperty, object?>(),
+                Array.Empty<UiNode>()
+            );
+            
+            var root = new UiNode(
+                "root",
+                UiKind.Column,
+                new Dictionary<UiProperty, object?>(),
+                new[] { messagesPanel }
+            );
+            
+            tree.SetRoot(root);
+
+            // Insert a progress node
+            var progressNode = new UiNode(
+                "progress-1",
+                UiKind.Progress,
+                new Dictionary<UiProperty, object?>
+                {
+                    [UiProperty.Title] = "Initial",
+                    [UiProperty.ProgressItems] = new List<(string, double, ProgressState, string?, (int, int))>(),
+                    [UiProperty.IsActive] = true
+                },
+                Array.Empty<UiNode>()
+            );
+
+            tree.ApplyInsertChild("messages", 0, progressNode);
+
+            // Update progress properties
+            var newItems = new List<(string name, double percent, ProgressState state, string? note, (int done, int total) steps)>
+            {
+                ("Item1", 75.0, ProgressState.Running, "Almost done", (75, 100))
+            };
+
+            var patch = new UiPatch(
+                new UpdatePropsOp(
+                    "progress-1",
+                    new Dictionary<UiProperty, object?>
+                    {
+                        [UiProperty.ProgressItems] = newItems,
+                        [UiProperty.ProgressStats] = (1, 0, 0, 0, 0),
+                        [UiProperty.EtaHint] = "2s"
+                    }
+                )
+            );
+
+            tree.ApplyPatch(patch);
+
+            var updatedNode = tree.FindNode("progress-1");
+            Assert.NotNull(updatedNode);
+            Assert.Equal(newItems, updatedNode.Props[UiProperty.ProgressItems]);
+            Assert.Equal("2s", updatedNode.Props[UiProperty.EtaHint]);
+        }
     }
 }

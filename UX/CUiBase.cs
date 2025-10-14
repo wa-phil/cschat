@@ -125,9 +125,132 @@ public abstract partial class CUiBase : IUi
         return result;
     });
 
-    public abstract string StartProgress(string title, CancellationTokenSource cts);
-    public abstract void UpdateProgress(string id, ProgressSnapshot snapshot);
-    public abstract void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown);
+    // ========== Progress Implementation (UiNode-based) ==========
+    protected readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _progressMap = new();
+
+    public virtual string StartProgress(string title, CancellationTokenSource cts)
+    {
+        var id = Guid.NewGuid().ToString("n");
+        _progressMap[id] = cts;
+
+        try
+        {
+            // Check if messages panel exists
+            if (_uiTree.Root != null && _uiTree.FindNode("messages") != null)
+            {
+                // Insert ephemeral progress node
+                var progressNode = CreateProgressNode(id, title, new ProgressSnapshot(
+                    Id: id,
+                    Title: title,
+                    Description: "",
+                    Items: Array.Empty<(string, double, ProgressState, string?, (int, int))>(),
+                    Stats: (0, 0, 0, 0, 0),
+                    EtaHint: null,
+                    IsActive: true
+                ));
+
+                var patch = new UiPatch(new InsertChildOp("messages", int.MaxValue, progressNode));
+                PatchAsync(patch).GetAwaiter().GetResult();
+            }
+        }
+        catch
+        {
+            // If we can't insert into UI tree, progress will be invisible until messages panel is ready
+        }
+
+        return id;
+    }
+
+    public virtual void UpdateProgress(string id, ProgressSnapshot snapshot)
+    {
+        try
+        {
+            // Check for ESC key to cancel (delegate to platform-specific input router)
+            var router = GetInputRouter();
+            var key = router?.TryReadKey();
+            if (key.HasValue && key.Value.Key == ConsoleKey.Escape)
+            {
+                if (_progressMap.TryGetValue(id, out var cts))
+                {
+                    try { cts.Cancel(); } catch { }
+                }
+            }
+
+            // Check if our progress node exists
+            var nodeKey = $"progress-{id}";
+            if (_uiTree.Root != null && _uiTree.FindNode(nodeKey) != null)
+            {
+                // Update existing progress node
+                var patch = new UiPatch(
+                    new UpdatePropsOp(
+                        nodeKey,
+                        new Dictionary<UiProperty, object?>
+                        {
+                            [UiProperty.ProgressItems] = snapshot.Items,
+                            [UiProperty.ProgressStats] = snapshot.Stats,
+                            [UiProperty.EtaHint] = snapshot.EtaHint,
+                            [UiProperty.IsActive] = snapshot.IsActive
+                        }
+                    )
+                );
+                PatchAsync(patch).GetAwaiter().GetResult();
+            }
+            else if (_uiTree.Root != null && _uiTree.FindNode("messages") != null)
+            {
+                // Node doesn't exist yet (maybe tree was replaced) - insert it
+                var progressNode = CreateProgressNode(id, snapshot.Title, snapshot);
+                var patch = new UiPatch(new InsertChildOp("messages", int.MaxValue, progressNode));
+                PatchAsync(patch).GetAwaiter().GetResult();
+            }
+        }
+        catch
+        {
+            // Best effort - ignore errors during progress updates
+        }
+    }
+
+    public virtual void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown)
+    {
+        _progressMap.TryRemove(id, out _);
+
+        try
+        {
+            var nodeKey = $"progress-{id}";
+            
+            // Remove the progress node
+            if (_uiTree.Root != null && _uiTree.FindNode(nodeKey) != null)
+            {
+                var patch = new UiPatch(new RemoveOp(nodeKey));
+                PatchAsync(patch).GetAwaiter().GetResult();
+            }
+
+            // Display the artifact as a Tool message (same as old behavior)
+            RenderChatMessage(new ChatMessage { Role = Roles.Tool, Content = artifactMarkdown });
+        }
+        catch
+        {
+            // Best effort - ignore errors during cleanup
+        }
+    }
+
+    private UiNode CreateProgressNode(string id, string title, ProgressSnapshot snapshot)
+    {
+        return new UiNode(
+            $"progress-{id}",
+            UiKind.Progress,
+            new Dictionary<UiProperty, object?>
+            {
+                [UiProperty.Title] = title,
+                [UiProperty.ProgressItems] = snapshot.Items,
+                [UiProperty.ProgressStats] = snapshot.Stats,
+                [UiProperty.EtaHint] = snapshot.EtaHint,
+                [UiProperty.IsActive] = snapshot.IsActive,
+                [UiProperty.Cancellable] = true,
+                [UiProperty.State] = ChatMessageState.EphemeralActive.ToString() // Mark as ephemeral
+            },
+            Array.Empty<UiNode>()
+        );
+    }
     public abstract IInputRouter GetInputRouter();
     public abstract string? RenderMenu(string header, List<string> choices, int selected = 0);
     public abstract ConsoleKeyInfo ReadKey(bool intercept);
@@ -238,7 +361,7 @@ public abstract partial class CUiBase : IUi
                     // Messages panel not found - log for debugging
                     ctx.Append(Log.Data.Message, $"Messages panel not found for realtime key {_realtimeKey}, root={_ui._uiTree.Root != null}, messages={_ui._uiTree.FindNode("messages") != null}");
                 }
-                
+
                 ctx.Succeeded(_nodeInserted);
             }
             catch (Exception ex)

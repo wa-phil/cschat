@@ -937,6 +937,158 @@
 				element.innerHTML = props.html || '';
 				break;
 			
+			case 'Progress':
+				element = document.createElement('div');
+				element.className = 'bubble tool';
+				element.style.background = '#eee';
+				element.style.borderColor = '#eee';
+				element.style.padding = '10px 12px';
+				element.style.borderRadius = '10px';
+				element.style.maxWidth = '100%';
+				element.style.alignSelf = 'stretch';
+				
+				// Progress title
+				const progressTitle = document.createElement('div');
+				progressTitle.style.fontWeight = '600';
+				progressTitle.style.marginBottom = '8px';
+				progressTitle.style.color = '#000';
+				progressTitle.textContent = props.Title || 'Progress';
+				element.appendChild(progressTitle);
+				
+				// Progress items
+				const progressItems = props.ProgressItems || [];
+				const stats = props.ProgressStats || { Item1: 0, Item2: 0, Item3: 0, Item4: 0, Item5: 0 };
+				const etaHint = props.EtaHint || '';
+				const isActive = props.IsActive === true;
+				
+				// Filter to show only active work (running, queued, failed)
+				const activeItems = progressItems.filter(item => {
+					const state = item.Item3 || item.state;
+					return state !== 'Completed' && state !== 'Canceled';
+				});
+				
+				// Sort by priority (Running > Queued > Failed)
+				const rank = (state) => {
+					switch(state) {
+						case 'Running': return 3;
+						case 'Queued': return 2;
+						case 'Failed': return 1;
+						default: return 0;
+					}
+				};
+				
+				activeItems.sort((a, b) => {
+					const stateA = a.Item3 || a.state;
+					const stateB = b.Item3 || b.state;
+					const rankDiff = rank(stateB) - rank(stateA);
+					if (rankDiff !== 0) return rankDiff;
+					const pctA = a.Item2 || a.percent || 0;
+					const pctB = b.Item2 || b.percent || 0;
+					return pctA - pctB;
+				});
+				
+				// Render each progress item
+				activeItems.slice(0, 10).forEach(item => {
+					const name = item.Item1 || item.name || '';
+					const percent = item.Item2 || item.percent || 0;
+					const state = item.Item3 || item.state || 'Queued';
+					const note = item.Item4 || item.note || '';
+					const steps = item.Item5 || item.steps || { Item1: 0, Item2: 0 };
+					const done = steps.Item1 || steps.done || 0;
+					const total = steps.Item2 || steps.total || 0;
+					
+					const progressRow = document.createElement('div');
+					progressRow.style.marginBottom = '6px';
+					progressRow.style.position = 'relative';
+					progressRow.style.background = '#f5f5f5';
+					progressRow.style.borderRadius = '4px';
+					progressRow.style.overflow = 'hidden';
+					
+					// Progress bar background
+					const progressBar = document.createElement('div');
+					progressBar.style.position = 'absolute';
+					progressBar.style.left = '0';
+					progressBar.style.top = '0';
+					progressBar.style.bottom = '0';
+					progressBar.style.width = Math.min(100, Math.max(0, percent)) + '%';
+					progressBar.style.transition = 'width 0.3s ease';
+					
+					switch(state) {
+						case 'Running':
+							progressBar.style.background = '#4a9eff';
+							break;
+						case 'Failed':
+							progressBar.style.background = '#e74c3c';
+							break;
+						case 'Completed':
+							progressBar.style.background = '#2ecc71';
+							break;
+						default:
+							progressBar.style.background = '#95a5a6';
+					}
+					
+					progressRow.appendChild(progressBar);
+					
+					// Progress text
+					const progressText = document.createElement('div');
+					progressText.style.position = 'relative';
+					progressText.style.padding = '6px 8px';
+					progressText.style.display = 'flex';
+					progressText.style.justifyContent = 'space-between';
+					progressText.style.color = '#000';
+					progressText.style.fontSize = '0.9em';
+					
+					const glyph = (() => {
+						switch(state) {
+							case 'Running': return '▶';
+							case 'Completed': return '✓';
+							case 'Failed': return '✖';
+							case 'Canceled': return '■';
+							default: return '•';
+						}
+					})();
+					
+					const leftText = document.createElement('span');
+					leftText.style.fontWeight = '500';
+					leftText.textContent = `${glyph} ${name}`;
+					
+					const rightText = document.createElement('span');
+					rightText.style.fontFamily = 'monospace';
+					rightText.textContent = total > 0 
+						? `${percent.toFixed(1)}% (${done}/${total})`
+						: `${percent.toFixed(1)}%`;
+					
+					progressText.appendChild(leftText);
+					progressText.appendChild(rightText);
+					progressRow.appendChild(progressText);
+					
+					element.appendChild(progressRow);
+				});
+				
+				// Stats footer
+				const statsDiv = document.createElement('div');
+				statsDiv.style.marginTop = '8px';
+				statsDiv.style.padding = '6px 8px';
+				statsDiv.style.background = '#f9f9f9';
+				statsDiv.style.borderRadius = '4px';
+				statsDiv.style.fontSize = '0.85em';
+				statsDiv.style.color = '#666';
+				
+				const running = stats.Item1 || stats.running || 0;
+				const queued = stats.Item2 || stats.queued || 0;
+				const completed = stats.Item3 || stats.completed || 0;
+				const failed = stats.Item4 || stats.failed || 0;
+				const canceled = stats.Item5 || stats.canceled || 0;
+				
+				statsDiv.innerHTML = `
+					<div>Running: ${running} • Queued: ${queued} • Completed: ${completed} • Failed: ${failed} • Canceled: ${canceled}</div>
+					${etaHint ? `<div>ETA: ${etaHint}</div>` : ''}
+					${isActive ? '<div style="margin-top:4px;color:#4a9eff;">Press ESC to cancel</div>' : ''}
+				`;
+				
+				element.appendChild(statsDiv);
+				break;
+			
 			default:
 				element = document.createElement('div');
 				element.textContent = `[Unknown kind: ${kind}]`;

@@ -165,35 +165,8 @@ public sealed class PhotinoUi : CUiBase
 		return tcs.Task;
 	}
 
-	private readonly ConcurrentDictionary<string, CancellationTokenSource> _progressMap = new();
-
-	public override string StartProgress(string title, CancellationTokenSource cts)
-	{
-		var id = Guid.NewGuid().ToString("n");
-		Post(new { type = "StartProgress", id, title, cancellable = true });
-		_progressMap[id] = cts;
-
-		return id;
-	}
-
-	public override void UpdateProgress(string id, ProgressSnapshot snapshot)
-	{
-		Post(new
-		{
-			type = "UpdateProgress",
-			id,
-			items = snapshot.Items.Select(x => new { name = x.name, percent = x.percent, state = x.state.ToString(), note = x.note, done = x.steps.done, total = x.steps.total }).ToList(),
-			stats = new { snapshot.Stats.running, snapshot.Stats.queued, snapshot.Stats.completed, snapshot.Stats.failed, snapshot.Stats.canceled },
-			eta = snapshot.EtaHint,
-			active = snapshot.IsActive
-		});
-	}
-
-	public override void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown)
-	{
-		Post(new { type = "CompleteProgress", id, artifact = artifactMarkdown });
-		_progressMap.TryRemove(id, out _);
-	}
+	// Progress is now implemented in CUiBase using UiNodes
+	// Photino renders Progress UiKind in SerializeNode method
 
 	private void HandleInbound(string raw) => Log.Method(ctx =>
 	{

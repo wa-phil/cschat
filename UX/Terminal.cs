@@ -174,124 +174,8 @@ public class Terminal : CUiBase
         return new List<string> { path };
     }
 
-    private sealed class TermProg
-    {
-        public string Title = "";
-        public int RegionTop = 0;
-        public int RegionHeight = 3 + Program.config.MaxMenuItems + 2;
-        public int LastWidth;
-        public CancellationTokenSource Cts = new();
-    }
-
-    private readonly Dictionary<string, TermProg> _progress = new();
-
-    public override string StartProgress(string title, CancellationTokenSource cts)
-    {
-        var id = Guid.NewGuid().ToString("n");
-        var tp = new TermProg { Title = title, Cts = cts, LastWidth = Math.Max(10, Width - 1) };
-        _progress[id] = tp;
-
-        // claim the top region & paint header once
-        SetCursorPosition(0, tp.RegionTop);
-        Progress.DrawBoxedHeader(title);
-        // leave rows + footer area blank
-        for (int i = 0; i < Program.config.MaxMenuItems + 2; i++) WriteLine(new string(' ', tp.LastWidth));
-        SetCursorPosition(0, tp.RegionTop);
-        return id;
-    }
-
-    public override void UpdateProgress(string id, ProgressSnapshot s)
-    {
-        if (!_progress.TryGetValue(id, out var tp)) return;
-
-        // ESC cancels
-        while (KeyAvailable)
-        {
-            var key = ReadKey(intercept: true);
-            if (key.Key == ConsoleKey.Escape) { try { tp.Cts.Cancel(); } catch { } }
-        }
-
-        // width changes -> clear region
-        int width = Math.Max(10, Width - 1);
-        if (width != tp.LastWidth)
-        {
-            SetCursorPosition(0, tp.RegionTop);
-            for (int i = 0; i < tp.RegionHeight; i++)
-            {
-                Write(new string(' ', width));
-                if (i < tp.RegionHeight - 1) WriteLine();
-            }
-            tp.LastWidth = width;
-        }
-
-        // paint at region top
-        SetCursorPosition(0, tp.RegionTop);
-        Progress.DrawBoxedHeader(tp.Title);
-
-        // Show only *active* work. Keep failures visible; hide completed/canceled.
-        var topN = Program.config.MaxMenuItems;
-        static int Rank(ProgressState s) => s switch
-        {
-            ProgressState.Running => 3,
-            ProgressState.Queued => 2,
-            ProgressState.Failed => 1,   // keep failed items visible
-            ProgressState.Canceled => 0,   // hide from main list (shown in footer stats)
-            ProgressState.Completed => -1,  // hide from main list
-            _ => 0
-        };
-
-        var rows = s.Items
-            .Where(x => x.state != ProgressState.Completed && x.state != ProgressState.Canceled)
-            .OrderByDescending(x => Rank(x.state)) // Running > Queued > Failed
-            .ThenBy(x => x.percent)                // least progress first (more informative)
-            .ThenBy(x => x.name)
-            .Take(topN)
-            .ToList();
-
-        foreach (var r in rows)
-        {
-            var apState = r.state switch
-            {
-                ProgressState.Running => Progress.ProgressState.Running,
-                ProgressState.Queued => Progress.ProgressState.Queued,
-                ProgressState.Completed => Progress.ProgressState.Completed,
-                ProgressState.Failed => Progress.ProgressState.Failed,
-                ProgressState.Canceled => Progress.ProgressState.Canceled,
-                _ => Progress.ProgressState.Queued
-            };
-            Progress.DrawProgressRow(r.name, r.percent, apState, r.note, r.steps.done, r.steps.total);
-        }
-
-        // clear leftover rows
-        for (int i = rows.Count; i < topN; i++)
-        {
-            WriteLine(new string(' ', width));
-        }
-
-        var hint = "Press ESC to cancel";
-        Progress.DrawFooterStats(s.Stats.running, s.Stats.queued, s.Stats.completed, s.Stats.failed, s.Stats.canceled, (s.EtaHint is { } eta ? $"ETA: {eta} • " : "") + hint);
-
-        // park cursor at top so we never scroll the buffer
-        SetCursorPosition(0, tp.RegionTop);
-    }
-
-    public override void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown)
-    {
-        if (_progress.Remove(id, out var tp))
-        {
-            // clear region and print the artifact as a Tool message
-            SetCursorPosition(0, tp.RegionTop);
-            for (int i = 0; i < tp.RegionHeight; i++)
-            {
-                Write(new string(' ', tp.LastWidth));
-                if (i < tp.RegionHeight - 1) WriteLine();
-            }
-            SetCursorPosition(0, tp.RegionTop);
-        }
-
-        // Display the same summary that was persisted to Context by Progress.cs
-        RenderChatMessage(new ChatMessage { Role = Roles.Tool, Content = artifactMarkdown });
-    }
+    // Progress is now implemented in CUiBase using UiNodes
+    // Terminal renders Progress UiKind in RenderNode method
 
     private async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
     {
@@ -726,6 +610,65 @@ public class Terminal : CUiBase
                     {
                         RenderNode(child, indent + 1);
                     }
+                }
+                break;
+
+            case UiKind.Progress:
+                // Render progress using the existing Progress helper class
+                var progressTitle = node.Props.TryGetValue(UiProperty.Title, out var pt) ? pt?.ToString() ?? "Progress" : "Progress";
+                var progressItems = node.Props.TryGetValue(UiProperty.ProgressItems, out var pi) 
+                    ? pi as IReadOnlyList<(string name, double percent, ProgressState state, string? note, (int done, int total) steps)>
+                    : null;
+                var progressStats = node.Props.TryGetValue(UiProperty.ProgressStats, out var ps)
+                    ? ps as ValueTuple<int, int, int, int, int>?
+                    : null;
+                var etaHint = node.Props.TryGetValue(UiProperty.EtaHint, out var eta) ? eta?.ToString() : null;
+                var isActive = node.Props.TryGetValue(UiProperty.IsActive, out var ia) && ia is bool active && active;
+
+                if (progressItems != null && progressStats.HasValue)
+                {
+                    // Render header
+                    Progress.DrawBoxedHeader(progressTitle);
+
+                    // Show only active work (running, queued, failed)
+                    var topN = Program.config.MaxMenuItems;
+                    static int Rank(ProgressState s) => s switch
+                    {
+                        ProgressState.Running => 3,
+                        ProgressState.Queued => 2,
+                        ProgressState.Failed => 1,
+                        ProgressState.Canceled => 0,
+                        ProgressState.Completed => -1,
+                        _ => 0
+                    };
+
+                    var rows = progressItems
+                        .Where(x => x.state != ProgressState.Completed && x.state != ProgressState.Canceled)
+                        .OrderByDescending(x => Rank(x.state))
+                        .ThenBy(x => x.percent)
+                        .ThenBy(x => x.name)
+                        .Take(topN)
+                        .ToList();
+
+                    foreach (var r in rows)
+                    {
+                        var apState = r.state switch
+                        {
+                            ProgressState.Running => Progress.ProgressState.Running,
+                            ProgressState.Queued => Progress.ProgressState.Queued,
+                            ProgressState.Completed => Progress.ProgressState.Completed,
+                            ProgressState.Failed => Progress.ProgressState.Failed,
+                            ProgressState.Canceled => Progress.ProgressState.Canceled,
+                            _ => Progress.ProgressState.Queued
+                        };
+                        Progress.DrawProgressRow(r.name, r.percent, apState, r.note, r.steps.done, r.steps.total);
+                    }
+
+                    // Footer with stats
+                    var (running, queued, completed, failed, canceled) = progressStats.Value;
+                    var hint = "Press ESC to cancel";
+                    var etaText = !string.IsNullOrEmpty(etaHint) ? $"ETA: {etaHint} • " : "";
+                    Progress.DrawFooterStats(running, queued, completed, failed, canceled, etaText + hint);
                 }
                 break;
         }
@@ -1500,6 +1443,144 @@ public class Terminal : CUiBase
                         {
                             LayoutNode(child, indent + 1, width, screenHeight, focusedKey, lines, keyMap);
                         }
+                    }
+                    break;
+
+                case UiKind.Progress:
+                    // Render progress using the helper methods - convert to TermLine format
+                    var progressTitle = node.Props.TryGetValue(UiProperty.Title, out var pt) ? pt?.ToString() ?? "Progress" : "Progress";
+                    var progressItems = node.Props.TryGetValue(UiProperty.ProgressItems, out var pi) 
+                        ? pi as IReadOnlyList<(string name, double percent, ProgressState state, string? note, (int done, int total) steps)>
+                        : null;
+                    var progressStats = node.Props.TryGetValue(UiProperty.ProgressStats, out var ps)
+                        ? ps as ValueTuple<int, int, int, int, int>?
+                        : null;
+                    var etaHint = node.Props.TryGetValue(UiProperty.EtaHint, out var eta) ? eta?.ToString() : null;
+
+                    if (progressItems != null && progressStats.HasValue)
+                    {
+                        // Header with box drawing
+                        var headerTop = "┌" + new string('─', Math.Max(0, width - indent * 2 - 2)) + "┐";
+                        lines.Add(new TermLine($"{indentStr}{headerTop}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
+
+                        var innerWidth = Math.Max(0, width - indent * 2 - 2);
+                        var centeredTitle = progressTitle.Length > innerWidth 
+                            ? progressTitle.Substring(0, Math.Max(0, innerWidth - 3)) + "..." 
+                            : progressTitle.PadLeft((innerWidth + progressTitle.Length) / 2).PadRight(innerWidth);
+                        var titleLine = "│" + centeredTitle + "│";
+                        lines.Add(new TermLine($"{indentStr}{titleLine}", ConsoleColor.Green, ConsoleColor.Black, TextAlign.Left));
+
+                        var sep = "├" + new string('─', Math.Max(0, width - indent * 2 - 2)) + "┤";
+                        lines.Add(new TermLine($"{indentStr}{sep}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
+
+                        // Show only active work
+                        var topN = Math.Min(10, Program.config.MaxMenuItems);
+                        static int Rank(ProgressState s) => s switch
+                        {
+                            ProgressState.Running => 3,
+                            ProgressState.Queued => 2,
+                            ProgressState.Failed => 1,
+                            _ => 0
+                        };
+
+                        var rows = progressItems
+                            .Where(x => x.state != ProgressState.Completed && x.state != ProgressState.Canceled)
+                            .OrderByDescending(x => Rank(x.state))
+                            .ThenBy(x => x.percent)
+                            .ThenBy(x => x.name)
+                            .Take(topN)
+                            .ToList();
+
+                        foreach (var r in rows)
+                        {
+                            var glyph = r.state switch
+                            {
+                                ProgressState.Running => "▶",
+                                ProgressState.Completed => "✓",
+                                ProgressState.Failed => "✖",
+                                ProgressState.Canceled => "■",
+                                _ => "•"
+                            };
+
+                            var name = r.name.Length > 40 ? r.name.Substring(0, 37) + "..." : r.name;
+                            var steps = r.steps.total > 0 ? $" ({r.steps.done}/{r.steps.total})" : "";
+                            var left = $"{glyph} {name}";
+                            var right = $"{r.percent,6:0.0}%{steps}";
+                            var contentWidth = Math.Max(10, width - indent * 2);
+                            
+                            // Compose left/right with proper spacing
+                            var rightLen = right.Length;
+                            var availLeft = Math.Max(0, contentWidth - rightLen - 1);
+                            if (left.Length > availLeft)
+                                left = (availLeft > 3 ? left.Substring(0, availLeft - 3) + "..." : left.Substring(0, Math.Max(0, availLeft)));
+                            var gap = Math.Max(1, contentWidth - left.Length - rightLen);
+                            var composed = left + new string(' ', gap) + right;
+
+                            // Calculate fill width for progress bar (based on content width, not including indent)
+                            var fillWidth = (int)Math.Round(Math.Clamp(r.percent, 0, 100) / 100.0 * contentWidth);
+
+                            // Colors for progress bar
+                            var barBack = r.state switch
+                            {
+                                ProgressState.Failed => ConsoleColor.DarkRed,
+                                ProgressState.Canceled => ConsoleColor.DarkGray,
+                                ProgressState.Completed => ConsoleColor.DarkGray,
+                                ProgressState.Running => ConsoleColor.DarkGray,
+                                _ => ConsoleColor.DarkBlue,
+                            };
+
+                            var fg = r.state switch
+                            {
+                                ProgressState.Failed => ConsoleColor.Yellow,
+                                ProgressState.Canceled => ConsoleColor.Gray,
+                                _ => ConsoleColor.Gray
+                            };
+
+                            // Create runs for progress bar effect: filled part + empty part
+                            var runs = new List<TermRun>();
+                            
+                            // Add indent as first run (no background fill)
+                            if (indentStr.Length > 0)
+                            {
+                                runs.Add(new TermRun(indentStr, fg, ConsoleColor.Black));
+                            }
+                            
+                            // Segment 1: Filled part of progress bar (with colored background)
+                            var seg1Len = Math.Min(fillWidth, composed.Length);
+                            if (seg1Len > 0)
+                            {
+                                var seg1Text = composed.Substring(0, seg1Len);
+                                runs.Add(new TermRun(seg1Text, fg, barBack));
+                            }
+
+                            // Segment 2: Empty part of progress bar (black background)
+                            var seg2Start = seg1Len;
+                            var seg2Len = Math.Max(0, composed.Length - seg2Start);
+                            if (seg2Len > 0)
+                            {
+                                var seg2Text = composed.Substring(seg2Start);
+                                runs.Add(new TermRun(seg2Text, fg, ConsoleColor.Black));
+                            }
+                            
+                            // Pad to full width if needed
+                            var totalLen = indentStr.Length + composed.Length;
+                            if (totalLen < width)
+                            {
+                                runs.Add(new TermRun(new string(' ', width - totalLen), fg, ConsoleColor.Black));
+                            }
+
+                            // Add line with runs for progress bar effect
+                            lines.Add(new TermLine($"{indentStr}{composed}", fg, ConsoleColor.Black, TextAlign.Left) { Runs = runs });
+                        }
+
+                        // Stats footer
+                        var (running, queued, completed, failed, canceled) = progressStats.Value;
+                        var stats = $"in-flight: {running}   queued: {queued}   completed: {completed}   failed: {failed}   canceled: {canceled}";
+                        lines.Add(new TermLine($"{indentStr}{stats}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
+
+                        var hint = "Press ESC to cancel";
+                        var etaText = !string.IsNullOrEmpty(etaHint) ? $"ETA: {etaHint} • " : "";
+                        lines.Add(new TermLine($"{indentStr}{etaText}{hint}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
                     }
                     break;
             }
