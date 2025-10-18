@@ -220,6 +220,25 @@ public sealed class PhotinoUi : CUiBase
 
 			switch (type)
 			{
+				case "Ready":
+					{
+						Log.Method(ctx =>
+						{
+							ctx.Append(Log.Data.Message, "Received Ready from JS");
+							ctx.Succeeded();
+						});
+						// Send an immediate ack and a few follow-up ticks to verify host->JS channel
+						Post(new { type = "Debug", message = "Host Ack Ready" });
+						_ = Task.Run(async () =>
+						{
+							for (int i = 1; i <= 3; i++)
+							{
+								await Task.Delay(500);
+								Post(new { type = "Debug", message = $"Host Tick {i}" });
+							}
+						});
+						break;
+					}
 				case "OpenExternal":
 					{
 						var url = S("url", "href", "Url", "Href");
@@ -274,8 +293,15 @@ public sealed class PhotinoUi : CUiBase
 					break;
 
 				case "Debug":
-					// JavaScript debug messages - logged to console in browser
-					break;
+					{
+						var msg = S("message", "msg", "text") ?? "<no message>";
+						Log.Method(ctx =>
+						{
+							ctx.Append(Log.Data.Message, msg);
+							ctx.Succeeded();
+						});
+						break;
+					}
 
 				case "FormResult":
 					{

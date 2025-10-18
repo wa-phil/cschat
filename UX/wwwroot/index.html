@@ -56,16 +56,16 @@
 		<input id='t' type='text' placeholder='Type a message...'/>
 		<button id='send'>Send</button>
 	</div>
-	<div id="debug" style="position:fixed;bottom:0;left:0;right:0;background:rgba(255,0,0,0.8);color:white;padding:4px;font-size:10px;max-height:100px;overflow:auto;display:none;"></div>
 <script src="marked.min.js"></script>
 <script>
 	const consoleEl = document.getElementById('console');
 	const t = document.getElementById('t');
 	const send = document.getElementById('send');
-	const debugEl = document.getElementById('debug');
-	
+
 	function debugLog(msg) {
-		console.log('[Debug]', msg);
+		const text = (typeof msg === 'string') ? msg : JSON.stringify(msg);
+		// forward to host for logging
+		try { window.external.sendMessage(JSON.stringify({ type: 'Debug', message: text })); } catch {}
 	}
 	
 	// --- UiNode Control Surface ---
@@ -75,6 +75,18 @@
 	// Rest of the script first, then initialize at the very end after all functions are defined
 	
 	function initializeApp() {
+		// Inspect bridge objects so we know what the host exposed
+		try {
+			const ext = window.external;
+			debugLog(`external: ${ext ? 'present' : 'missing'}`);
+			if (ext) {
+				debugLog(`external.sendMessage: ${typeof ext.sendMessage}`);
+				debugLog(`external.receiveMessage (before bind): ${typeof ext.receiveMessage}`);
+			}
+			if (window.chrome && window.chrome.webview) {
+				debugLog('chrome.webview: present');
+			}
+		} catch (e) { debugLog('inspect external failed: ' + e.message); }
 		// CRITICAL: Photino.NET on Windows uses WebView2, which means we should use
 		// window.chrome.webview.addEventListener instead of window.external.receiveMessage
 		if (window.chrome && window.chrome.webview) {
@@ -83,9 +95,38 @@
 			});
 		} else {
 			// Fallback for non-WebView2 platforms
-			window.external.receiveMessage = (message) => {
-				handle(message);
-			};
+			function registerReceive() {
+				try {
+					if (window.external && typeof window.external.receiveMessage === 'function') {
+						// Photino API: call receiveMessage(callback) to register
+						window.external.receiveMessage((message) => {
+							handle(message);
+						});
+						debugLog('registered external.receiveMessage callback');
+					}
+				} catch (e) { debugLog('register receive failed: ' + e.message); }
+			}
+			registerReceive();
+
+			// Also listen for Photino's custom and generic channels just in case
+			try {
+				window.addEventListener('webMessageReceived', (e) => {
+					handle(e.detail ?? e.data ?? e);
+				});
+				window.addEventListener('WebMessageReceived', (e) => {
+					handle(e.detail ?? e.data ?? e);
+				});
+				window.addEventListener('webMessage', (e) => {
+					handle(e.detail ?? e.data ?? e);
+				});
+				window.addEventListener('message', (e) => {
+					// Avoid echoing our own post() which goes to host; this is for host->JS
+					handle(e.data ?? e.detail ?? e);
+				});
+				document.addEventListener('message', (e) => {
+					handle(e.data ?? e.detail ?? e);
+				});
+			} catch (e) { debugLog('bind extra listeners failed: ' + e.message); }
 		}
 		
 		// Initialize root container
@@ -97,6 +138,9 @@
 		};
 		new ResizeObserver(ping).observe(document.body);
 		ping();
+
+		// Optional: keep-alive ping so we can see JS->host is alive while waiting for host->JS
+		setTimeout(() => debugLog('JS ready; awaiting host messages...'), 250);
 
 		t.focus();
 	}
@@ -123,7 +167,8 @@
 	// Unified handler
 	function handle(raw) {
 		try {
-			const msg = JSON.parse(raw);
+			const kind = typeof raw;
+			const msg = (kind === 'string') ? JSON.parse(raw) : (raw && raw.detail ? raw.detail : raw);
 			const type = msg.type;
 			
 			switch (type) {
@@ -146,7 +191,6 @@
 					break;
 					
 				case 'MountControl':
-					debugLog('[MountControl] received');
 					mountControl(msg.tree, msg.options);
 					break;
 					
@@ -159,8 +203,7 @@
 					break;
 			}
 		} catch (e) {
-			debugLog('[ERROR] ' + e.message);
-			console.error('Message handling error:', e, raw);
+			debugLog('Message handling error: ' + e.message);
 		}
 	}
 	
@@ -199,6 +242,7 @@
 	// Initialize root container for patch-based rendering
 	// Creates a minimal frame.root that will be replaced by the first ReplaceOp from PostSetRootAsync
 	function initializeRootContainer() {
+		debugLog('initializeRootContainer()');
 		// Clear existing content
 		consoleEl.innerHTML = '';
 		controlNodes.clear();
@@ -218,6 +262,7 @@
 
 		// Send a message to C# to trigger _ready=true
 		post({ type: 'Ready', message: 'UI initialized' });
+		debugLog('Sent Ready -> host');
 	}
 
 	function mountControl(tree, options) {
@@ -225,9 +270,7 @@
 			debugLog('[mountControl] No tree');
 			return;
 		}
-		
-		debugLog('[mountControl] Rendering...');
-		
+				
 		// Clear existing control surface
 		consoleEl.innerHTML = '';
 		controlNodes.clear();
@@ -235,22 +278,20 @@
 		// Render new tree
 		controlRoot = renderNode(tree);
 		if (controlRoot) {
-			debugLog('[mountControl] Appending to console');
 			consoleEl.appendChild(controlRoot);
 		} else {
-			debugLog('[mountControl] renderNode returned null!');
+			debugLog('[mountControl] renderNode returned null in mountControl!');
 		}
 		
 		// Set initial focus if specified
 		if (options && options.InitialFocusKey) {
-			debugLog('[mountControl] Focus: ' + options.InitialFocusKey);
 			setTimeout(() => focusControl(options.InitialFocusKey), 50);
 		}
 	}
 
 	function renderNode(node) {
 		if (!node) {
-			console.warn('[renderNode] NULL node');
+			debugLog('[renderNode] NULL node');
 			return null;
 		}
 		
@@ -681,7 +722,11 @@
 	}
 
 	function patchControl(patch) {
-		if (!patch || !patch.ops) return;
+		if (!patch || !patch.ops) 
+		{
+			debugLog(`[PatchControl] patch or patch.ops is null`);
+			return;
+		}
 		
 		patch.ops.forEach(op => {
 			try {
@@ -700,25 +745,31 @@
 						break;
 				}
 			} catch (e) {
-				console.error('Patch operation failed:', op, e);
+				debugLog(`[PatchControl] Error applying op: ${JSON.stringify(op)} - ${e.message}`);
 			}
 		});
 	}
 
 	function replaceNode(key, newNode) {
-		const oldElement = controlNodes.get(key);
-		if (!oldElement) return;
-		
-		const newElement = renderNode(newNode);
-		if (newElement && oldElement.parentNode) {
-			oldElement.parentNode.replaceChild(newElement, oldElement);
-			controlNodes.delete(key);
+		const oldEl = controlNodes.get(key);
+		if (!oldEl) {
+			debugLog(`replaceNode: ${key} not found`);
+			return;
+		}
+		const newEl = renderNode(newNode);
+		if (newEl && oldEl.parentNode) {
+			oldEl.parentNode.replaceChild(newEl, oldEl);
+			// BUG: controlNodes.delete(key)
+			controlNodes.set(key, newEl); // ✅ keep mapping
 		}
 	}
 
 	function updateNodeProps(key, props) {
 		const element = controlNodes.get(key);
-		if (!element) return;
+		if (!element) {
+			debugLog(`updateNodeProps: ${key} not found`);
+			return;
+		}
 		
 		// Update properties based on prop keys
 		Object.keys(props).forEach(propKey => {
@@ -828,14 +879,14 @@
 	function insertChild(parentKey, index, childNode) {
 		const parent = controlNodes.get(parentKey);
 		if (!parent) {
-			console.warn('insertChild: parent not found:', parentKey);
+			debugLog(`insertChild: parent not found ${parentKey}`);
 			return;
 		}
 		
 		const container = parent._contentContainer || parent;
 		const childElement = renderNode(childNode);
 		if (!childElement) {
-			console.warn('[insertChild] renderNode returned null');
+			debugLog(`[insertChild] renderNode returned null for childNode: ${childNode}`);
 			return;
 		}
 		
