@@ -348,37 +348,7 @@ public class Terminal : CUiBase
         RenderChatMessage(msg);
     }
 
-    // Renders a menu at the current cursor position, allows arrow key navigation, and returns the selected string or null if cancelled
-    public override string? RenderMenu(string header, List<string> choices, int selected = 0)
-    {
-        // Use MenuOverlay for UiNode-based menu rendering
-        // This is a synchronous wrapper around the async ShowAsync method
-        return MenuOverlay.ShowAsync(this, header, choices, selected).GetAwaiter().GetResult();
-    }
-
     public override ConsoleKeyInfo ReadKey(bool intercept) => Console.ReadKey(intercept);
-
-    public override void RenderChatMessage(ChatMessage message)
-    {
-        // Use ChatSurface to render the message via patch
-        // Get current message count to determine the index
-        var currentMessages = Program.Context?.Messages(InluceSystemMessage: false).ToList() ?? new List<ChatMessage>();
-        var index = currentMessages.Count > 0 ? currentMessages.Count - 1 : 0;
-        
-        // Apply patch to append the message
-        var patch = ChatSurface.AppendMessage(message, index);
-        PatchAsync(patch).GetAwaiter().GetResult();
-    }
-
-    public override void RenderChatHistory(IEnumerable<ChatMessage> messages)
-    {
-        // Use ChatSurface to render all messages via patch
-        var messageList = messages.ToList();
-        
-        // Apply patch to update all messages
-        var patch = ChatSurface.UpdateMessages(messageList);
-        PatchAsync(patch).GetAwaiter().GetResult();
-    }
 
     public override int CursorTop { get => Console.CursorTop; }
 

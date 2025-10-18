@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email Client Mock</title>
+<style>
+  :root{
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --panel-2: #f0f2f5;
+    --accent: #1a73e8;
+    --text: #1d232f;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --green: #15803d;
+    --blue-dot: #2563eb;
+    --shadow: 0 1px 2px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.05);
+  }
+  *{ box-sizing:border-box; }
+  html, body{ height:100%; }
+  body{
+    margin:0;
+    font:14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    color:var(--text);
+    background:var(--bg);
+  }
+
+  /* App frame -------------------------------------------------------------- */
+  .app{
+    height:100vh;
+    display:grid;
+    grid-template-rows: 48px 1fr;
+    grid-template-columns: 240px 320px 1fr;
+    grid-template-areas:
+      "topbar topbar topbar"
+      "sidebar list pane";
+  }
+
+  /* Top bar --------------------------------------------------------------- */
+  .topbar{
+    grid-area: topbar;
+    display:flex;
+    align-items:center;
+    gap:.5rem;
+    padding:0 .75rem;
+    background:var(--panel);
+    border-bottom:1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+  .topbar .win-controls{
+    display:flex; gap:.4rem; margin-right:.5rem;
+  }
+  .dot{ width:12px; height:12px; border-radius:50%; display:inline-block; }
+  .dot.red{ background:#ff5f56; }
+  .dot.yellow{ background:#ffbd2e; }
+  .dot.green{ background:#27c93f; }
+
+  .topbar .toolbar{
+    display:flex; align-items:center; gap:.5rem;
+  }
+  .btn{
+    display:inline-flex; align-items:center; gap:.3rem;
+    background:var(--panel);
+    border:1px solid var(--border);
+    padding:.35rem .55rem;
+    border-radius:8px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .btn:hover{ background:var(--panel-2); }
+  .btn.ghost{ border-color:transparent; }
+  .spacer{ flex:1; }
+  .search{
+    position:relative; min-width:260px;
+  }
+  .search input{
+    width:100%;
+    padding:.45rem 2rem .45rem .8rem;
+    border-radius:999px;
+    border:1px solid var(--border);
+    background:#fff;
+    outline:none;
+  }
+  .search .icon{ position:absolute; right:.6rem; top:50%; transform:translateY(-50%); color:var(--muted); }
+
+  /* Sidebar --------------------------------------------------------------- */
+  .sidebar{
+    grid-area: sidebar;
+    background:var(--panel);
+    border-right:1px solid var(--border);
+    overflow:auto;
+    padding:.75rem .5rem 1.25rem;
+  }
+  .group{ margin-bottom:1rem; }
+  .group-title{
+    font-size:.78rem; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--muted); margin:.5rem .5rem;
+  }
+  .nav-item{
+    display:flex; align-items:center; justify-content:space-between;
+    gap:.5rem; padding:.35rem .5rem; margin:.1rem .25rem;
+    border-radius:8px; cursor:pointer;
+  }
+  .nav-item:hover{ background:var(--panel-2); }
+  .nav-left{ display:flex; align-items:center; gap:.5rem; }
+  .badge{ font-size:.72rem; color:#374151; background:#e5e7eb; padding:.12rem .4rem; border-radius:999px; }
+  .blue-dot{ width:8px; height:8px; border-radius:50%; background:var(--blue-dot); }
+
+  /* Message list ---------------------------------------------------------- */
+  .list{
+    grid-area:list;
+    display:flex;
+    flex-direction:column;
+    background:var(--panel);
+    border-right:1px solid var(--border);
+    overflow:hidden;
+  }
+  .list-header{
+    padding:.6rem .6rem;
+    border-bottom:1px solid var(--border);
+    display:flex; gap:.5rem; align-items:center;
+  }
+  .pill{
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    border-radius:999px; padding:.25rem .6rem; font-size:.85rem;
+  }
+  .message-items{ overflow:auto; }
+  .message{
+    padding:.65rem .75rem; border-bottom:1px solid var(--border);
+    display:grid; grid-template-columns: 10px 1fr; gap:.6rem;
+  }
+  .message:hover{ background:var(--panel-2); }
+  .msg-title{ font-weight:600; }
+  .msg-snippet{ color:var(--muted); font-size:.9rem; }
+  .msg-meta{ color:var(--muted); font-size:.82rem; }
+
+  /* Reading pane ---------------------------------------------------------- */
+  .pane{
+    grid-area:pane;
+    display:flex; flex-direction:column; background:var(--panel);
+  }
+  .pane .thread-header{
+    padding:.75rem .9rem; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:.5rem; color:var(--muted);
+  }
+  .message-view{ overflow:auto; padding:1rem; }
+  .card{
+    background:#fff; border:1px solid var(--border); border-radius:12px;
+    box-shadow: var(--shadow);
+    max-width:900px; margin:0 auto;
+  }
+  .card .mail-meta{
+    padding:1rem 1rem .5rem 1rem; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:.6rem; color:var(--muted);
+  }
+  .avatar{
+    width:32px; height:32px; border-radius:50%; background:#e5e7eb; display:inline-grid; place-items:center; font-weight:700;
+  }
+  .mail-body{ padding:1rem 1.25rem 1.25rem; }
+  .banner{
+    background:#136f2f; color:#fff; padding:1.1rem; text-align:center; font-size:1.2rem; font-weight:700;
+    border-radius:8px; margin:.75rem 0 1rem;
+  }
+  .cta{
+    display:inline-block; padding:.6rem 1rem; background:#15803d; color:#fff;
+    border-radius:8px; border:1px solid #14532d; margin:.6rem 0;
+  }
+  .footer-rule{ height:12px; background:#e5e7eb; border-radius:8px; margin-top:1.25rem; }
+  .tiny{ font-size:.85rem; color:var(--muted); }
+
+  /* Helpers --------------------------------------------------------------- */
+  .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <!-- TOP BAR -->
+    <div class="topbar">
+      <div class="toolbar">
+        <button class="btn" title="New Message">✉︎ <span class="label">New</span></button>
+        <button class="btn" title="Archive">🗃 <span class="label">Archive</span></button>
+        <button class="btn" title="Trash">🗑 <span class="label">Delete</span></button>
+        <button class="btn" title="Reply">↩ <span class="label">Reply</span></button>
+        <button class="btn" title="Forward">↪ <span class="label">Forward</span></button>
+        <button class="btn" title="Move">🗃 <span class="label">Move</span></button>
+        <button class="btn" title="Flag">⚑ <span class="label">Flag</span></button>
+      </div>
+      <div class="spacer"></div>
+      <div class="search">
+        <input type="search" placeholder="Search mail…">
+        <span class="icon">🔍</span>
+      </div>
+    </div>
+
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar">
+      <div class="group">
+        <div class="group-title">Favorites</div>
+        <div class="nav-item">
+          <div class="nav-left">📥 <span>Inbox</span></div><span class="badge">813</span>
+        </div>
+        <div class="nav-item">
+          <div class="nav-left">⭐ <span>Flagged</span></div><span class="badge">12</span>
+        </div>
+        <div class="nav-item">
+          <div class="nav-left">📝 <span>Drafts</span></div><span class="badge">15</span>
+        </div>
+        <div class="nav-item">
+          <div class="nav-left">📤 <span>Sent</span></div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title">Smart Mailboxes</div>
+        <div class="nav-item">
+          <div class="nav-left">🧹 <span>Recovered…</span></div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title">Exchange</div>
+        <div class="nav-item">
+          <div class="nav-left">📥 <span>Inbox</span></div><span class="badge">813</span>
+        </div>
+        <div class="nav-item"><div class="nav-left">📝 <span>Drafts</span></div><span class="badge">32</span></div>
+        <div class="nav-item"><div class="nav-left">🚫 <span>Junk</span></div><span class="badge">146</span></div>
+        <div class="nav-item"><div class="nav-left">🗑 <span>Trash</span></div></div>
+        <div class="nav-item"><div class="nav-left">📂 <span>Archive</span></div></div>
+        <div class="nav-item"><div class="nav-left">💬 <span>Topic 1</span></div></div>
+        <div class="nav-item"><div class="nav-left">👨‍👩‍👧 <span>Topic 2</span></div></div>
+        <div class="nav-item"><div class="nav-left">👥 <span>Topic 3</span></div></div>
+        <div class="nav-item"><div class="nav-left">📌 <span>Topic 4</span></div></div>
+        <div class="nav-item"><div class="nav-left">🚗 <span>Topic 5</span></div></div>
+        <div class="nav-item"><div class="nav-left">🏡 <span>Topic 6</span></div></div>
+        <div class="nav-item"><div class="nav-left">🏙 <span>Topic 7</span></div></div>
+      </div>
+    </aside>
+
+    <!-- MESSAGE LIST -->
+    <section class="list">
+      <div class="list-header">
+        <div class="pill">All Mail • 13,050 total • 1,712 unread</div>
+        <div class="spacer"></div>
+        <button class="btn ghost">☰</button>
+      </div>
+      <div class="message-items">
+        <!-- Repeated items -->
+        <article class="message">
+          <div class="blue-dot" aria-hidden="true"></div>
+          <div>
+            <div class="msg-title">Lorem ipsum – dolor sit amet?</div>
+            <div class="msg-snippet">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur dictum…</div>
+            <div class="msg-meta">3:46 PM</div>
+          </div>
+        </article>
+        <article class="message">
+          <div class="blue-dot"></div>
+          <div>
+            <div class="msg-title">Consectetur – adipiscing elit</div>
+            <div class="msg-snippet">Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua…</div>
+            <div class="msg-meta">1:35 PM</div>
+          </div>
+        </article>
+        <article class="message">
+          <div class="blue-dot"></div>
+          <div>
+            <div class="msg-title">Vivamus – porta non nunc</div>
+            <div class="msg-snippet">Quis ipsum suspendisse ultrices gravida. Risus commodo viverra maecenas accumsan…</div>
+            <div class="msg-meta">1:18 PM</div>
+          </div>
+        </article>
+        <article class="message">
+          <div class="blue-dot"></div>
+          <div>
+            <div class="msg-title">Phasellus – sed nisi et</div>
+            <div class="msg-snippet">Amet porttitor eget dolor morbi non arcu risus quis varius quam…</div>
+            <div class="msg-meta">9:30 AM</div>
+          </div>
+        </article>
+        <article class="message">
+          <div class="blue-dot"></div>
+          <div>
+            <div class="msg-title">Mauris – fermentum pretium</div>
+            <div class="msg-snippet">Eget aliquet nibh praesent tristique magna sit amet purus gravida…</div>
+            <div class="msg-meta">8:47 AM</div>
+          </div>
+        </article>
+        <article class="message">
+          <div class="blue-dot"></div>
+          <div>
+            <div class="msg-title">Curabitur – massa vitae</div>
+            <div class="msg-snippet">Tellus integer feugiat scelerisque varius morbi enim nunc faucibus a…</div>
+            <div class="msg-meta">8:42 AM</div>
+          </div>
+        </article>
+        <article class="message">
+          <div class="blue-dot"></div>
+          <div>
+            <div class="msg-title">Ultrices – gravida dictum</div>
+            <div class="msg-snippet">Dui faucibus in ornare quam viverra orci sagittis eu volutpat…</div>
+            <div class="msg-meta">8:38 AM</div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- READING PANE -->
+    <section class="pane">
+      <div class="thread-header">
+        <span class="mono">1 MESSAGE</span>
+        <div class="spacer"></div>
+        <span>📬 Inbox — Exchange</span>
+        <span>•</span>
+        <span class="tiny">October 12, 2025 at 9:03 PM</span>
+      </div>
+
+      <div class="message-view">
+        <div class="card">
+          <div class="mail-meta">
+            <div class="avatar">T</div>
+            <div>ExampleCorp.com — <span class="tiny">Lorem ipsum • To: Dolor</span></div>
+          </div>
+          <div class="mail-body">
+            <div style="display:flex; align-items:center; gap:10px; margin:.4rem 0 1rem;">
+              <img alt="TD" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Crect width='44' height='44' rx='6' fill='%2315803d'/%3E%3Ctext x='22' y='29' font-family='Arial' font-size='22' fill='white' text-anchor='middle'%3ETD%3C/text%3E%3C/svg%3E">
+              <div style="font-size:1.5rem; font-weight:800;">ACME Finance</div>
+            </div>
+            <div class="banner">Action Required — Confirm Password Reset</div>
+            <p>Dear Lorem Ipsum,</p>
+            <p>Thank you for contacting Acme Finance. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
+            <p>For security purposes, the link will expire within <strong>10 minutes</strong>.</p>
+            <a class="cta" href="#">RESET YOUR PASSWORD</a>
+            <p class="tiny">If you did not request a password reset, please contact Customer Service at <span style="color:#0a7c2f; font-weight:700;">1-800-000-0000</span>.</p>
+            <div class="footer-rule"></div>
+            <p class="tiny" style="text-align:center; margin-top:.8rem;">Terms of Use</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

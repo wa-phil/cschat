@@ -32,7 +32,6 @@ public sealed class PhotinoUi : CUiBase
 	private ConsoleColor _bg = ConsoleColor.Black;
 	private string? _lastInput;
 
-
 	public override Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
 	{
 		var model = new BoolBox { Answer = defaultAnswer };
@@ -106,16 +105,21 @@ public sealed class PhotinoUi : CUiBase
 					.SetTitle(_title)
 					.SetUseOsDefaultSize(true)
 					.SetResizable(true)
+					.SetDevToolsEnabled(true)  // Enable F12 developer tools
 					.Center();
 
 			_win.RegisterWindowClosingHandler((s, e) => { NudgeWaitersAndStop(); return false; });
+
+			// Register message handler BEFORE loading HTML so window.external is available
+			_win.RegisterWebMessageReceivedHandler((sender, raw) => 
+			{
+				HandleInbound(raw);
+			});
 
 			if (File.Exists(IndexHtmlPath))
 			{
 				_win.Load(IndexHtmlPath);
 			}
-
-			_win.RegisterWebMessageReceivedHandler((sender, raw) => HandleInbound(raw));
 
 			_uiAlive = true;
 			if (OperatingSystem.IsWindows()) { uiReady!.Set(); }
@@ -173,9 +177,11 @@ public sealed class PhotinoUi : CUiBase
 		ctx.OnlyEmitOnFailure();
 		try
 		{
+			// First message from web view indicates it's ready
 			if (!_ready)
 			{
-				_ready = true; SafeFlush();
+				_ready = true;
+				// Flush any queued messages that were sent before the web view was ready
 				SafeFlush();
 			}
 
@@ -265,6 +271,10 @@ public sealed class PhotinoUi : CUiBase
 				case "Resize":
 					var w = I("width", "Width"); if (w > 0) _width = w;
 					var h = I("height", "Height"); if (h > 0) _height = h;
+					break;
+
+				case "Debug":
+					// JavaScript debug messages - logged to console in browser
 					break;
 
 				case "FormResult":
@@ -449,13 +459,6 @@ public sealed class PhotinoUi : CUiBase
 		string Escape(string s) => s?.Replace("\n", " ").Replace("\r", " ").Replace("|", "\\|") ?? string.Empty;
 	}
 
-	public override string? RenderMenu(string header, List<string> choices, int selected = 0)
-	{
-		// Use MenuOverlay for UiNode-based menu rendering
-		// This is a synchronous wrapper around the async ShowAsync method
-		return MenuOverlay.ShowAsync(this, header, choices, selected).GetAwaiter().GetResult();
-	}
-
 	public override void RenderReport(Report report)
 	{
 		// Photino renders as markdown tool bubble
@@ -476,27 +479,6 @@ public sealed class PhotinoUi : CUiBase
 	}
 
 	// ---------- Output ----------
-	public override void RenderChatMessage(ChatMessage message)
-	{
-		// Use ChatSurface to render the message via patch
-		// Get current message count to determine the index
-		var currentMessages = Program.Context?.Messages(InluceSystemMessage: false).ToList() ?? new List<ChatMessage>();
-		var index = currentMessages.Count > 0 ? currentMessages.Count - 1 : 0;
-		
-		// Apply patch to append the message
-		var patch = ChatSurface.AppendMessage(message, index);
-		PatchAsync(patch).GetAwaiter().GetResult();
-	}
-
-	public override void RenderChatHistory(IEnumerable<ChatMessage> messages)
-	{
-		// Use ChatSurface to render all messages via patch
-		var messageList = messages.ToList();
-		
-		// Apply patch to update all messages
-		var patch = ChatSurface.UpdateMessages(messageList);
-		PatchAsync(patch).GetAwaiter().GetResult();
-	}
 
 	public override void Write(string text) => Post(new { type = "ConsoleWrite", text = text ?? "" });
 	public override void WriteLine(string? text = null) => Post(new { type = "ConsoleWriteLine", text = text ?? "" });
@@ -523,7 +505,11 @@ public sealed class PhotinoUi : CUiBase
 
 	private void SafeFlush()
 	{
-		if (!_uiAlive || _win is null || !_ready) return;
+		if (!_uiAlive || _win is null) return;
+		
+		// If not ready yet, messages will remain queued and be flushed when _ready becomes true
+		if (!_ready) return;
+		
 		try
 		{
 			_win.Invoke(() =>
@@ -576,30 +562,22 @@ public sealed class PhotinoUi : CUiBase
 	
 	protected override Task PostSetRootAsync(UiNode root, UiControlOptions options)
 	{
-		if (!_ready)
-			throw new PlatformNotReadyException("Photino UI is not initialized");
+		// Instead of sending MountControl (which has JSONWriter serialization issues),
+		// we'll convert the tree into a series of ReplaceOp patches
+		// JavaScript already has frame.root created in initializeRootContainer()
+		
+		// Replace frame.root with the new root tree
+		var patch = new UiPatch(new ReplaceOp("frame.root", root));
+		
+		// Send the patch to mount the tree
+		var result = PostPatchAsync(patch);
 
-		// Send mount message to the web view
-		Post(new
-		{
-			type = "MountControl",
-			tree = SerializeNode(root),
-			options = new
-			{
-				trapKeys = options.TrapKeys,
-				initialFocusKey = options.InitialFocusKey
-			}
-		});
-
-		return Task.CompletedTask;
+		return result;
 	}
 
 	protected override Task PostPatchAsync(UiPatch patch)
 	{
-		if (!_ready)
-			throw new PlatformNotReadyException("Photino UI is not initialized");
-
-		// Serialize patch operations for the web view
+		// Queue patches - they will be flushed once _ready is true
 		// Build ops list manually to avoid any LINQ generic inference issues (previous CS0411)
 		var ops = new List<object>(patch.Ops.Length);
 		foreach (var op in patch.Ops)
@@ -610,7 +588,13 @@ public sealed class PhotinoUi : CUiBase
 					ops.Add(new { type = "replace", key = replaceOp.Key, node = SerializeNode(replaceOp.Node) });
 					break;
 				case UpdatePropsOp updatePropsOp:
-					ops.Add(new { type = "updateProps", key = updatePropsOp.Key, props = updatePropsOp.Props });
+					// Convert UiProperty enum keys to strings
+					var propsDict = new Dictionary<string, object?>();
+					foreach (var kvp in updatePropsOp.Props)
+					{
+						propsDict[kvp.Key.ToString()] = kvp.Value;
+					}
+					ops.Add(new { type = "updateProps", key = updatePropsOp.Key, props = propsDict });
 					break;
 				case InsertChildOp insertChildOp:
 					ops.Add(new { type = "insertChild", parentKey = insertChildOp.ParentKey, index = insertChildOp.Index, node = SerializeNode(insertChildOp.Node) });
@@ -624,16 +608,14 @@ public sealed class PhotinoUi : CUiBase
 		}
 
 		// Send patch message to the web view
-		Post(new { type = "PatchControl", patch = new { ops } });
-
+		var json = new { type = "PatchControl", patch = new { ops } };
+		Post(json);
 		return Task.CompletedTask;
 	}
 
 	protected override Task PostFocusAsync(string key)
 	{
-		if (!_ready)
-			throw new PlatformNotReadyException("Photino UI is not initialized");
-
+		// Queue the focus message - it will be flushed once _ready is true
 		// Send focus message to the web view
 		Post(new { type = "FocusControl", key });
 
@@ -641,21 +623,42 @@ public sealed class PhotinoUi : CUiBase
 	}
 
 	/// <summary>
-	/// Serializes a UiNode to an object suitable for JSON transmission
+	/// Serializes a UiNode to an object suitable for JSON transmission to the web view
 	/// </summary>
 	private object SerializeNode(UiNode node)
 	{
-		// Build children list manually to avoid any LINQ generic inference edge cases (CS0411)
+		// Build children list
 		var childList = new List<object>(node.Children.Count);
 		foreach (var c in node.Children)
 		{
 			childList.Add(SerializeNode(c));
 		}
+
+		// Serialize props as a dictionary with string keys (property names)
+		var propsDict = new Dictionary<string, object?>();
+		foreach (var kvp in node.Props)
+		{
+			var propName = kvp.Key.ToString(); // Convert enum to string
+			propsDict[propName] = kvp.Value;
+		}
+
+		// Serialize styles if present
+		var stylesDict = new Dictionary<string, object?>();
+		if (node.Styles != null && node.Styles != UiStyles.Empty)
+		{
+			foreach (var kvp in node.Styles.Values)
+			{
+				var styleName = kvp.Key.ToString();
+				stylesDict[styleName] = kvp.Value;
+			}
+		}
+
 		return new
 		{
 			key = node.Key,
 			kind = node.Kind.ToString(),
-			props = node.Props,
+			props = propsDict,
+			styles = stylesDict.Count > 0 ? stylesDict : null,
 			children = childList
 		};
 	}

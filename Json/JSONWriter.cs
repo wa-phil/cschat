@@ -5,6 +5,11 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Delegate, Inherited = false)]
+public sealed class IgnoreTypeAttribute : Attribute
+{
+}
+
 public static class JSONWriter
 {
     public static string ToJson(this object item)
@@ -26,6 +31,13 @@ public static class JSONWriter
         }
 
         Type type = item.GetType();
+        
+        // Skip types marked with IgnoreTypeAttribute (e.g., delegates)
+        if (type.IsDefined(typeof(IgnoreTypeAttribute), false))
+        {
+            stringBuilder.Append("null");
+            return;
+        }
         if (type == typeof(string) || type == typeof(char))
         {
             stringBuilder.Append('"');
@@ -109,6 +121,7 @@ public static class JSONWriter
             foreach (var f in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy))
             {
                 if (f.IsDefined(typeof(IgnoreDataMemberAttribute), true)) continue;
+                if (f.IsDefined(typeof(IgnoreTypeAttribute), true)) continue;
                 var value = f.GetValue(item);
                 if (value != null)
                 {
@@ -121,7 +134,8 @@ public static class JSONWriter
 
             foreach (var p in type.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy))
             {
-                if (!p.CanRead || p.IsDefined(typeof(IgnoreDataMemberAttribute), true)) continue;
+                // skip RuntimeType and other non-readable properties
+                if (!p.CanRead || p.IsDefined(typeof(IgnoreTypeAttribute), true) || p.IsDefined(typeof(IgnoreDataMemberAttribute), true)) continue;
                 var value = p.GetValue(item, null);
                 if (value != null)
                 {

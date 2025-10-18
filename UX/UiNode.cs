@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using System.ComponentModel.DataAnnotations;
 
 // Visual style keys usable with UiNode.Styles
@@ -175,6 +176,7 @@ public sealed record UiControlOptions(
 /// <summary>
 /// Handler delegate for UI events
 /// </summary>
+[IgnoreTypeAttribute]
 public delegate Task UiHandler(UiEvent e);
 
 /// <summary>

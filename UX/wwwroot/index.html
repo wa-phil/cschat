@@ -45,677 +45,143 @@
 
 	/* sticky header for tall tables */
 	#console .bubble.tool thead th { position: sticky; top: calc(-1 * var(--pad-top)); z-index: 2; background: #ddd; box-shadow: 0 1px 0 #333 inset; }
-
-	/* menu overlay */ 
-	#menuOverlay{ position:fixed; inset:0; background:rgba(0,0,0,.0); pointer-events:none; z-index:9999; }
-	#menuPanel{ position:absolute; top:-90%; left:50%; transform:translateX(-50%); width:min(760px,92vw); max-height:min(70vh,600px); background:#fff; color:#000; border-radius:0 0 10px 10px; box-shadow:0 20px 50px rgba(0,0,0,.35); display:grid; grid-template-rows:auto auto 1fr auto; overflow:hidden; transition:top .3s ease-in-out; }
-	#menuOverlay.active{ pointer-events:auto; } #menuOverlay.active #menuPanel{ top:0; }
-	#menuList{ list-style:none; margin:0; padding:6px 8px 12px 8px; overflow:auto; }
-	#menuHeader{ padding:12px 14px; font-weight:600; background:#111; color:#eee; }
-	#menuFilter{ margin:10px; padding:10px; font:inherit; border:1px solid #ccc; border-radius:8px; }
-	#menuList li{ padding:8px 10px; border-radius:8px; opacity:1; transform:translateY(0); transition:opacity .2s ease, transform .2s ease; }
-	#menuList li.fade-out{ opacity:0; transform:translateY(-10px); } #menuList li.fade-in{ opacity:0; transform:translateY(10px); animation:fadeInMove .2s forwards; }
-	@keyframes fadeInMove{ to{ opacity:1; transform:translateY(0);} }
-	#menuList li[data-active="true"]{ background:#111; color:#fff; }
-	#menuHint{ padding:8px 12px; font-size:.9em; color:#444; border-top:1px solid #eee; background:#fafafa; }
-	#menuTab{ position:fixed; top:0; left:50%; transform:translateX(-50%); background:#111; color:#eee; padding:4px 10px; font-size:.85em; border-radius:0 0 6px 6px; cursor:pointer; z-index:9998; }
-	#menuOverlay.active ~ #menuTab { display:none; }
-
-	/* form overlay */
-	#formOverlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.55); z-index:10000; }
-	#formPanel{ background:#fff; color:#000; width:min(840px,92vw); max-height:min(80vh,720px); display:grid; grid-template-rows:auto 1fr auto; border-radius:12px; overflow:hidden; box-shadow:0 30px 70px rgba(0,0,0,.45);}
-	#formTitle{ padding:14px 16px; background:#111; color:#eee; font-weight:700; }
-	#formBody{ overflow:auto; padding:12px 16px; }
-	#formFooter{ padding:10px 16px; display:flex; gap:8px; justify-content:flex-end; border-top:1px solid #eee; background:#fafafa; }
-	.field-error{ color:#b00020; font-size:.9em; margin-top:4px; grid-column:2; }
-	input.invalid, select.invalid, textarea.invalid { border-color:#b00020 !important; outline:none; box-shadow:0 0 0 2px rgba(176,0,32,.15); }
-	.array-toolbar { display:flex; gap:6px; }
-	.array-list { list-style:none; margin:6px 0 0 0; padding:0; border:1px solid #eee; max-height:200px; overflow:auto; }
-	.array-list li { display:flex; justify-content:space-between; gap:8px; padding:6px 8px; border-bottom:1px solid #f1f1f1; }
-	.array-actions button { margin-left:6px; }
 </style>
 </head>
 <body>
 	<header></header>
-	<div id="menuTab">press ESC key to open</div>
 	<div id='main'>
-		<div id='console'> <!-- big scrollable console/log -->
+		<div id='console'></div>
 	</div>
-	<div id='composer'>
-		<input id='t' placeholder='Type and press Enter'/>
+	<div id='composer' style='display:none;'>
+		<input id='t' type='text' placeholder='Type a message...'/>
 		<button id='send'>Send</button>
 	</div>
-	<!-- MENU OVERLAY -->
-	<div id="menuOverlay" hidden>
-		<div id="menuPanel">
-			<div id="menuHeader"></div>
-			<input id="menuFilter" placeholder="[filter]" autocomplete="off" />
-			<ul id="menuList"></ul>
-			<div id="menuHint">↑/↓ select • Enter choose • Esc back/cancel</div>
-		</div>
-	</div>
-	<!-- FORM OVERLAY -->
-	<div id="formOverlay" hidden>
-		<div id="formPanel">
-			<div id="formTitle"></div>
-			<div id="formBody"></div>
-			<div id="formFooter">
-				<button id="formCancel">Cancel</button>
-				<button id="formSubmit" disabled>Submit</button>
-			</div>
-		</div>
-	</div>
+	<div id="debug" style="position:fixed;bottom:0;left:0;right:0;background:rgba(255,0,0,0.8);color:white;padding:4px;font-size:10px;max-height:100px;overflow:auto;display:none;"></div>
 <script src="marked.min.js"></script>
 <script>
 	const consoleEl = document.getElementById('console');
 	const t = document.getElementById('t');
 	const send = document.getElementById('send');
+	const debugEl = document.getElementById('debug');
+	
+	function debugLog(msg) {
+		console.log('[Debug]', msg);
+	}
+	
+	// --- UiNode Control Surface ---
+	let controlRoot = null;
+	const controlNodes = new Map(); // key -> DOM element mapping
+	
+	// Rest of the script first, then initialize at the very end after all functions are defined
+	
+	function initializeApp() {
+		// CRITICAL: Photino.NET on Windows uses WebView2, which means we should use
+		// window.chrome.webview.addEventListener instead of window.external.receiveMessage
+		if (window.chrome && window.chrome.webview) {
+			window.chrome.webview.addEventListener('message', (event) => {
+				handle(event.data);
+			});
+		} else {
+			// Fallback for non-WebView2 platforms
+			window.external.receiveMessage = (message) => {
+				handle(message);
+			};
+		}
+		
+		// Initialize root container
+		initializeRootContainer();
+		
+		// Initial ping → enables .NET flush
+		const ping = () => {
+			post({ type:'Resize', width: Math.floor(window.innerWidth/8), height: Math.floor(window.innerHeight/18) });
+		};
+		new ResizeObserver(ping).observe(document.body);
+		ping();
 
-	function post(obj) { try { window.external?.sendMessage?.(JSON.stringify(obj)); } catch {} }
+		t.focus();
+	}
+
+	// this is known to work all the time, everywhere -- do not modify/replace this implementation
+	function post(obj) { try { window.external.sendMessage(JSON.stringify(obj)); } catch (e) { console.error('post failed:', e); } }
 
 	// Open all links in the system browser instead of navigating inside Photino
 	document.addEventListener('click', (e) => {
-		const a = e.target?.closest?.('a[href]');
-		if (!a) return;
-
-		const href = a.getAttribute('href') || '';
-		// Allow in-page anchors
-		if (href.startsWith('#')) return;
-
-		// Let the host open it (http/https/mailto/file/etc.)
-		e.preventDefault();
-		e.stopPropagation();
-		post({ type: 'OpenExternal', url: href });
+		if (e.target.tagName === 'A' && e.target.href) {
+			e.preventDefault();
+			post({ type: 'OpenExternal', url: e.target.href });
+		}
 	});
 
-	// also catch middle-clicks (auxclick) so they don’t navigate inside
+	// also catch middle-clicks (auxclick) so they don't navigate inside
 	document.addEventListener('auxclick', (e) => {
-		const a = e.target?.closest?.('a[href]');
-		if (!a) return;
-		const href = a.getAttribute('href') || '';
-		if (href.startsWith('#')) return;
-		e.preventDefault();
-		e.stopPropagation();
-		post({ type: 'OpenExternal', url: href });
-	});
-
-	// requestId -> (files:string[]) => void
-	const pendingPickers = new Map();	
-	function cwrite(s){ consoleEl.textContent += (s ?? ''); consoleEl.scrollTop = consoleEl.scrollHeight; }
-	function cwriteline(s){ cwrite((s ?? '') + '\\n'); }
-
-	// --- menu controller ---------------------------------------------------------
-	const menuOverlay = document.getElementById('menuOverlay');
-	const menuHeader  = document.getElementById('menuHeader');
-	const menuFilter  = document.getElementById('menuFilter');
-	const menuList    = document.getElementById('menuList');
-
-	let menuState = null;         // { header, choices, filtered, idx }
-
-	document.getElementById('menuTab').onclick = () => {
-		post({ type:'Key', key:'Escape' }); // mimic ESC keypress to open menu
-	};
-
-	function openMenu(payload) {
-		menuState = {
-			header: payload.header || 'Menu',
-			choices:[...(payload.choices || [])],
-			filtered:[...(payload.choices || [])],
-			idx: Math.min(Math.max(0, payload.selected|0), (payload.choices||[]).length-1)
-		};
-
-		menuHeader.textContent = menuState.header;
-		menuFilter.value = '';
-		renderMenu();
-		menuOverlay.hidden = false;
-		menuOverlay.classList.add('active');
-		// Trap focus & keystrokes while menu is open
-		document.body.style.overflow = 'hidden';
-		t.disabled = true;
-		menuFilter.focus();
-	}
-
-	function closeMenu(sendResult) {
-		menuOverlay.classList.remove('active');
-		menuOverlay.hidden = true;
-		if (sendResult !== undefined) post({ type:'MenuResult', text: sendResult ?? null });
-		document.body.style.overflow = '';
-		t.disabled = false;
-		t.focus();
-	}
-	function renderMenu() {
-		const q = menuFilter.value.trim().toLowerCase();
-		const newItems = q
-			? menuState.choices.filter(c => c.toLowerCase().includes(q))
-			: menuState.choices.slice();
-
-		// Keep filtered in sync for chooseActive()
-		menuState.filtered = newItems;
-
-		// Clamp idx if needed
-		if (menuState.filtered.length === 0) menuState.idx = 0;
-		else if (menuState.idx >= menuState.filtered.length) menuState.idx = menuState.filtered.length - 1;
-
-		const oldLis   = [...menuList.querySelectorAll('li')];
-		const oldTexts = oldLis.map(li => li.dataset.value);
-
-		// Fade-out removes
-		oldLis.forEach(li => {
-			if (!newItems.includes(li.dataset.value)) {
-				li.classList.add('fade-out');
-				setTimeout(() => li.remove(), 200);
-			}
-		});
-
-		// Add missing items (fade-in)
-		newItems.forEach((c, i) => {
-			if (!oldTexts.includes(c)) {
-				const li = document.createElement('li');
-				li.dataset.value = c;  // stable key
-				li.textContent = c;
-				li.classList.add('fade-in');
-				li.onclick = () => { menuState.idx = i; chooseActive(); };
-				menuList.appendChild(li);
-			}
-		});
-
-		// Reindex & active state on all survivors (order matters)
-		const lis = [...menuList.querySelectorAll('li')];
-		lis.sort((a,b) => newItems.indexOf(a.dataset.value) - newItems.indexOf(b.dataset.value))
-			.forEach((li, i) => {
-				li.textContent = li.dataset.value;
-				li.dataset.active = (i === menuState.idx ? 'true' : 'false'); li.onclick=()=>{ menuState.idx=i; chooseActive(); }; });
-		const active = menuList.querySelector('li[data-active="true"]');
-		if (active){
-			const r=active.getBoundingClientRect(), pr=menuList.getBoundingClientRect();
-			if (r.top<pr.top) menuList.scrollTop += r.top-pr.top;
-			else if (r.bottom>pr.bottom) menuList.scrollTop += r.bottom-pr.bottom;
-		}
-	}
-	function chooseActive() {
-		const items = menuState.filtered;
-		const chosen = (items.length > 0) ? items[menuState.idx] : null;
-		closeMenu(chosen);
-	}
-
-	// Filter typing
-	menuFilter.addEventListener('input', renderMenu);
-
-	// Keyboard in the menu
-	menuOverlay.addEventListener('keydown', (e) => {
-		// Prevent these from leaking to the host while overlay is open
-		if (['ArrowUp','ArrowDown','PageUp','PageDown','Home','End','Escape','Enter'].includes(e.key)) {
-			e.stopPropagation(); e.preventDefault();
-		}
-		const len = menuState.filtered.length;
-		switch (e.key){
-			case 'ArrowUp':	 	if (len) menuState.idx = Math.max(0,menuState.idx-1); renderMenu(); break;
-			case 'ArrowDown': 	if (len) menuState.idx = Math.min(len-1,menuState.idx+1); renderMenu(); break;
-			case 'PageUp':	 	if (len) menuState.idx = Math.max(0,menuState.idx-10); renderMenu(); break;
-			case 'PageDown': 	if (len) menuState.idx = Math.min(len-1,menuState.idx+10); renderMenu(); break;
-			case 'Home':	 	if (len) menuState.idx = 0; renderMenu(); break;
-			case 'End':	 		if (len) menuState.idx = len-1; renderMenu(); break;
-			case 'Enter':	 	chooseActive(); break;
-			case 'Escape':	 	closeMenu(null); break; // close this menu, let host know it was cancelled
+		if (e.target.tagName === 'A' && e.target.href) {
+			e.preventDefault();
+			post({ type: 'OpenExternal', url: e.target.href });
 		}
 	});
-
-	// Close if user clicks outside the panel
-	menuOverlay.addEventListener('click', (e) => {
-		if (e.target === menuOverlay) closeMenu(null);
-	});
-	// --- end menu controller ------------------------------------------------------
-	// --- form controller ---------------------------------------------------------
-	const formOverlay = document.getElementById('formOverlay');
-	const formTitle   = document.getElementById('formTitle');
-	const formBody    = document.getElementById('formBody');
-	const formCancel  = document.getElementById('formCancel');
-	const formSubmit  = document.getElementById('formSubmit');
-
-	let formState = null;              // { fields:[...] }
-	const idByKey = new Map();         // key -> element id
-	const errByKey = new Map();        // key -> error <div>
-
-	function openForm(payload) {
-		formTitle.textContent = payload.title || 'Input';
-		formBody.innerHTML = '';
-		formOverlay.style.display = 'flex';
-		document.body.style.overflow = 'hidden';
-
-		idByKey.clear(); errByKey.clear();
-
-		const fields = (payload.fields || []).map(f => ({ ...f, id: 'f_' + Math.random().toString(36).slice(2) }));
-		formState = { fields };
-
-		for (const f of fields) {
-			const row = document.createElement('div');
-			row.style.display = 'grid';
-			row.style.gridTemplateColumns = '220px 1fr';
-			row.style.columnGap = '12px';
-			row.style.rowGap = '2px';
-			row.style.marginBottom = '12px';
-			row.style.alignItems = 'center';
-
-			// label
-			const lab = document.createElement('label');
-			lab.textContent = f.label + (f.required ? ' *' : '');
-			lab.setAttribute('for', f.id);
-			row.appendChild(lab);
-
-			// --- inputs by kind ---
-			let input; const kind = String(f.kind||'').toLowerCase();
-
-			const addHelp = (node) => {
-				const help = document.createElement('div');
-				help.textContent = f.help || '';
-				help.style.gridColumn = '1 / span 2';
-				help.style.color = '#555'; help.style.fontSize = '.92em'; help.style.padding = '4px 2px 0 2px';
-				row.appendChild(help);
-				return help;
-			};
-			const addError = () => {
-				const err = document.createElement('div');
-				err.className = 'field-error';
-				err.style.display = 'none';
-				row.appendChild(err);
-				errByKey.set(f.key, err);
-			};
-
-			if (kind === 'text'){
-				input = document.createElement('textarea');
-				input.rows = 4;
-				input.value = f.current ?? '';
-			} else if (kind === 'number') {
-				input = document.createElement('input');
-				input.type = 'number';
-				if (f.min != null) input.min = String(f.min);
-				if (f.max != null) input.max = String(f.max);
-				input.value = f.current ?? '';
-			} else if (kind === 'decimal') {
-				input = document.createElement('input');
-				input.type = 'number';
-				input.step = 'any';
-				input.value = f.current ?? '';
-			} else if (kind === 'long') {
-				input = document.createElement('input');
-				input.type = 'number';
-				input.step = '1';
-				input.value = f.current ?? '';
-			} else if (kind === 'bool') {
-				input = document.createElement('select');
-				['false','true'].forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; input.appendChild(o); });
-				input.value = String(f.current ?? 'false');
-			} else if (kind === 'enum') {
-				input = document.createElement('select');
-				(f.choices || []).forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; input.appendChild(o); });
-				if (f.current != null) input.value = String(f.current);
-			} else if (kind === 'date') {
-				input = document.createElement('input');
-				input.type = 'date';
-				input.value = f.current ?? '';
-			} else if (kind === 'time') {
-				input = document.createElement('input');
-				input.type = 'time';
-				input.value = f.current ?? '';
-			} else if (kind === 'guid') {
-				input = document.createElement('input');
-				input.type = 'text';
-				input.value = f.current ?? '';
-			} else if (kind === 'password') {
-				input = document.createElement('input');
-				input.type = 'password';
-				input.value = f.current ?? ''; 
-			} else if (kind === 'path') {
-				const wrap = document.createElement('div');
-				wrap.style.display = 'grid';
-				wrap.style.gridTemplateColumns = '1fr auto';
-				wrap.style.gap = '8px';
-				input=document.createElement('input');
-				input.type = 'text';
-				input.value = f.current ?? '';
-				const mode = f.pathMode ?? 'OpenExisting';
-				const btn = document.createElement('button');
-				btn.type = 'button';
-				btn.textContent = 'Browse…';
-				btn.addEventListener('click', () => {
-					const reqId = Math.random().toString(36).slice(2);
-					pendingPickers.set(reqId, (files) => {
-						if (files && files.length) {
-							input.value = files[0];
-							validateForm();
-						}
-					});
-					// You can pass filters here if you want (e.g., ["*.csv","*.txt"])
-          post({ type:'PickFiles', requestId:reqId, options:{ multi:false, pathMode: mode } });
-				});
-				wrap.appendChild(input);
-				wrap.appendChild(btn);
-				row.appendChild(wrap);
-				addHelp(wrap);
-				addError();
-				gotoFinalize();
-				continue;
-			} else if (kind === 'array')
-			{ 
-				// list
-				const container = document.createElement('div');
-				container.style.display = 'block';
-				const list = document.createElement('ul');
-				list.className='array-list';
-
-				let items = [];
-				try {
-					items = JSON.parse(f.current||'[]') || [];
-				} catch { 
-					items = []; 
-				}
-
-				function renderList(){
-					list.innerHTML = '';
-					items.forEach((v,i)=>{
-						const li=document.createElement('li');
-						const span=document.createElement('span'); 
-						span.textContent = String(v);
-
-						const actions=document.createElement('div'); 
-						actions.className='array-actions';
-
-						const e=document.createElement('button'); 
-						e.type='button'; 
-						e.textContent='✎'; 
-						e.title='Edit';
-
-						const r=document.createElement('button'); 
-						r.type='button'; 
-						r.textContent='✕';
-						r.title='Remove';
-
-						e.onclick=()=>editItem(i); 
-						r.onclick=()=>{ 
-							items.splice(i,1); 
-							renderList(); 
-							validateForm();
-						};
-
-						actions.appendChild(e);
-						actions.appendChild(r);
-						li.appendChild(span);
-						li.appendChild(actions);
-						list.appendChild(li);
-					});
-				}
-
-				function editItem(i){
-					const curr = (i>=0)? String(items[i]) : '';
-					const val = prompt('Value:', curr);
-					if (val==null) return;
-					if (i>=0) items[i]=val; else items.push(val);
-					renderList();
-					validateForm();
-				}
-
-				// single add button at the bottom
-				const addRow = document.createElement('div');
-				addRow.style.display = 'flex';
-				addRow.style.justifyContent = 'flex-end';
-				addRow.style.marginTop = '6px';
-				const addBtn = document.createElement('button');
-				addBtn.type = 'button';
-				addBtn.textContent = '+';
-				addBtn.title = 'Add';
-				addBtn.onclick = () => editItem(-1);
-				addRow.appendChild(addBtn);
-
-				renderList();
-
-				container.appendChild(list);
-				container.appendChild(addRow);
-
-				// hidden backing input to carry JSON on submit
-				input = document.createElement('input');
-				input.type='hidden';
-				input.value = JSON.stringify(items);
-
-				container.appendChild(input);
-				row.appendChild(container);
-				
-				addHelp(container); 
-				addError();
-				gotoFinalize(false /*no generic placement*/ , input, () => { input.value = JSON.stringify(items); });
-				continue;
-			} else { 
-				input=document.createElement('input');
-				input.type='text';
-				input.value=f.current ?? '';
-			}
-
-			// default placement (non-array)
-			row.appendChild(input);
-			addHelp(input);
-			addError();
-
-			function gotoFinalize(placeInput = true, backingInput = input, onBeforeSubmit = null) {
-				backingInput.id = f.id;
-				backingInput.dataset.key = f.key;
-				backingInput.dataset.required = f.required ? '1' : '0';
-				if (f.placeholder) backingInput.placeholder = f.placeholder;
-				if (f.pattern) backingInput.pattern = f.pattern;
-
-				idByKey.set(f.key, f.id);
-				if (placeInput){
-					backingInput.addEventListener('keydown', e=>{
-						if (e.key === 'Enter' && (backingInput.tagName==='INPUT' || backingInput.tagName==='SELECT')) {
-							e.preventDefault();
-							(formSubmit).focus();
-						}
-					});
-					backingInput.addEventListener('input', validateForm);
-					backingInput.addEventListener('change', validateForm);
-				}
-				// store per-field submit hook if provided
-				if (onBeforeSubmit){
-					if (!formState.beforeSubmit) formState.beforeSubmit = {};
-					formState.beforeSubmit[f.key] = onBeforeSubmit;
-				}
-				formBody.appendChild(row);
-			}
-			gotoFinalize();
-		}
-
-		validateForm();
-		(formBody.querySelector('input,select,textarea') || formSubmit).focus();
-	}
-
-	function validateForm() {
-		const inputs = [...formBody.querySelectorAll('input,select,textarea')].filter(el=>el.type!=='hidden');
-		let ok = true;
-		for (const el of inputs) {
-			el.classList.remove('invalid');
-			const required = el.dataset.required === '1';
-			const v = (el.tagName === 'SELECT') ? el.value : el.value.trim();
-			if (required && !v) { ok = false; continue; }
-			if (el.pattern) {
-				try{
-					const re = new RegExp(el.pattern);
-					if (v && !re.test(v)) {
-						ok = false;
-						el.classList.add('invalid'); 
-					} 
-				} catch { /* bad pattern from host - ignore */ }
-			}
-		}
-		formSubmit.disabled = !ok;
-	}
-
-	function closeForm(ok) {
-		if (!ok) {
-			post({ type: 'FormResult', ok: false });
-		} else {
-			// let fields with custom backing state (e.g., Array) push latest value
-			if (formState?.beforeSubmit) {
-				for (const [k,fn] of Object.entries(formState.beforeSubmit)) try{ fn(); }catch{}
-			}
-			const values = {};
-			for (const f of formState.fields) {
-				const el = document.getElementById(f.id);
-				values[f.key] = (el.tagName === 'SELECT') ? el.value : el.value;
-			}
-			post({ type: 'FormResult', ok: true, values });
-		}
-		formOverlay.style.display = 'none';
-		document.body.style.overflow = '';
-		formState = null;
-		idByKey.clear();
-		errByKey.clear();
-	}
-
-	formCancel.onclick = () => closeForm(false);
-	formSubmit.onclick = () => closeForm(true);
-	formOverlay.addEventListener('click', e => { if (e.target === formOverlay) closeForm(false); });
-	// --- end form controller ---------------------------------------------------------
 
 	// Unified handler
 	function handle(raw) {
 		try {
-			//cwriteline("RX: " + (typeof raw === 'string' ? raw : JSON.stringify(raw)));
-			const msg = (typeof raw === 'string') ? JSON.parse(raw) : raw;
-			if (!msg || !msg.type) return;
-			switch (msg.type) {
-				case 'StartProgress': renderProgressBubble(msg.id, msg.title, !!msg.cancellable); break;
-				case 'UpdateProgress': updateProgressBubble(msg.id, msg); break;
-				case 'CompleteProgress': completeProgressBubble(msg.id, msg.artifact||''); break;				
-				case 'AppendMessage': add((msg.role||'').toLowerCase(), msg.content||''); break;
-				case 'RenderHistory': consoleEl.innerHTML=''; (msg.items||[]).forEach(x=>add((x.role||'').toLowerCase(), x.content||'')); break;
-				case 'ConsoleWrite': cwrite(msg.text||''); break;
-				case 'ConsoleWriteLine': cwriteline(msg.text||''); break;
-				case 'ShowMenu': openMenu(msg); break;
-				case 'ShowForm': openForm(msg); break;
-				case 'FocusInput': t.focus(); break;
-				case 'PickFilesResult': {
-					const { requestId, files } = msg;
-					const cb = pendingPickers.get(requestId);
-					if (cb) {
-						pendingPickers.delete(requestId);
-						try { cb(files || []); } catch {}
-					}
+			const msg = JSON.parse(raw);
+			const type = msg.type;
+			
+			switch (type) {
+				case 'ConsoleWrite':
+					consoleEl.textContent += (msg.text || '');
+					consoleEl.scrollTop = consoleEl.scrollHeight;
 					break;
-				}				
-				case 'Clear': consoleEl.innerHTML=''; break;
-				case 'FormError': {
-					// payload: { type:'FormError', key, message }
-					if (!formState) break;
-					const { key, message } = msg;
-					const id = idByKey.get(key);
-					const err = errByKey.get(key);
-					if (id && err) {
-						const el = document.getElementById(id);
-						el?.classList.add('invalid');
-						err.textContent = message || 'Invalid value.';
-						err.style.display = '';
-						el?.focus();
-					}
+					
+				case 'ConsoleWriteLine':
+					consoleEl.textContent += (msg.text || '') + '\n';
+					consoleEl.scrollTop = consoleEl.scrollHeight;
 					break;
-				}
-				case 'MountControl': mountControl(msg.tree, msg.options); break;
-				case 'PatchControl': patchControl(msg.patch); break;
-				case 'FocusControl': focusControl(msg.key); break;
+					
+				case 'Clear':
+					consoleEl.innerHTML = '';
+					break;
+					
+				case 'AddBubble':
+					add(msg.kind, msg.text);
+					break;
+					
+				case 'MountControl':
+					debugLog('[MountControl] received');
+					mountControl(msg.tree, msg.options);
+					break;
+					
+				case 'PatchControl':
+					patchControl(msg.patch);
+					break;
+					
+				case 'FocusControl':
+					focusControl(msg.key);
+					break;
 			}
-		}catch(e){ cwriteline(`RX error: ${e.message}`); }
+		} catch (e) {
+			debugLog('[ERROR] ' + e.message);
+			console.error('Message handling error:', e, raw);
+		}
 	}
-	window.external.receiveMessage(message => handle(message));
+	
 	function add(kind, text) {
-		const el = document.createElement('div');
-		el.className = 'bubble ' + (kind || '');
-		el.innerHTML = marked.parse(text ?? '');
-		consoleEl.appendChild(el);
-		consoleEl.scrollTop = consoleEl.scrollHeight;
-	}
-
-	// --- progress bubbles ---
-	function renderProgressBubble(id, title, cancellable){
-		const wrap = document.createElement('div');
-		wrap.className = 'bubble tool';
-		wrap.dataset.progressId = id;
-		wrap.innerHTML = `
-			<div style="text-align:left">
-			<div style="font-weight:700;margin-bottom:8px">${title}</div>
-			<div class="rows"></div>
-			<div class="stats" style="margin-top:6px;color:#888;font-size:.9em"></div>
-			<div class="actions" style="margin-top:8px;display:flex;gap:8px;justify-content:flex-end;">
-				${cancellable ? `<button data-cancel style="padding:6px 10px;border:1px solid #666;background:#222;color:#eee;border-radius:8px;cursor:pointer">Cancel</button>` : ``}
-			</div>
-			</div>`;
-		if (cancellable) {
-			wrap.querySelector('[data-cancel]').onclick = () => {
-			post({ type:'CancelProgress', id });
-			wrap.querySelector('[data-cancel]').disabled = true;
-			wrap.querySelector('[data-cancel]').textContent = 'Cancelling…';
-			};
+		const bubble = document.createElement('div');
+		bubble.className = 'bubble ' + kind;
+		if (typeof marked !== 'undefined') {
+			bubble.innerHTML = marked.parse(text || '');
+		} else {
+			bubble.textContent = text || '';
 		}
-		consoleEl.appendChild(wrap);
-		consoleEl.scrollTop = consoleEl.scrollHeight;
-		return wrap;
-	}
-
-	function updateProgressBubble(id, payload){
-		const wrap = consoleEl.querySelector(`[data-progress-id="${id}"]`);
-		if (!wrap) return;
-		const rows = wrap.querySelector('.rows');
-		const stats = wrap.querySelector('.stats');
-
-		rows.innerHTML = '';
-		const MAX_ROWS = 5;
-		const rank = s => (s==='Running'?3 : s==='Queued'?2 : s==='Failed'?1 : s==='Canceled'?0 : -1);
-
-		const active = (payload.items || [])
-		.filter(r => r.state !== 'Completed' && r.state !== 'Canceled')
-		.sort((a,b) => (rank(b.state)-rank(a.state)) || (a.percent-b.percent) || a.name.localeCompare(b.name))
-		.slice(0, MAX_ROWS);
-
-		active.forEach(r => {
-		const pct = Math.max(0, Math.min(100, r.percent|0));
-		const glyph = r.state==='Running' ? '▶' : r.state==='Completed' ? '✓' : r.state==='Failed' ? '✖' : r.state==='Canceled' ? '■' : '•';
-		const right = (r.total>0) ? `${pct}% (${r.done}/${r.total})` : `${pct}%`;
-		const bar = document.createElement('div');
-		bar.className = 'progress-row';
-		bar.style.margin = '6px 0';
-		bar.innerHTML = `
-			<div style="display:flex;justify-content:space-between;gap:10px">
-			<div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70%">${glyph} ${r.name}</div>
-			<div style="color:#aaa">${right}</div>
-			</div>
-			<div class="bar" style="height:8px;background:#222;border:1px solid #444;border-radius:9999px;overflow:hidden">
-			<div class="fill" style="width:${pct}%;height:100%"></div>
-			</div>`;
-		const fill = bar.querySelector('.fill');
-		if (r.state==='Failed') fill.style.background = '#a11';
-		else if (r.state==='Canceled') fill.style.background = '#555';
-		else fill.style.background = '#5a9';
-		rows.appendChild(bar);
-		});
-
-
-		const s = payload.stats||{};
-		stats.textContent = `in-flight: ${s.running||0}   queued: ${s.queued||0}   completed: ${s.completed||0}   failed: ${s.failed||0}   canceled: ${s.canceled||0}` + (payload.eta ? ` • ETA: ${payload.eta}` : '');
-		if (!payload.active) {
-			const btn = wrap.querySelector('[data-cancel]'); if (btn) btn.remove();
-		}
-	}
-
-	function completeProgressBubble(id, artifactMarkdown){
-		const wrap = consoleEl.querySelector(`[data-progress-id="${id}"]`);
-		if (!wrap) return;
-		wrap.removeAttribute('data-progress-id');   // it’s not “live” anymore
-		wrap.className = 'bubble tool';             // normalize classes
-		wrap.innerHTML = marked.parse(artifactMarkdown || '_done_');
+		consoleEl.appendChild(bubble);
 		consoleEl.scrollTop = consoleEl.scrollHeight;
 	}
 
 	function submit() {
-		const v = t.value.trim();
-		if (!v) return;
-		post({ type:'UserText', text:v });
-		t.value = '';
+		const text = t.value.trim();
+		if (text) {
+			post({ type: 'Input', text });
+			t.value = '';
+		}
 	}
 
 	send.onclick = submit;
@@ -726,49 +192,74 @@
 	});
 
 	document.addEventListener('keydown', (e) => {
-		if (!menuOverlay.hidden) return;           // menu open → ignore
-		if (e.target === t && e.key === 'Enter' && !e.shiftKey) return;
-		post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
+		if (document.activeElement !== t)
+			post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
 	});
 
-	// Initial ping → enables .NET flush
-	const ping = () => post({ type:'Resize', width: Math.floor(window.innerWidth/8), height: Math.floor(window.innerHeight/18) });
-	new ResizeObserver(ping).observe(document.body);
-	ping();
+	// Initialize root container for patch-based rendering
+	// Creates a minimal frame.root that will be replaced by the first ReplaceOp from PostSetRootAsync
+	function initializeRootContainer() {
+		// Clear existing content
+		consoleEl.innerHTML = '';
+		controlNodes.clear();
 
-	//cwriteline('UI ready...');
-	t.focus();
+		// Create minimal frame.root container (will be replaced by first patch)
+		const frameRoot = document.createElement('div');
+		frameRoot.setAttribute('data-key', 'frame.root');
+		frameRoot.id = 'frame.root';
+		frameRoot.className = 'frame-root';
+		frameRoot.style.display = 'flex';
+		frameRoot.style.flexDirection = 'column';
+		frameRoot.style.height = '100%';
+		frameRoot.style.width = '100%';
 
-	// --- UiNode Control Surface ---
-	let controlRoot = null;
-	const controlNodes = new Map(); // key -> DOM element mapping
+		consoleEl.appendChild(frameRoot);
+		controlNodes.set('frame.root', frameRoot);
+
+		// Send a message to C# to trigger _ready=true
+		post({ type: 'Ready', message: 'UI initialized' });
+	}
 
 	function mountControl(tree, options) {
-		// Clear the console and mount the control surface
+		if (!tree) {
+			debugLog('[mountControl] No tree');
+			return;
+		}
+		
+		debugLog('[mountControl] Rendering...');
+		
+		// Clear existing control surface
 		consoleEl.innerHTML = '';
 		controlNodes.clear();
 		
-		const rootElement = renderNode(tree);
-		if (rootElement) {
-			consoleEl.appendChild(rootElement);
-			controlRoot = tree;
-			
-			// Apply control options
-			if (options?.trapKeys) {
-				// Already handled by document keydown handler
-			}
-			if (options?.initialFocusKey) {
-				setTimeout(() => focusControl(options.initialFocusKey), 50);
-			}
+		// Render new tree
+		controlRoot = renderNode(tree);
+		if (controlRoot) {
+			debugLog('[mountControl] Appending to console');
+			consoleEl.appendChild(controlRoot);
+		} else {
+			debugLog('[mountControl] renderNode returned null!');
+		}
+		
+		// Set initial focus if specified
+		if (options && options.InitialFocusKey) {
+			debugLog('[mountControl] Focus: ' + options.InitialFocusKey);
+			setTimeout(() => focusControl(options.InitialFocusKey), 50);
 		}
 	}
 
 	function renderNode(node) {
-		if (!node) return null;
+		if (!node) {
+			console.warn('[renderNode] NULL node');
+			return null;
+		}
+		
+		const kind = node.kind;
+		const props = node.props || {};
+		const styles = node.styles || {};
+		const children = node.children || [];
 		
 		let element = null;
-		const kind = node.kind || '';
-		const props = node.props || {};
 		
 		switch (kind) {
 			case 'Column':
@@ -776,357 +267,417 @@
 				element.style.display = 'flex';
 				element.style.flexDirection = 'column';
 				element.style.gap = '8px';
+				applyLayoutProps(element, props);
 				break;
-			
+				
 			case 'Row':
 				element = document.createElement('div');
 				element.style.display = 'flex';
 				element.style.flexDirection = 'row';
 				element.style.gap = '8px';
 				element.style.alignItems = 'center';
+				applyLayoutProps(element, props);
 				break;
-			
+				
 			case 'Label':
 				element = document.createElement('div');
-				element.textContent = props.text || '';
-				if (props.color) {
-					element.style.color = getConsoleColor(props.color);
-				}
-				if (props.wrap) {
-					element.style.whiteSpace = 'pre-wrap';
-					element.style.wordBreak = 'break-word';
-				}
-				if (props.align && String(props.align).toLowerCase() === 'center') {
-					element.style.textAlign = 'center';
-				}
+				element.textContent = props.Text || '';
+				applyTextStyles(element, styles);
 				break;
-			
+				
 			case 'Button':
 				element = document.createElement('button');
-				element.textContent = props.text || 'Button';
-				element.disabled = props.enabled === false;
-				element.style.padding = '6px 12px';
+				element.textContent = props.Text || '';
+				element.disabled = props.Enabled === false;
+				element.style.padding = '8px 16px';
 				element.style.border = '1px solid #ccc';
-				element.style.borderRadius = '6px';
-				element.style.cursor = props.enabled === false ? 'not-allowed' : 'pointer';
+				element.style.borderRadius = '4px';
+				element.style.cursor = props.Enabled === false ? 'not-allowed' : 'pointer';
 				element.style.background = '#f0f0f0';
-				if (props.onClick) {
-					element.onclick = () => post({ type: 'ControlEvent', key: node.key, name: 'click' });
+				
+				if (props.OnClick) {
+					element.addEventListener('click', () => {
+						post({ type: 'ControlEvent', key: node.key, name: 'click', value: null });
+					});
 				}
 				break;
-			
+				
 			case 'TextBox':
 				element = document.createElement('input');
 				element.type = 'text';
-				element.value = props.text || '';
-				element.placeholder = props.placeholder || '';
-				element.style.flex = '1';
-				element.style.padding = '8px 12px';
+				element.value = props.Text || '';
+				element.placeholder = props.Placeholder || '';
+				element.style.padding = '8px';
 				element.style.border = '1px solid #ccc';
-				element.style.borderRadius = '6px';
-				if (props.onChange) {
-					element.oninput = () => post({ type: 'ControlEvent', key: node.key, name: 'change', value: element.value });
-				}
-				if (props.onEnter) {
-					element.onkeydown = (e) => {
-						if (e.key === 'Enter') {
-							post({ type: 'ControlEvent', key: node.key, name: 'enter', value: element.value });
-						}
-					};
-				}
+				element.style.borderRadius = '4px';
+				element.style.flex = '1';
+				
+				element.addEventListener('input', (e) => {
+					post({ type: 'ControlEvent', key: node.key, name: 'change', value: e.target.value });
+				});
+				
+				element.addEventListener('keydown', (e) => {
+					if (e.key === 'Enter') {
+						post({ type: 'ControlEvent', key: node.key, name: 'enter', value: e.target.value });
+					}
+				});
 				break;
-			
+				
 			case 'TextArea':
 				element = document.createElement('textarea');
-				element.value = props.text || '';
-				element.placeholder = props.placeholder || '';
-				element.rows = props.rows || 4;
-				element.style.flex = '1';
-				element.style.padding = '8px 12px';
+				element.value = props.Text || '';
+				element.placeholder = props.Placeholder || '';
+				element.style.padding = '8px';
 				element.style.border = '1px solid #ccc';
-				element.style.borderRadius = '6px';
-				element.style.fontFamily = 'inherit';
+				element.style.borderRadius = '4px';
+				element.style.minHeight = '100px';
 				element.style.resize = 'vertical';
-				if (props.onChange) {
-					element.oninput = () => post({ type: 'ControlEvent', key: node.key, name: 'change', value: element.value });
-				}
+				element.style.flex = '1';
+				
+				element.addEventListener('input', (e) => {
+					post({ type: 'ControlEvent', key: node.key, name: 'change', value: e.target.value });
+				});
 				break;
-			
+				
 			case 'CheckBox':
+			case 'Toggle':
 				element = document.createElement('label');
 				element.style.display = 'flex';
 				element.style.alignItems = 'center';
-				element.style.gap = '6px';
+				element.style.gap = '8px';
+				element.style.cursor = 'pointer';
+				
 				const checkbox = document.createElement('input');
 				checkbox.type = 'checkbox';
-				checkbox.checked = props.checked === true;
-				if (props.onChange) {
-					checkbox.onchange = () => post({ type: 'ControlEvent', key: node.key, name: 'change', value: checkbox.checked });
-				}
+				checkbox.checked = props.Checked || false;
+				
+				checkbox.addEventListener('change', (e) => {
+					post({ type: 'ControlEvent', key: node.key, name: 'toggle', value: e.target.checked });
+				});
+				
 				const label = document.createElement('span');
-				label.textContent = props.label || '';
+				label.textContent = props.Label || '';
+				
 				element.appendChild(checkbox);
 				element.appendChild(label);
 				break;
-			
-			case 'Toggle':
-				element = document.createElement('button');
-				element.textContent = props.text || 'Toggle';
-				element.dataset.toggled = props.toggled === true ? 'true' : 'false';
-				element.style.padding = '6px 12px';
-				element.style.border = '1px solid #ccc';
-				element.style.borderRadius = '6px';
-				element.style.cursor = 'pointer';
-				element.style.background = element.dataset.toggled === 'true' ? '#5a9' : '#f0f0f0';
-				element.onclick = () => {
-					const newState = element.dataset.toggled !== 'true';
-					element.dataset.toggled = newState ? 'true' : 'false';
-					element.style.background = newState ? '#5a9' : '#f0f0f0';
-					post({ type: 'ControlEvent', key: node.key, name: 'toggle', value: newState });
-				};
-				break;
-			
+				
 			case 'ListView':
 				element = document.createElement('div');
 				element.style.border = '1px solid #ccc';
-				element.style.borderRadius = '6px';
-				element.style.maxHeight = props.maxHeight || '300px';
+				element.style.borderRadius = '4px';
+				element.style.maxHeight = '300px';
 				element.style.overflowY = 'auto';
-				const items = props.items || [];
-				const selectedIndex = props.selectedIndex || 0;
+				
+				const items = props.Items || [];
+				const selectedIndex = props.SelectedIndex || 0;
+				
 				items.forEach((item, index) => {
-					const itemDiv = document.createElement('div');
-					itemDiv.textContent = item;
-					itemDiv.style.padding = '8px 12px';
-					itemDiv.style.cursor = 'pointer';
-					itemDiv.style.background = index === selectedIndex ? '#e0e0e0' : 'transparent';
-					itemDiv.onmouseenter = () => { itemDiv.style.background = '#f0f0f0'; };
-					itemDiv.onmouseleave = () => { itemDiv.style.background = index === selectedIndex ? '#e0e0e0' : 'transparent'; };
-					itemDiv.onclick = () => post({ type: 'ControlEvent', key: node.key, name: 'itemActivated', value: index });
-					element.appendChild(itemDiv);
+					const itemEl = document.createElement('div');
+					itemEl.textContent = item;
+					itemEl.style.padding = '8px 12px';
+					itemEl.style.cursor = 'pointer';
+					itemEl.style.borderBottom = '1px solid #eee';
+					
+					if (index === selectedIndex) {
+						itemEl.style.background = '#e3f2fd';
+						itemEl.style.fontWeight = 'bold';
+					}
+					
+					itemEl.addEventListener('click', () => {
+						post({ type: 'ControlEvent', key: node.key, name: 'itemActivated', value: item });
+					});
+					
+					itemEl.addEventListener('mouseenter', () => {
+						if (index !== selectedIndex) {
+							itemEl.style.background = '#f5f5f5';
+						}
+					});
+					
+					itemEl.addEventListener('mouseleave', () => {
+						if (index !== selectedIndex) {
+							itemEl.style.background = '';
+						}
+					});
+					
+					element.appendChild(itemEl);
 				});
 				break;
-			
+				
+			case 'Html':
+				element = document.createElement('div');
+				const content = props.Content || '';
+				
+				// Check if content is markdown or HTML
+				if (typeof marked !== 'undefined' && !content.trim().startsWith('<')) {
+					// Parse as markdown
+					element.innerHTML = marked.parse(content);
+				} else {
+					// Render as HTML
+					element.innerHTML = content;
+				}
+				element.classList.add('bubble', 'tool');
+				break;
+				
 			case 'Spacer':
 				element = document.createElement('div');
-				if (props.height) element.style.height = props.height + 'px';
-				if (props.width) element.style.width = props.width + 'px';
-				element.style.flex = props.flex || '0';
+				const height = props.Height || 1;
+				element.style.height = (height * 8) + 'px';
 				break;
-			
+				
 			case 'Accordion':
 				element = document.createElement('details');
-				if (props.expanded) element.open = true;
+				element.open = props.Expanded || false;
+				
 				const summary = document.createElement('summary');
-				summary.textContent = props.title || 'Section';
+				summary.textContent = props.Title || 'Accordion';
 				summary.style.cursor = 'pointer';
 				summary.style.padding = '8px';
 				summary.style.fontWeight = 'bold';
-				summary.style.background = '#f0f0f0';
-				summary.style.borderRadius = '6px';
 				element.appendChild(summary);
-				const content = document.createElement('div');
-				content.style.padding = '8px';
-				element.appendChild(content);
-				// Children will be added to content below
-				element._contentContainer = content;
+				
+				const contentDiv = document.createElement('div');
+				contentDiv.style.padding = '8px';
+				element.appendChild(contentDiv);
+				
+				// Store reference for children
+				element._contentContainer = contentDiv;
 				break;
-			
-			case 'Html':
-				element = document.createElement('div');
-				element.innerHTML = props.html || '';
-				break;
-			
+				
 			case 'Progress':
-				element = document.createElement('div');
-				element.className = 'bubble tool';
-				element.style.background = '#eee';
-				element.style.borderColor = '#eee';
-				element.style.padding = '10px 12px';
-				element.style.borderRadius = '10px';
-				element.style.maxWidth = '100%';
-				element.style.alignSelf = 'stretch';
-				
-				// Progress title
-				const progressTitle = document.createElement('div');
-				progressTitle.style.fontWeight = '600';
-				progressTitle.style.marginBottom = '8px';
-				progressTitle.style.color = '#000';
-				progressTitle.textContent = props.Title || 'Progress';
-				element.appendChild(progressTitle);
-				
-				// Progress items
-				const progressItems = props.ProgressItems || [];
-				const stats = props.ProgressStats || { Item1: 0, Item2: 0, Item3: 0, Item4: 0, Item5: 0 };
-				const etaHint = props.EtaHint || '';
-				const isActive = props.IsActive === true;
-				
-				// Filter to show only active work (running, queued, failed)
-				const activeItems = progressItems.filter(item => {
-					const state = item.Item3 || item.state;
-					return state !== 'Completed' && state !== 'Canceled';
-				});
-				
-				// Sort by priority (Running > Queued > Failed)
-				const rank = (state) => {
-					switch(state) {
-						case 'Running': return 3;
-						case 'Queued': return 2;
-						case 'Failed': return 1;
-						default: return 0;
-					}
-				};
-				
-				activeItems.sort((a, b) => {
-					const stateA = a.Item3 || a.state;
-					const stateB = b.Item3 || b.state;
-					const rankDiff = rank(stateB) - rank(stateA);
-					if (rankDiff !== 0) return rankDiff;
-					const pctA = a.Item2 || a.percent || 0;
-					const pctB = b.Item2 || b.percent || 0;
-					return pctA - pctB;
-				});
-				
-				// Render each progress item
-				activeItems.slice(0, 10).forEach(item => {
-					const name = item.Item1 || item.name || '';
-					const percent = item.Item2 || item.percent || 0;
-					const state = item.Item3 || item.state || 'Queued';
-					const note = item.Item4 || item.note || '';
-					const steps = item.Item5 || item.steps || { Item1: 0, Item2: 0 };
-					const done = steps.Item1 || steps.done || 0;
-					const total = steps.Item2 || steps.total || 0;
-					
-					const progressRow = document.createElement('div');
-					progressRow.style.marginBottom = '6px';
-					progressRow.style.position = 'relative';
-					progressRow.style.background = '#f5f5f5';
-					progressRow.style.borderRadius = '4px';
-					progressRow.style.overflow = 'hidden';
-					
-					// Progress bar background
-					const progressBar = document.createElement('div');
-					progressBar.style.position = 'absolute';
-					progressBar.style.left = '0';
-					progressBar.style.top = '0';
-					progressBar.style.bottom = '0';
-					progressBar.style.width = Math.min(100, Math.max(0, percent)) + '%';
-					progressBar.style.transition = 'width 0.3s ease';
-					
-					switch(state) {
-						case 'Running':
-							progressBar.style.background = '#4a9eff';
-							break;
-						case 'Failed':
-							progressBar.style.background = '#e74c3c';
-							break;
-						case 'Completed':
-							progressBar.style.background = '#2ecc71';
-							break;
-						default:
-							progressBar.style.background = '#95a5a6';
-					}
-					
-					progressRow.appendChild(progressBar);
-					
-					// Progress text
-					const progressText = document.createElement('div');
-					progressText.style.position = 'relative';
-					progressText.style.padding = '6px 8px';
-					progressText.style.display = 'flex';
-					progressText.style.justifyContent = 'space-between';
-					progressText.style.color = '#000';
-					progressText.style.fontSize = '0.9em';
-					
-					const glyph = (() => {
-						switch(state) {
-							case 'Running': return '▶';
-							case 'Completed': return '✓';
-							case 'Failed': return '✖';
-							case 'Canceled': return '■';
-							default: return '•';
-						}
-					})();
-					
-					const leftText = document.createElement('span');
-					leftText.style.fontWeight = '500';
-					leftText.textContent = `${glyph} ${name}`;
-					
-					const rightText = document.createElement('span');
-					rightText.style.fontFamily = 'monospace';
-					rightText.textContent = total > 0 
-						? `${percent.toFixed(1)}% (${done}/${total})`
-						: `${percent.toFixed(1)}%`;
-					
-					progressText.appendChild(leftText);
-					progressText.appendChild(rightText);
-					progressRow.appendChild(progressText);
-					
-					element.appendChild(progressRow);
-				});
-				
-				// Stats footer
-				const statsDiv = document.createElement('div');
-				statsDiv.style.marginTop = '8px';
-				statsDiv.style.padding = '6px 8px';
-				statsDiv.style.background = '#f9f9f9';
-				statsDiv.style.borderRadius = '4px';
-				statsDiv.style.fontSize = '0.85em';
-				statsDiv.style.color = '#666';
-				
-				const running = stats.Item1 || stats.running || 0;
-				const queued = stats.Item2 || stats.queued || 0;
-				const completed = stats.Item3 || stats.completed || 0;
-				const failed = stats.Item4 || stats.failed || 0;
-				const canceled = stats.Item5 || stats.canceled || 0;
-				
-				statsDiv.innerHTML = `
-					<div>Running: ${running} • Queued: ${queued} • Completed: ${completed} • Failed: ${failed} • Canceled: ${canceled}</div>
-					${etaHint ? `<div>ETA: ${etaHint}</div>` : ''}
-					${isActive ? '<div style="margin-top:4px;color:#4a9eff;">Press ESC to cancel</div>' : ''}
-				`;
-				
-				element.appendChild(statsDiv);
+				element = renderProgressNode(node, props);
 				break;
-			
+				
 			default:
+				console.warn('Unknown UiKind:', kind);
 				element = document.createElement('div');
-				element.textContent = `[Unknown kind: ${kind}]`;
+				element.textContent = `[Unknown: ${kind}]`;
+				break;
 		}
 		
-		if (element) {
-			element.dataset.uiKey = node.key;
-			controlNodes.set(node.key, element);
-			
-			// Apply common props
-			if (props.scrollable) {
-				element.style.overflowY = 'auto';
-				element.style.flex = '1';
-			}
-			if (props.autoScroll) {
+		if (!element) return null;
+		
+		// Store node key for patching
+		element.dataset.nodeKey = node.key;
+		controlNodes.set(node.key, element);
+		
+		// Apply common properties
+		if (props.Width) element.style.width = props.Width;
+		if (props.Height && kind !== 'Spacer') element.style.height = props.Height;
+		if (props.Padding) element.style.padding = props.Padding;
+		if (props.Modal) {
+			element.style.position = 'fixed';
+			element.style.top = '50%';
+			element.style.left = '50%';
+			element.style.transform = 'translate(-50%, -50%)';
+			element.style.background = 'white';
+			element.style.padding = '24px';
+			element.style.borderRadius = '8px';
+			element.style.boxShadow = '0 4px 20px rgba(0,0,0,0.3)';
+			element.style.zIndex = '1000';
+		}
+		
+		if (props.Scrollable || props.AutoScroll) {
+			element.style.overflowY = 'auto';
+			if (props.AutoScroll) {
 				element.dataset.autoScroll = 'true';
 			}
+		}
+		
+		// Apply layout-specific properties
+		if (props.Layout === 'dock-bottom') {
+			element.style.display = 'flex';
+			element.style.flexDirection = 'column';
+			element.style.height = '100%';
 			
-			// Render children
-			const container = element._contentContainer || element;
-			if (node.children && node.children.length > 0) {
-				node.children.forEach(child => {
-					const childElement = renderNode(child);
-					if (childElement) {
-						container.appendChild(childElement);
-					}
-				});
-			}
-			
-			// Auto-scroll if needed
-			if (props.autoScroll) {
+			// Find the messages panel child and make it scrollable
+			if (children.length > 0) {
+				const firstChildKey = children[0].key;
 				setTimeout(() => {
-					element.scrollTop = element.scrollHeight;
+					const firstChild = controlNodes.get(firstChildKey);
+					if (firstChild) {
+						firstChild.style.flex = '1';
+						firstChild.style.overflowY = 'auto';
+						firstChild.style.minHeight = '0';
+					}
 				}, 0);
 			}
 		}
 		
+		// Render children
+		const container = element._contentContainer || element;
+		children.forEach(child => {
+			const childElement = renderNode(child);
+			if (childElement) {
+				container.appendChild(childElement);
+			}
+		});
+		
 		return element;
+	}
+	
+	function renderProgressNode(node, props) {
+		const element = document.createElement('div');
+		element.classList.add('bubble', 'tool');
+		element.style.padding = '12px';
+		element.style.background = '#f9f9f9';
+		element.style.border = '1px solid #ddd';
+		element.style.borderRadius = '4px';
+		
+		const title = props.Title || 'Progress';
+		const items = props.ProgressItems || [];
+		const stats = props.ProgressStats || [0, 0, 0, 0, 0];
+		const etaHint = props.EtaHint || null;
+		const isActive = props.IsActive !== false;
+		const cancellable = props.Cancellable || false;
+		
+		// Title
+		const titleEl = document.createElement('h3');
+		titleEl.textContent = title;
+		titleEl.style.marginTop = '0';
+		element.appendChild(titleEl);
+		
+		// Stats line
+		const statsEl = document.createElement('div');
+		statsEl.textContent = `Running: ${stats[0]}, Queued: ${stats[1]}, Completed: ${stats[2]}, Failed: ${stats[3]}, Canceled: ${stats[4]}`;
+		statsEl.style.fontSize = '0.9em';
+		statsEl.style.color = '#666';
+		statsEl.style.marginBottom = '8px';
+		element.appendChild(statsEl);
+		
+		// ETA hint
+		if (etaHint) {
+			const etaEl = document.createElement('div');
+			etaEl.textContent = `ETA: ${etaHint}`;
+			etaEl.style.fontSize = '0.9em';
+			etaEl.style.color = '#666';
+			etaEl.style.marginBottom = '8px';
+			element.appendChild(etaEl);
+		}
+		
+		// Progress items (show only active work)
+		const activeItems = items.filter(item => {
+			const state = item[2]; // ProgressState enum value
+			return state !== 'Completed' && state !== 'Canceled';
+		});
+		
+		if (activeItems.length > 0) {
+			const listEl = document.createElement('div');
+			listEl.style.marginTop = '12px';
+			
+			activeItems.forEach(item => {
+				const [name, percent, state, note, steps] = item;
+				const itemEl = document.createElement('div');
+				itemEl.style.marginBottom = '8px';
+				itemEl.style.padding = '8px';
+				itemEl.style.background = '#fff';
+				itemEl.style.border = '1px solid #e0e0e0';
+				itemEl.style.borderRadius = '4px';
+				
+				// Item name and state
+				const headerEl = document.createElement('div');
+				headerEl.style.display = 'flex';
+				headerEl.style.justifyContent = 'space-between';
+				headerEl.style.marginBottom = '4px';
+				
+				const nameEl = document.createElement('span');
+				nameEl.textContent = name;
+				nameEl.style.fontWeight = 'bold';
+				
+				const stateEl = document.createElement('span');
+				stateEl.textContent = state;
+				stateEl.style.fontSize = '0.85em';
+				stateEl.style.color = state === 'Running' ? '#2196f3' : state === 'Failed' ? '#f44336' : '#666';
+				
+				headerEl.appendChild(nameEl);
+				headerEl.appendChild(stateEl);
+				itemEl.appendChild(headerEl);
+				
+				// Progress bar
+				const progressBarBg = document.createElement('div');
+				progressBarBg.style.width = '100%';
+				progressBarBg.style.height = '8px';
+				progressBarBg.style.background = '#e0e0e0';
+				progressBarBg.style.borderRadius = '4px';
+				progressBarBg.style.overflow = 'hidden';
+				
+				const progressBarFg = document.createElement('div');
+				progressBarFg.style.width = percent + '%';
+				progressBarFg.style.height = '100%';
+				progressBarFg.style.background = state === 'Running' ? '#2196f3' : state === 'Failed' ? '#f44336' : '#4caf50';
+				progressBarFg.style.transition = 'width 0.3s ease';
+				
+				progressBarBg.appendChild(progressBarFg);
+				itemEl.appendChild(progressBarBg);
+				
+				// Note or steps
+				if (note) {
+					const noteEl = document.createElement('div');
+					noteEl.textContent = note;
+					noteEl.style.fontSize = '0.85em';
+					noteEl.style.color = '#666';
+					noteEl.style.marginTop = '4px';
+					itemEl.appendChild(noteEl);
+				} else if (steps && steps[1] > 0) {
+					const stepsEl = document.createElement('div');
+					stepsEl.textContent = `${steps[0]} / ${steps[1]} steps`;
+					stepsEl.style.fontSize = '0.85em';
+					stepsEl.style.color = '#666';
+					stepsEl.style.marginTop = '4px';
+					itemEl.appendChild(stepsEl);
+				}
+				
+				listEl.appendChild(itemEl);
+			});
+			
+			element.appendChild(listEl);
+		}
+		
+		// Cancel button
+		if (cancellable && isActive) {
+			const cancelBtn = document.createElement('button');
+			cancelBtn.textContent = 'Cancel (ESC)';
+			cancelBtn.style.marginTop = '12px';
+			cancelBtn.style.padding = '6px 12px';
+			cancelBtn.style.border = '1px solid #ccc';
+			cancelBtn.style.borderRadius = '4px';
+			cancelBtn.style.background = '#f0f0f0';
+			cancelBtn.style.cursor = 'pointer';
+			
+			cancelBtn.addEventListener('click', () => {
+				post({ type: 'CancelProgress', id: node.key.replace('progress-', '') });
+			});
+			
+			element.appendChild(cancelBtn);
+		}
+		
+		return element;
+	}
+	
+	function applyLayoutProps(element, props) {
+		if (props.Padding) element.style.padding = props.Padding;
+		if (props.Width) element.style.width = props.Width;
+		if (props.Height) element.style.height = props.Height;
+	}
+	
+	function applyTextStyles(element, styles) {
+		if (styles.ForegroundColor) {
+			element.style.color = getConsoleColor(styles.ForegroundColor);
+		}
+		if (styles.BackgroundColor) {
+			element.style.background = getConsoleColor(styles.BackgroundColor);
+		}
+		if (styles.Bold) {
+			element.style.fontWeight = 'bold';
+		}
+		if (styles.Align) {
+			element.style.textAlign = styles.Align;
+		}
+		if (styles.Wrap === false) {
+			element.style.whiteSpace = 'nowrap';
+			element.style.overflow = 'hidden';
+			element.style.textOverflow = 'ellipsis';
+		}
 	}
 
 	function patchControl(patch) {
@@ -1169,34 +720,102 @@
 		const element = controlNodes.get(key);
 		if (!element) return;
 		
-		// Update properties based on element type
-		if (props.text !== undefined) {
-			if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
-				element.value = props.text;
-			} else if (element.tagName === 'BUTTON') {
-				element.textContent = props.text;
-			} else {
-				element.textContent = props.text;
+		// Update properties based on prop keys
+		Object.keys(props).forEach(propKey => {
+			const value = props[propKey];
+			
+			switch (propKey) {
+				case 'Text':
+					if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+						element.value = value || '';
+					} else if (element.tagName === 'BUTTON') {
+						element.textContent = value || '';
+					} else {
+						element.textContent = value || '';
+					}
+					break;
+					
+				case 'Enabled':
+					if (element.tagName === 'BUTTON') {
+						element.disabled = !value;
+						element.style.cursor = value ? 'pointer' : 'not-allowed';
+					}
+					break;
+					
+				case 'Checked':
+					const checkbox = element.querySelector('input[type="checkbox"]');
+					if (checkbox) {
+						checkbox.checked = value || false;
+					}
+					break;
+					
+				case 'Placeholder':
+					if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+						element.placeholder = value || '';
+					}
+					break;
+					
+				case 'Items':
+					// For ListView, rebuild the items
+					if (element.dataset.nodeKey) {
+						const selectedIndex = props.SelectedIndex || 0;
+						element.innerHTML = '';
+						
+						(value || []).forEach((item, index) => {
+							const itemEl = document.createElement('div');
+							itemEl.textContent = item;
+							itemEl.style.padding = '8px 12px';
+							itemEl.style.cursor = 'pointer';
+							itemEl.style.borderBottom = '1px solid #eee';
+							
+							if (index === selectedIndex) {
+								itemEl.style.background = '#e3f2fd';
+								itemEl.style.fontWeight = 'bold';
+							}
+							
+							itemEl.addEventListener('click', () => {
+								post({ type: 'ControlEvent', key: key, name: 'itemActivated', value: item });
+							});
+							
+							itemEl.addEventListener('mouseenter', () => {
+								if (index !== selectedIndex) {
+									itemEl.style.background = '#f5f5f5';
+								}
+							});
+							
+							itemEl.addEventListener('mouseleave', () => {
+								if (index !== selectedIndex) {
+									itemEl.style.background = '';
+								}
+							});
+							
+							element.appendChild(itemEl);
+						});
+					}
+					break;
+					
+				case 'ProgressItems':
+				case 'ProgressStats':
+				case 'EtaHint':
+				case 'IsActive':
+					// For progress nodes, we need to re-render the entire node
+					// Store the props on the element for now
+					if (!element._progressProps) element._progressProps = {};
+					element._progressProps[propKey] = value;
+					
+					// If we have all the props, re-render
+					if (element._progressProps.ProgressItems !== undefined) {
+						// Find the original node to get the kind
+						const parentNode = { key: key, kind: 'Progress', props: element._progressProps || {}, children: [] };
+						const newElement = renderProgressNode(parentNode, element._progressProps);
+						if (newElement && element.parentNode) {
+							element.parentNode.replaceChild(newElement, element);
+							controlNodes.set(key, newElement);
+						}
+					}
+					break;
 			}
-		}
-		
-		if (props.enabled !== undefined && element.tagName === 'BUTTON') {
-			element.disabled = !props.enabled;
-			element.style.cursor = props.enabled ? 'pointer' : 'not-allowed';
-		}
-		
-		if (props.color !== undefined) {
-			element.style.color = getConsoleColor(props.color);
-		}
-		
-		if (props.checked !== undefined) {
-			const checkbox = element.querySelector('input[type="checkbox"]');
-			if (checkbox) checkbox.checked = props.checked;
-		}
-		
-		if (props.placeholder !== undefined && (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA')) {
-			element.placeholder = props.placeholder;
-		}
+		});
 		
 		// Auto-scroll if autoScroll property is set
 		if (element.dataset.autoScroll === 'true') {
@@ -1208,11 +827,17 @@
 
 	function insertChild(parentKey, index, childNode) {
 		const parent = controlNodes.get(parentKey);
-		if (!parent) return;
+		if (!parent) {
+			console.warn('insertChild: parent not found:', parentKey);
+			return;
+		}
 		
 		const container = parent._contentContainer || parent;
 		const childElement = renderNode(childNode);
-		if (!childElement) return;
+		if (!childElement) {
+			console.warn('[insertChild] renderNode returned null');
+			return;
+		}
 		
 		if (index >= container.children.length) {
 			container.appendChild(childElement);
@@ -1265,6 +890,10 @@
 		};
 		return colorMap[color] || color;
 	}
+	
+	// Initialize after all functions are defined
+	// WebView2 APIs are immediately available in Photino
+	initializeApp();
 </script>
 </body>
 </html>
