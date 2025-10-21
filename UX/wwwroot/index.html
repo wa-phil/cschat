@@ -62,10 +62,12 @@
 	const t = document.getElementById('t');
 	const send = document.getElementById('send');
 
+	// this is known to work all the time, everywhere -- do not modify/replace this implementation
+	function post(obj) { try { window.external.sendMessage(JSON.stringify(obj)); } catch (e) { console.error('post failed:', e); } }
+
 	function debugLog(msg) {
-		const text = (typeof msg === 'string') ? msg : JSON.stringify(msg);
-		// forward to host for logging
-		try { window.external.sendMessage(JSON.stringify({ type: 'Debug', message: text })); } catch {}
+		const content = { type: 'Debug', message: (typeof msg === 'string') ? msg : JSON.stringify(msg) }
+		post(content);
 	}
 	
 	// --- UiNode Control Surface ---
@@ -144,9 +146,6 @@
 
 		t.focus();
 	}
-
-	// this is known to work all the time, everywhere -- do not modify/replace this implementation
-	function post(obj) { try { window.external.sendMessage(JSON.stringify(obj)); } catch (e) { console.error('post failed:', e); } }
 
 	// Open all links in the system browser instead of navigating inside Photino
 	document.addEventListener('click', (e) => {
@@ -289,272 +288,305 @@
 		}
 	}
 
-	function renderNode(node) {
-		if (!node) {
-			debugLog('[renderNode] NULL node');
-			return null;
-		}
-		
-		const kind = node.kind;
+	// ================= Data-driven UiKind registry (rebuilt to avoid TDZ self-references) =================
+	const KINDS = {};
+
+	// Simple kinds
+	KINDS.Column = { 
+		tag:'div', 
+		init(el,p){
+			el.style.display='flex';
+			el.style.flexDirection='column';
+			el.style.gap='8px'; 
+		} 
+	};
+
+	KINDS.Row    = { 
+		tag:'div', 
+		init(el,p){ 
+			el.style.display='flex';
+			el.style.flexDirection='row';
+			el.style.gap='8px';
+			el.style.alignItems='center'; 
+		} 
+	};
+
+	KINDS.Label  = { 
+		tag:'div', 
+		init(el,p){ 
+			el.textContent = p.Text || ''; 
+		}, 
+		props:{ 
+			Text(el,v){ el.textContent = v||''; } 
+		} 
+	};
+
+	KINDS.Button = { 
+		tag:'button', 
+		init(el,p){ 
+			el.textContent=p.Text||'';
+			el.disabled=p.Enabled===false;
+			el.style.padding='8px 16px';
+			el.style.border='1px solid #ccc';
+			el.style.borderRadius='4px';
+			el.style.cursor=p.Enabled===false?'not-allowed':'pointer';
+			el.style.background='#f0f0f0';
+		}, props:{ 
+			Text(el,v){ el.textContent=v||''; }, 
+			Enabled(el,v){ 
+				el.disabled=v===false;
+				el.style.cursor=v===false?'not-allowed':'pointer';
+			}
+		}, events:{ 
+			OnClick(el,key){ 
+				el.addEventListener('click',()=> post({ type:'ControlEvent', key, name:'click', value:null })); 
+			} 
+		} 
+	};
+
+	KINDS.TextBox = { 
+		tag:'input', 
+		init(el,p){ 
+			el.type='text'; 
+			el.value=p.Text||''; 
+			el.placeholder=p.Placeholder||''; 
+			el.style.padding='8px'; 
+			el.style.border='1px solid #ccc'; 
+			el.style.borderRadius='4px'; 
+			el.style.flex='1'; 
+		}, props:{ 
+			Text(el,v){ 
+				if(el.value!==(v||'')) el.value=v||''; 
+			}, Placeholder(el,v){ 
+				el.placeholder=v||''; 
+			} 
+		}, events:{ 
+			OnChange(el,key){ 
+				el.addEventListener('input',e=> post({ type:'ControlEvent', key, name:'change', value:e.target.value })); 
+			}, OnEnter(el,key){ 
+				el.addEventListener('keydown',e=>{ if(e.key==='Enter') post({ type:'ControlEvent', key, name:'enter', value:el.value }); }); 
+			} 
+		}, _extraWire(el,key){ 
+			el.addEventListener('input',e=> post({ type:'ControlEvent', key, name:'change', value:e.target.value }));
+		 	el.addEventListener('keydown',e=>{ if(e.key==='Enter') post({ type:'ControlEvent', key, name:'enter', value:el.value }); }); 
+		} 
+	};
+	
+	KINDS.TextArea = { 
+		tag:'textarea', 
+		init(el,p){ 
+			el.value=p.Text||''; 
+			el.placeholder=p.Placeholder||''; 
+			el.style.padding='8px'; 
+			el.style.border='1px solid #ccc'; 
+			el.style.borderRadius='4px'; 
+			el.style.minHeight='100px'; 
+			el.style.resize='vertical'; 
+			el.style.flex='1'; 
+		}, props:{ 
+			Text(el,v){ 
+				if(el.value!==(v||'')) el.value=v||''; 
+			}, Placeholder(el,v){ el.placeholder=v||''; } 
+		}, events:{ 
+			OnChange(el,key){ el.addEventListener('input',e=> post({ type:'ControlEvent', key, name:'change', value:e.target.value })); } 
+		}, _extraWire(el,key){ el.addEventListener('input',e=> post({ type:'ControlEvent', key, name:'change', value:e.target.value })); } 
+	};
+
+	// CheckBox + Toggle
+	KINDS.CheckBox = { 
+		create(node){ 
+			const p=node.props||{}; 
+			const label=document.createElement('label'); 
+			label.style.display='flex'; 
+			label.style.alignItems='center'; 
+			label.style.gap='8px'; 
+			label.style.cursor='pointer'; 
+			const cb=document.createElement('input'); 
+			cb.type='checkbox'; 
+			cb.checked=p.Checked||false; 
+			cb.addEventListener('change',e=> post({ type:'ControlEvent', key: node.key, name:'toggle', value:e.target.checked })); 
+			const span=document.createElement('span'); 
+			span.textContent=p.Label||''; 
+			label.appendChild(cb); 
+			label.appendChild(span); 
+			return label; 
+		}, props:{ 
+			Checked(el,v){ 
+				const cb=el.querySelector('input[type=checkbox]'); 
+				if(cb) cb.checked=!!v; 
+			}, Label(el,v){ 
+				const s=el.querySelector('span'); 
+				if(s) s.textContent=v||''; 
+			} 
+		}, events:{ 
+			OnToggle(){ /* already wired */ } 
+		} 
+	};
+
+	KINDS.Toggle = { 
+		create(node){ 
+			return KINDS.CheckBox.create(node); 
+		}, props: KINDS.CheckBox.props, events: KINDS.CheckBox.events 
+	};
+
+	KINDS.ListView = {
+		tag:'div',
+		init(el,p){ 
+			el.style.border='1px solid #ccc'; 
+			el.style.borderRadius='4px'; 
+			el.style.maxHeight='300px'; 
+			el.style.overflowY='auto'; 
+			el._items = p.Items || []; 
+			this.renderItems(el, p.SelectedIndex||0); 
+		}, renderItems(el, selectedIndex){ 
+			el.innerHTML=''; 
+			const items = el._items || []; 
+			items.forEach((item,idx)=>{ 
+				const div=document.createElement('div'); 
+				div.textContent=item; 
+				div.style.padding='8px 12px'; 
+				div.style.cursor='pointer'; 
+				div.style.borderBottom='1px solid #eee'; 
+				if(idx===selectedIndex){ 
+					div.style.background='#e3f2fd'; 
+					div.style.fontWeight='bold'; 
+				} 
+				div.addEventListener('click',()=> post({ type:'ControlEvent', key: el.dataset.nodeKey, name:'itemActivated', value:item })); 
+				div.addEventListener('mouseenter',()=>{ if(idx!==selectedIndex) div.style.background='#f5f5f5'; }); 
+				div.addEventListener('mouseleave',()=>{ if(idx!==selectedIndex) div.style.background=''; });
+				el.appendChild(div); }
+			); 
+		},
+		props:{ 
+			Items(el,v){ 
+				el._items = v||[]; 
+				this.renderItems(el,0); 
+			}, 
+			SelectedIndex(el,v){ this.renderItems(el, v||0); } },
+		events:{ OnItemActivated(){ /* per-item */ } }
+	};
+
+	// Html
+	KINDS.Html = { 
+		tag:'div', 
+		init(el,p){ 
+			const content=p.Content||''; 
+			if(typeof marked!=='undefined' && !content.trim().startsWith('<')) 
+				el.innerHTML=marked.parse(content);
+			else 
+				el.innerHTML=content; 
+			el.classList.add('bubble','tool'); 
+		}, props:{ 
+			Content(el,v){ 
+				if(typeof v==='string'){ 
+					if(typeof marked!=='undefined' && !v.trim().startsWith('<')) 
+						el.innerHTML=marked.parse(v); 
+					else 
+						el.innerHTML=v; 
+				} 
+			} 
+		} 
+	};
+
+	KINDS.Spacer = { 
+		tag:'div', 
+		init(el,p){ 
+			const h=p.Height||1; 
+			el.style.height=(h*8)+'px'; 
+		} 
+	};
+
+	KINDS.Accordion = { 
+		create(node){ 
+			const p=node.props||{}; 
+			const details=document.createElement('details'); 
+			details.open = p.Expanded || false; 
+			const summary=document.createElement('summary'); 
+			summary.textContent=p.Title||'Accordion'; 
+			summary.style.cursor='pointer'; 
+			summary.style.padding='8px'; 
+			summary.style.fontWeight='bold'; 
+			details.appendChild(summary); 
+			const contentDiv=document.createElement('div'); 
+			contentDiv.style.padding='8px'; 
+			details._contentContainer=contentDiv; 
+			details.appendChild(contentDiv); 
+			return details; 
+		}, props:{ 
+			Expanded(el,v){ el.open=!!v; }, 
+			Title(el,v){ 
+				const s=el.querySelector('summary'); 
+				if(s) s.textContent=v||'Accordion'; 
+			} 
+		} 
+	};
+
+	// Progress (avoid referencing KINDS inside its own spec)
+	const progressSpec = { 
+		create(node){ 
+			return renderProgressNode(node, node.props||{}); 
+		}, props:{ 
+			ProgressItems(el,v){ 
+				progressSpec._reRender(el); 
+			}, ProgressStats(el,v){ 
+				progressSpec._reRender(el); 
+			}, EtaHint(el,v){ 
+				progressSpec._reRender(el); 
+			}, IsActive(el,v){ 
+				progressSpec._reRender(el); 
+			} 
+		}, _reRender(el){ 
+			const key=el.dataset.nodeKey; 
+			const props = el._progressProps || {}; 
+			const parentNode={ 
+				key, kind:'Progress', 
+				props, children: []
+			};
+			const newEl = renderProgressNode(parentNode, props); 
+			if(newEl && el.parentNode){ 
+				el.parentNode.replaceChild(newEl, el); 
+				controlNodes.set(key,newEl); 
+			} 
+		}, init(){ /* already rendered */ } 
+	};
+
+	KINDS.Progress = progressSpec;
+
+	function wireEventsForNode(el, spec, node){
 		const props = node.props || {};
-		const styles = node.styles || {};
-		const children = node.children || [];
-		
-		let element = null;
-		
-		switch (kind) {
-			case 'Column':
-				element = document.createElement('div');
-				element.style.display = 'flex';
-				element.style.flexDirection = 'column';
-				element.style.gap = '8px';
-				applyLayoutProps(element, props);
-				break;
-				
-			case 'Row':
-				element = document.createElement('div');
-				element.style.display = 'flex';
-				element.style.flexDirection = 'row';
-				element.style.gap = '8px';
-				element.style.alignItems = 'center';
-				applyLayoutProps(element, props);
-				break;
-				
-			case 'Label':
-				element = document.createElement('div');
-				element.textContent = props.Text || '';
-				applyTextStyles(element, styles);
-				break;
-				
-			case 'Button':
-				element = document.createElement('button');
-				element.textContent = props.Text || '';
-				element.disabled = props.Enabled === false;
-				element.style.padding = '8px 16px';
-				element.style.border = '1px solid #ccc';
-				element.style.borderRadius = '4px';
-				element.style.cursor = props.Enabled === false ? 'not-allowed' : 'pointer';
-				element.style.background = '#f0f0f0';
-				
-				if (props.OnClick) {
-					element.addEventListener('click', () => {
-						post({ type: 'ControlEvent', key: node.key, name: 'click', value: null });
-					});
-				}
-				break;
-				
-			case 'TextBox':
-				element = document.createElement('input');
-				element.type = 'text';
-				element.value = props.Text || '';
-				element.placeholder = props.Placeholder || '';
-				element.style.padding = '8px';
-				element.style.border = '1px solid #ccc';
-				element.style.borderRadius = '4px';
-				element.style.flex = '1';
-				
-				element.addEventListener('input', (e) => {
-					post({ type: 'ControlEvent', key: node.key, name: 'change', value: e.target.value });
-				});
-				
-				element.addEventListener('keydown', (e) => {
-					if (e.key === 'Enter') {
-						post({ type: 'ControlEvent', key: node.key, name: 'enter', value: e.target.value });
-					}
-				});
-				break;
-				
-			case 'TextArea':
-				element = document.createElement('textarea');
-				element.value = props.Text || '';
-				element.placeholder = props.Placeholder || '';
-				element.style.padding = '8px';
-				element.style.border = '1px solid #ccc';
-				element.style.borderRadius = '4px';
-				element.style.minHeight = '100px';
-				element.style.resize = 'vertical';
-				element.style.flex = '1';
-				
-				element.addEventListener('input', (e) => {
-					post({ type: 'ControlEvent', key: node.key, name: 'change', value: e.target.value });
-				});
-				break;
-				
-			case 'CheckBox':
-			case 'Toggle':
-				element = document.createElement('label');
-				element.style.display = 'flex';
-				element.style.alignItems = 'center';
-				element.style.gap = '8px';
-				element.style.cursor = 'pointer';
-				
-				const checkbox = document.createElement('input');
-				checkbox.type = 'checkbox';
-				checkbox.checked = props.Checked || false;
-				
-				checkbox.addEventListener('change', (e) => {
-					post({ type: 'ControlEvent', key: node.key, name: 'toggle', value: e.target.checked });
-				});
-				
-				const label = document.createElement('span');
-				label.textContent = props.Label || '';
-				
-				element.appendChild(checkbox);
-				element.appendChild(label);
-				break;
-				
-			case 'ListView':
-				element = document.createElement('div');
-				element.style.border = '1px solid #ccc';
-				element.style.borderRadius = '4px';
-				element.style.maxHeight = '300px';
-				element.style.overflowY = 'auto';
-				
-				const items = props.Items || [];
-				const selectedIndex = props.SelectedIndex || 0;
-				
-				items.forEach((item, index) => {
-					const itemEl = document.createElement('div');
-					itemEl.textContent = item;
-					itemEl.style.padding = '8px 12px';
-					itemEl.style.cursor = 'pointer';
-					itemEl.style.borderBottom = '1px solid #eee';
-					
-					if (index === selectedIndex) {
-						itemEl.style.background = '#e3f2fd';
-						itemEl.style.fontWeight = 'bold';
-					}
-					
-					itemEl.addEventListener('click', () => {
-						post({ type: 'ControlEvent', key: node.key, name: 'itemActivated', value: item });
-					});
-					
-					itemEl.addEventListener('mouseenter', () => {
-						if (index !== selectedIndex) {
-							itemEl.style.background = '#f5f5f5';
-						}
-					});
-					
-					itemEl.addEventListener('mouseleave', () => {
-						if (index !== selectedIndex) {
-							itemEl.style.background = '';
-						}
-					});
-					
-					element.appendChild(itemEl);
-				});
-				break;
-				
-			case 'Html':
-				element = document.createElement('div');
-				const content = props.Content || '';
-				
-				// Check if content is markdown or HTML
-				if (typeof marked !== 'undefined' && !content.trim().startsWith('<')) {
-					// Parse as markdown
-					element.innerHTML = marked.parse(content);
-				} else {
-					// Render as HTML
-					element.innerHTML = content;
-				}
-				element.classList.add('bubble', 'tool');
-				break;
-				
-			case 'Spacer':
-				element = document.createElement('div');
-				const height = props.Height || 1;
-				element.style.height = (height * 8) + 'px';
-				break;
-				
-			case 'Accordion':
-				element = document.createElement('details');
-				element.open = props.Expanded || false;
-				
-				const summary = document.createElement('summary');
-				summary.textContent = props.Title || 'Accordion';
-				summary.style.cursor = 'pointer';
-				summary.style.padding = '8px';
-				summary.style.fontWeight = 'bold';
-				element.appendChild(summary);
-				
-				const contentDiv = document.createElement('div');
-				contentDiv.style.padding = '8px';
-				element.appendChild(contentDiv);
-				
-				// Store reference for children
-				element._contentContainer = contentDiv;
-				break;
-				
-			case 'Progress':
-				element = renderProgressNode(node, props);
-				break;
-				
-			default:
-				console.warn('Unknown UiKind:', kind);
-				element = document.createElement('div');
-				element.textContent = `[Unknown: ${kind}]`;
-				break;
+		if(spec.events){
+			Object.keys(spec.events).forEach(evProp => {
+				if(props[evProp] !== undefined){ spec.events[evProp](el, node.key); }
+			});
 		}
-		
-		if (!element) return null;
-		
-		// Store node key for patching
-		element.dataset.nodeKey = node.key;
-		controlNodes.set(node.key, element);
-		
-		// Apply common properties
-		if (props.Width) element.style.width = props.Width;
-		if (props.Height && kind !== 'Spacer') element.style.height = props.Height;
-		if (props.Padding) element.style.padding = props.Padding;
-		if (props.Modal) {
-			element.style.position = 'fixed';
-			element.style.top = '50%';
-			element.style.left = '50%';
-			element.style.transform = 'translate(-50%, -50%)';
-			element.style.background = 'white';
-			element.style.padding = '24px';
-			element.style.borderRadius = '8px';
-			element.style.boxShadow = '0 4px 20px rgba(0,0,0,0.3)';
-			element.style.zIndex = '1000';
-		}
-		
-		if (props.Scrollable || props.AutoScroll) {
-			element.style.overflowY = 'auto';
-			if (props.AutoScroll) {
-				element.dataset.autoScroll = 'true';
-			}
-		}
-		
-		// Apply layout-specific properties
-		if (props.Layout === 'dock-bottom') {
-			element.style.display = 'flex';
-			element.style.flexDirection = 'column';
-			element.style.height = '100%';
-			
-			// Find the messages panel child and make it scrollable
-			if (children.length > 0) {
-				const firstChildKey = children[0].key;
-				setTimeout(() => {
-					const firstChild = controlNodes.get(firstChildKey);
-					if (firstChild) {
-						firstChild.style.flex = '1';
-						firstChild.style.overflowY = 'auto';
-						firstChild.style.minHeight = '0';
-					}
-				}, 0);
-			}
-		}
-		
+		if(spec._extraWire){ spec._extraWire(el, node.key); }
+	}
+
+	function renderNode(node){
+		if(!node){ debugLog('[renderNode] NULL node'); return null; }
+		const kind = node.kind; const props = node.props||{}; const styles = node.styles||{}; const children = node.children||[];
+		const spec = KINDS[kind];
+		let el;
+		if(!spec){ el = document.createElement('div'); el.textContent = `[Unknown: ${kind}]`; }
+		else if(spec.create){ el = spec.create(node); }
+		else { el = document.createElement(spec.tag); spec.init?.(el, props, node); }
+		if(!el) return null;
+		el.dataset.nodeKey = node.key; el.dataset.kind = kind; controlNodes.set(node.key, el);
+		// Common property application (layout, modal, scroll, width/height/padding)
+		if(props.Width) el.style.width = props.Width;
+		if(props.Height && kind !== 'Spacer') el.style.height = props.Height;
+		if(props.Padding) el.style.padding = props.Padding;
+		if(props.Modal){ el.style.position='fixed'; el.style.top='50%'; el.style.left='50%'; el.style.transform='translate(-50%, -50%)'; el.style.background='white'; el.style.padding='24px'; el.style.borderRadius='8px'; el.style.boxShadow='0 4px 20px rgba(0,0,0,0.3)'; el.style.zIndex='1000'; }
+		if(props.Scrollable || props.AutoScroll){ el.style.overflowY='auto'; if(props.AutoScroll) el.dataset.autoScroll='true'; }
+		if(props.Layout === 'dock-bottom'){ el.style.display='flex'; el.style.flexDirection='column'; el.style.height='100%'; if(children.length>0){ const firstChildKey = children[0].key; setTimeout(()=>{ const firstChild=controlNodes.get(firstChildKey); if(firstChild){ firstChild.style.flex='1'; firstChild.style.overflowY='auto'; firstChild.style.minHeight='0'; } },0); } }
+		// Apply styles bag (for Label etc.)
+		applyTextStyles(el, styles);
+		// Wire events based on props present
+		if(spec) wireEventsForNode(el, spec, node);
 		// Render children
-		const container = element._contentContainer || element;
-		children.forEach(child => {
-			const childElement = renderNode(child);
-			if (childElement) {
-				container.appendChild(childElement);
-			}
-		});
-		
-		return element;
+		const container = el._contentContainer || el;
+		children.forEach(c => { const childEl = renderNode(c); if(childEl) container.appendChild(childEl); });
+		return el;
 	}
 	
 	function renderProgressNode(node, props) {
@@ -694,13 +726,7 @@
 		
 		return element;
 	}
-	
-	function applyLayoutProps(element, props) {
-		if (props.Padding) element.style.padding = props.Padding;
-		if (props.Width) element.style.width = props.Width;
-		if (props.Height) element.style.height = props.Height;
-	}
-	
+		
 	function applyTextStyles(element, styles) {
 		if (styles.ForegroundColor) {
 			element.style.color = getConsoleColor(styles.ForegroundColor);
@@ -764,116 +790,24 @@
 		}
 	}
 
-	function updateNodeProps(key, props) {
-		const element = controlNodes.get(key);
-		if (!element) {
-			debugLog(`updateNodeProps: ${key} not found`);
-			return;
-		}
-		
-		// Update properties based on prop keys
-		Object.keys(props).forEach(propKey => {
-			const value = props[propKey];
-			
-			switch (propKey) {
-				case 'Text':
-					if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
-						element.value = value || '';
-					} else if (element.tagName === 'BUTTON') {
-						element.textContent = value || '';
-					} else {
-						element.textContent = value || '';
-					}
-					break;
-					
-				case 'Enabled':
-					if (element.tagName === 'BUTTON') {
-						element.disabled = !value;
-						element.style.cursor = value ? 'pointer' : 'not-allowed';
-					}
-					break;
-					
-				case 'Checked':
-					const checkbox = element.querySelector('input[type="checkbox"]');
-					if (checkbox) {
-						checkbox.checked = value || false;
-					}
-					break;
-					
-				case 'Placeholder':
-					if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
-						element.placeholder = value || '';
-					}
-					break;
-					
-				case 'Items':
-					// For ListView, rebuild the items
-					if (element.dataset.nodeKey) {
-						const selectedIndex = props.SelectedIndex || 0;
-						element.innerHTML = '';
-						
-						(value || []).forEach((item, index) => {
-							const itemEl = document.createElement('div');
-							itemEl.textContent = item;
-							itemEl.style.padding = '8px 12px';
-							itemEl.style.cursor = 'pointer';
-							itemEl.style.borderBottom = '1px solid #eee';
-							
-							if (index === selectedIndex) {
-								itemEl.style.background = '#e3f2fd';
-								itemEl.style.fontWeight = 'bold';
-							}
-							
-							itemEl.addEventListener('click', () => {
-								post({ type: 'ControlEvent', key: key, name: 'itemActivated', value: item });
-							});
-							
-							itemEl.addEventListener('mouseenter', () => {
-								if (index !== selectedIndex) {
-									itemEl.style.background = '#f5f5f5';
-								}
-							});
-							
-							itemEl.addEventListener('mouseleave', () => {
-								if (index !== selectedIndex) {
-									itemEl.style.background = '';
-								}
-							});
-							
-							element.appendChild(itemEl);
-						});
-					}
-					break;
-					
-				case 'ProgressItems':
-				case 'ProgressStats':
-				case 'EtaHint':
-				case 'IsActive':
-					// For progress nodes, we need to re-render the entire node
-					// Store the props on the element for now
-					if (!element._progressProps) element._progressProps = {};
-					element._progressProps[propKey] = value;
-					
-					// If we have all the props, re-render
-					if (element._progressProps.ProgressItems !== undefined) {
-						// Find the original node to get the kind
-						const parentNode = { key: key, kind: 'Progress', props: element._progressProps || {}, children: [] };
-						const newElement = renderProgressNode(parentNode, element._progressProps);
-						if (newElement && element.parentNode) {
-							element.parentNode.replaceChild(newElement, element);
-							controlNodes.set(key, newElement);
-						}
-					}
-					break;
-			}
+	function updateNodeProps(key, props){
+		const el = controlNodes.get(key); if(!el){ debugLog(`updateNodeProps: ${key} not found`); return; }
+		const kind = el.dataset.kind; const spec = KINDS[kind];
+		Object.keys(props).forEach(k => {
+			const v = props[k];
+			// Progress nodes accumulate props before re-render
+			if(kind==='Progress') { el._progressProps = el._progressProps || {}; el._progressProps[k] = v; }
+			if(spec && spec.props && spec.props[k]) { try { spec.props[k](el, v); } catch(e){ debugLog(`prop handler error ${kind}.${k}: ${e.message}`); } return; }
+			// Generic fallbacks
+			if(k==='Text'){ if(el.tagName==='INPUT' || el.tagName==='TEXTAREA'){ if(el.value !== (v||'')) el.value = v||''; } else el.textContent = v||''; }
+			else if(k==='Enabled' && el.tagName==='BUTTON'){ el.disabled = v===false; el.style.cursor = v===false? 'not-allowed':'pointer'; }
+			else if(k==='Placeholder' && (el.tagName==='INPUT' || el.tagName==='TEXTAREA')){ el.placeholder = v||''; }
+			else if(k==='Width'){ el.style.width = v||''; }
+			else if(k==='Height' && kind!=='Spacer'){ el.style.height = v||''; }
+			else if(k==='Padding'){ el.style.padding = v||''; }
 		});
-		
-		// Auto-scroll if autoScroll property is set
-		if (element.dataset.autoScroll === 'true') {
-			setTimeout(() => {
-				element.scrollTop = element.scrollHeight;
-			}, 0);
-		}
+		if(kind==='Progress'){ KINDS.Progress._reRender(el); }
+		if(el.dataset.autoScroll==='true'){ setTimeout(()=>{ el.scrollTop = el.scrollHeight; },0); }
 	}
 
 	function insertChild(parentKey, index, childNode) {
