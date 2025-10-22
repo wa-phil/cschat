@@ -32,9 +32,9 @@ public static class ChatSurface
     /// <returns>Root UiNode representing the chat surface content</returns>
     public static UiNode Create(IEnumerable<ChatMessage> messages)
     {
-        var messageNodes = messages
-            .Select((msg, index) => CreateMessageNode(msg, index))
-            .ToArray();
+        var messagesPanel = Ui.Column(UiFrameKeys.Messages)
+            .WithProps(new { Scrollable = true, AutoScroll = true })
+            .ForEach(messages.Select((msg, index) => (msg, index)), t => CreateMessageNode(t.msg, t.index));
 
         UiHandler onInput = async e => {
             var currentInputText = e.Value ?? "";
@@ -58,20 +58,12 @@ public static class ChatSurface
             try { await Program.ui.FocusAsync("input"); } catch { /* best effort */ }
         };
 
-        return new UiNode(
-            "chat-root",
-            UiKind.Column,
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.Layout] = "dock-bottom"
-            },
-            new UiNode[]
-            {
-                CreateMessagesPanel(messageNodes),
-                new UiNode("spacer", UiKind.Spacer, new Dictionary<UiProperty, object?> { [UiProperty.Height] = 1 }, Array.Empty<UiNode>()),                
+    return Ui.Column("chat-root",
+        messagesPanel,
+                Ui.Node("spacer", UiKind.Spacer, new { Height = 1 }),
                 CreateComposer(string.Empty, onSend, onInput)
-            }
-        );
+            )
+            .WithProps(new { Layout = "dock-bottom" });
     }
 
     /// <summary>
@@ -220,28 +212,13 @@ public static class ChatSurface
     public static UiNode CreateHeader(string? threadName)
     {
         var title = string.IsNullOrEmpty(threadName) ? "Chat" : $"Chat: {threadName}";
-        
-        var titleProps = new Dictionary<UiProperty, object?>
-        {
-            [UiProperty.Text] = title
-        };
 
-        var spacerProps = new Dictionary<UiProperty, object?>
-        {
-            [UiProperty.Width] = 1
-        };
-
-        return new UiNode(
-            "header",
-            UiKind.Row,
-            new Dictionary<UiProperty, object?>(),
-            new[]
-            {
-                new UiNode("thread-title", UiKind.Label, titleProps, Array.Empty<UiNode>(),
-                    UiStyles.Of((UiStyleKey.Align, "center"), (UiStyleKey.ForegroundColor, ConsoleColor.Cyan))),
-                new UiNode("spacer-header", UiKind.Spacer, spacerProps, Array.Empty<UiNode>())
-            }
-        );
+        return Ui.Row("header")
+            .WithChildren(
+                Ui.Text("thread-title", title)
+                    .WithStyles(Style.Combine(Style.AlignCenter, Style.Color(ConsoleColor.Cyan))),
+                Ui.Node("spacer-header", UiKind.Spacer, new { Width = 1 })
+            );
     }
 
     /// <summary>
@@ -249,16 +226,8 @@ public static class ChatSurface
     /// </summary>
     private static UiNode CreateMessagesPanel(UiNode[] messageNodes)
     {
-        return new UiNode(
-            UiFrameKeys.Messages,
-            UiKind.Column,
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.Scrollable] = true,
-                [UiProperty.AutoScroll] = true
-            },
-            messageNodes
-        );
+        return Ui.Column(UiFrameKeys.Messages, messageNodes)
+            .WithProps(new { Scrollable = true, AutoScroll = true });
     }
 
     /// <summary>
@@ -280,39 +249,16 @@ public static class ChatSurface
         var timestamp = message.CreatedAt.ToString("HH:mm:ss");
         var header = $"[{timestamp}] {roleLabel}:";
 
-        var props = new Dictionary<UiProperty, object?>
-        {
-            [UiProperty.Role] = message.Role.ToString(),
-            [UiProperty.Timestamp] = message.CreatedAt,
-            [UiProperty.State] = message.State.ToString()
-        };
-
-        var children = new List<UiNode>
-        {
-            new UiNode(
-                $"msg-{message.Id}-header",
-                UiKind.Label,
-                new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Text] = header
-                },
-                Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.ForegroundColor, color))),
-            new UiNode(
-                $"msg-{message.Id}-content",
-                UiKind.Label,
-                new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Text] = message.Content ?? ""
-                },
-                Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.ForegroundColor, color), (UiStyleKey.Wrap, true)))
-        };
-
-        return new UiNode(
-            $"msg-{message.Id}",
-            UiKind.Column,
-            props,
-            children.ToArray()
-        );
+        return Ui.Column($"msg-{message.Id}",
+                Ui.Text($"msg-{message.Id}-header", header).WithStyles(Style.Color(color)),
+                Ui.Text($"msg-{message.Id}-content", message.Content ?? string.Empty).WithStyles(Style.Combine(Style.Color(color), Style.Wrap))
+            )
+            .WithProps(new
+            {
+                Role = message.Role.ToString(),
+                Timestamp = message.CreatedAt,
+                State = message.State.ToString()
+            });
     }
 
     /// <summary>
@@ -320,58 +266,21 @@ public static class ChatSurface
     /// </summary>
     private static UiNode CreateComposer(string inputText, UiHandler? onSend, UiHandler? onInput)
     {
-        var inputProps = new Dictionary<UiProperty, object?>
-        {
-            [UiProperty.Text] = inputText,
-            [UiProperty.Placeholder] = "Type a message..."
-        };
-
-        if (onInput != null)
-        {
-            inputProps[UiProperty.OnChange] = onInput;
-        }
-
-        // Also wire up Enter key to trigger send
-        if (onSend != null)
-        {
-            inputProps[UiProperty.OnEnter] = onSend;
-        }
-
-        var sendButtonProps = new Dictionary<UiProperty, object?>
-        {
-            [UiProperty.Text] = "Send",
-            [UiProperty.Enabled] = !string.IsNullOrWhiteSpace(inputText)
-        };
-
-        if (onSend != null)
-        {
-            sendButtonProps[UiProperty.OnClick] = onSend;
-        }
-        var composerStyle = UiStyles.Of(
-            (UiStyleKey.Align, "bottom"),
-            (UiStyleKey.BackgroundColor, ConsoleColor.DarkGray)
-        );
-        var inputStyle = UiStyles.Of(
-            (UiStyleKey.Justify, "left")
-        );
-        var buttonStyle = UiStyles.Of(
-            (UiStyleKey.Justify, "right")
-        );
-
-        return new UiNode(
-            "composer",
-            UiKind.Row,
-            new Dictionary<UiProperty, object?>
+        var input = Ui.TextBox("input", inputText, "Type a message...")
+            .WithProps(new
             {
-                [UiProperty.Layout] = "row-justify"
-            },
-            new[]
-            {
-                new UiNode("input", UiKind.TextBox, inputProps, Array.Empty<UiNode>(), inputStyle),
-                new UiNode(UiFrameKeys.SendButton, UiKind.Button, sendButtonProps, Array.Empty<UiNode>(), buttonStyle)
-            },
-            composerStyle
-        );
+                OnChange = onInput,
+                OnEnter = onSend
+            })
+            .WithStyles(Style.Tag("left"));
+
+        var sendBtn = Ui.Button(UiFrameKeys.SendButton, "Send", onSend)
+            .WithProps(new { Enabled = !string.IsNullOrWhiteSpace(inputText) })
+            .WithStyles(Style.Tag("right"));
+
+        return Ui.Row("composer", input, sendBtn)
+            .WithProps(new { Layout = "row-justify" })
+            .WithStyles(Style.Combine(Style.AlignLeft, Style.Color(bg: ConsoleColor.DarkGray)));
     }
 
     /// <summary>
@@ -431,21 +340,9 @@ public static class ChatSurface
     /// </summary>
     public static UiPatch ClearMessages()
     {
-        return new UiPatch(
-            new ReplaceOp(
-                UiFrameKeys.Messages,
-                new UiNode(
-                    UiFrameKeys.Messages,
-                    UiKind.Column,
-                    new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.Scrollable] = true,
-                        [UiProperty.AutoScroll] = true
-                    },
-                    Array.Empty<UiNode>()
-                )
-            )
-        );
+        var empty = Ui.Column(UiFrameKeys.Messages)
+            .WithProps(new { Scrollable = true, AutoScroll = true });
+        return new UiPatch(new ReplaceOp(UiFrameKeys.Messages, empty));
     }
 
     /// <summary>
@@ -453,25 +350,10 @@ public static class ChatSurface
     /// </summary>
     public static UiPatch UpdateMessages(IEnumerable<ChatMessage> messages)
     {
-        var messageNodes = messages
-            .Select((msg, index) => CreateMessageNode(msg, index))
-            .ToArray();
-
-        return new UiPatch(
-            new ReplaceOp(
-                UiFrameKeys.Messages,
-                new UiNode(
-                    UiFrameKeys.Messages,
-                    UiKind.Column,
-                    new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.Scrollable] = true,
-                        [UiProperty.AutoScroll] = true
-                    },
-                    messageNodes
-                )
-            )
-        );
+        var container = Ui.Column(UiFrameKeys.Messages)
+            .WithProps(new { Scrollable = true, AutoScroll = true })
+            .ForEach(messages.Select((msg, index) => (msg, index)), t => CreateMessageNode(t.msg, t.index));
+        return container.ToPatch(UiFrameKeys.Messages);
     }
 
     /// <summary>
@@ -479,16 +361,6 @@ public static class ChatSurface
     /// </summary>
     public static UiPatch UpdateMessageState(string messageId, ChatMessageState state)
     {
-        var node = new UiNode(
-            $"msg-{messageId}",
-            UiKind.Column,
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.State] = state.ToString()
-            },
-            Array.Empty<UiNode>()
-        );
-
         // Note: This would require getting the current message content
         // For now, just update the state property
         return new UiPatch(

@@ -179,3 +179,133 @@ public sealed class UiFrameController
         }
     }
 }
+
+/// <summary>
+/// Frame has 3 layers: Header (toolbar), Content (a single mounted surface), OverlayStack (0..N modals)
+/// </summary>
+public sealed record UiFrame(
+    UiNode Header,           // e.g., thread title, buttons
+    UiNode Content,          // e.g., ChatSurface root
+    IReadOnlyList<UiNode> Overlays // e.g., MenuOverlay, FormOverlay (topmost is last)
+);
+
+/// <summary>
+/// Creates and manipulates frame trees with semantic keys for stable patching
+/// </summary>
+public static class UiFrameBuilder
+{
+    /// <summary>
+    /// Creates a frame tree with semantic keys for stable patching.
+    /// Returns root UiNode:
+    ///   root(Column role=frame)
+    ///     ├── header(Row role=header)
+    ///     ├── content(Column role=content)
+    ///     └── overlays(Column role=overlay) // children layered by zIndex
+    /// </summary>
+    public static UiNode Create(UiFrame frame)
+    {
+        if (frame == null)
+            throw new ArgumentNullException(nameof(frame));
+
+        // Build header with role prop
+        var headerWithRole = AddRoleIfMissing(frame.Header, "header");
+
+        // Build content with role prop
+        var contentWithRole = AddRoleIfMissing(frame.Content, "content");
+
+        // Build overlays container
+        var overlayChildren = frame.Overlays
+            .Select((overlay, idx) => AddRoleIfMissing(
+                AddZIndexIfMissing(overlay, 1000 + idx),
+                "overlay"))
+            .ToList();
+
+        var overlaysContainer = Ui.Column(UiFrameKeys.Overlays, overlayChildren.ToArray())
+            .WithProps(new { Role = "overlay" });
+
+        // Build root frame
+        return Ui.Column(UiFrameKeys.Root, headerWithRole, contentWithRole, overlaysContainer)
+            .WithProps(new { Role = "frame" });
+    }
+
+    /// <summary>
+    /// Creates a patch to replace the content node
+    /// </summary>
+    public static UiPatch ReplaceContent(UiNode newContent)
+    {
+        if (newContent == null)
+            throw new ArgumentNullException(nameof(newContent));
+
+        var contentWithRole = AddRoleIfMissing(newContent, "content");
+        return contentWithRole.ToPatch(UiFrameKeys.Content);
+    }    
+
+    /// <summary>
+    /// Creates a patch to push an overlay onto the stack (top-most modal)
+    /// </summary>
+    public static UiPatch PushOverlay(UiNode overlay)
+    {
+        if (overlay == null)
+            throw new ArgumentNullException(nameof(overlay));
+
+        // Note: We need to know the current overlay count to set proper zIndex
+        // For now, we'll use a high zIndex and let the caller manage order
+        var overlayWithRole = AddRoleIfMissing(
+            AddZIndexIfMissing(overlay, 2000), 
+            "overlay");
+
+        // Insert at the end (highest index = topmost)
+    return new UiPatchBuilder().Insert(UiFrameKeys.Overlays, int.MaxValue, overlayWithRole).Build();
+    }
+
+    /// <summary>
+    /// Creates a patch to pop the top-most overlay from the stack
+    /// </summary>
+    public static UiPatch PopOverlay(string overlayKey)
+    {
+        if (string.IsNullOrEmpty(overlayKey))
+            throw new ArgumentNullException(nameof(overlayKey));
+
+        return new UiPatch(new RemoveOp(overlayKey));
+    }
+
+    /// <summary>
+    /// Creates a patch to replace the header node
+    /// </summary>
+    public static UiPatch ReplaceHeader(UiNode newHeader)
+    {
+        if (newHeader == null)
+            throw new ArgumentNullException(nameof(newHeader));
+
+    var headerWithRole = AddRoleIfMissing(newHeader, "header");
+    return headerWithRole.ToPatch(UiFrameKeys.Header);
+    }
+    
+    // Helper: adds role prop if not present, preserving other props
+    private static UiNode AddRoleIfMissing(UiNode node, string role)
+    {
+        if (node.Props.ContainsKey(UiProperty.Role))
+            return node;
+
+        var newProps = new Dictionary<UiProperty, object?>(node.Props)
+        {
+            [UiProperty.Role] = role
+        };
+
+        return node with { Props = newProps };
+    }
+
+    // Helper: adds zIndex prop if not present
+    private static UiNode AddZIndexIfMissing(UiNode node, int zIndex)
+    {
+        if (node.Props.ContainsKey(UiProperty.ZIndex))
+            return node;
+
+        var newProps = new Dictionary<UiProperty, object?>(node.Props)
+        {
+            [UiProperty.ZIndex] = zIndex
+        };
+
+        return node with { Props = newProps };
+    }
+}

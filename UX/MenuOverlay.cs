@@ -24,54 +24,13 @@ public static class MenuOverlay
 
         var children = new List<UiNode>
         {
-            // Title
-            new UiNode(
-                "overlay-menu-title",
-                UiKind.Label,
-                new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Text] = title
-                },
-                Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.Align, "center"), (UiStyleKey.Bold, true))),
-
-            // Filter box (for future filtering support)
-            new UiNode(
-                "overlay-menu-filter",
-                UiKind.TextBox,
-                new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Placeholder] = "Filter...",
-                    [UiProperty.Focusable] = true
-                },
-                Array.Empty<UiNode>()
-            ),
-
-            // List view with choices
-            new UiNode(
-                "overlay-menu-list",
-                UiKind.ListView,
-                new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Items] = choices.ToList(),
-                    [UiProperty.SelectedIndex] = selectedIndex,
-                    [UiProperty.Focusable] = true
-                },
-                Array.Empty<UiNode>()
-            )
+            Ui.Text("overlay-menu-title", title).WithStyles(Style.Combine(Style.AlignCenter, Style.Bold)),
+            Ui.TextBox("overlay-menu-filter", "", "Filter...").WithProps(new { Focusable = true }),
+            Ui.Node("overlay-menu-list", UiKind.ListView, new { Items = choices.ToList(), SelectedIndex = selectedIndex, Focusable = true })
         };
 
-        return new UiNode(
-            "overlay-menu",
-            UiKind.Column,
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.Modal] = true,
-                [UiProperty.Role] = "overlay",
-                [UiProperty.Width] = "80%",
-                [UiProperty.Padding] = "2"
-            },
-            children
-        );
+        return Ui.Column("overlay-menu", children.ToArray())
+            .WithProps(new { Modal = true, Role = "overlay", Width = "80%", Padding = "2" });
     }
 
     /// <summary>

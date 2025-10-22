@@ -13,38 +13,13 @@ public static class InputOverlay
     {
         var children = new List<UiNode>
         {
-            new UiNode(
-                "overlay-input-title",
-                UiKind.Label,
-                new Dictionary<UiProperty, object?> { [UiProperty.Text] = title },
-                Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.Align, "center"), (UiStyleKey.Bold, true))
-            ),
-            new UiNode(
-                "overlay-input-box",
-                UiKind.TextBox,
-                new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Text] = initial ?? string.Empty,
-                    [UiProperty.Placeholder] = placeholder ?? string.Empty,
-                    [UiProperty.Focusable] = true
-                },
-                Array.Empty<UiNode>()
-            )
+            Ui.Text("overlay-input-title", title).WithStyles(Style.Combine(Style.AlignCenter, Style.Bold)),
+            Ui.TextBox("overlay-input-box", initial ?? string.Empty, placeholder ?? string.Empty)
+                .WithProps(new { Focusable = true })
         };
 
-        return new UiNode(
-            "overlay-input",
-            UiKind.Column,
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.Modal] = true,
-                [UiProperty.Role] = "overlay",
-                [UiProperty.ZIndex] = 4000,
-                [UiProperty.Width] = "60%",
-                [UiProperty.Padding] = "2"
-            },
-            children
-        );
+        return Ui.Column("overlay-input", children.ToArray())
+            .WithProps(new { Modal = true, Role = "overlay", ZIndex = 4000, Width = "60%", Padding = "2" });
     }
 
     public static async Task<string?> ShowAsync(IUi ui, string title, string? initial = null, string? placeholder = null)

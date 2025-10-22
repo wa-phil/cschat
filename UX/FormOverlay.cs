@@ -323,14 +323,10 @@ public static class FormOverlay
         var children = new List<UiNode>();
 
         // Title
-        children.Add(new UiNode(
-            "overlay-form-title",
-            UiKind.Label,
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.Text] = form.Title
-            },
-            Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.Bold, true), (UiStyleKey.Align, "center"))));
+        children.Add(
+            Ui.Text("overlay-form-title", form.Title)
+              .WithStyles(Style.Combine(Style.Bold, Style.AlignCenter))
+        );
 
         var inputItems = new List<UiNode> { };
 
@@ -340,15 +336,7 @@ public static class FormOverlay
             var fieldKey = $"overlay-form-field-{field.Key}";
             var currentText = field.Formatter(form.Model);
 
-            var labelNode = new UiNode(
-                $"{fieldKey}-label",
-                UiKind.Label,
-                new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Text] = field.Label + (field.Required ? " *" : ""),
-                },
-                Array.Empty<UiNode>()
-            );
+            var labelNode = Ui.Text($"{fieldKey}-label", field.Label + (field.Required ? " *" : ""));
 
             // Create input node for the current field.
             UiNode inputNode = CreateFieldInput(fieldKey, field, currentText);
@@ -356,42 +344,28 @@ public static class FormOverlay
             if (field.Kind == UiFieldKind.Array)
             {
                 // For arrays, render a label row and then a separate content row aligned under the right column.
-                inputItems.Add(new UiNode(
-                    $"{fieldKey}-labelrow",
-                    UiKind.Row,
-                    new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.Layout] = "grid",
-                        [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80))
-                    },
-                    new[] { labelNode, new UiNode($"{fieldKey}-labelrow-placeholder", UiKind.Label, new Dictionary<UiProperty, object?> { [UiProperty.Text] = "" }, Array.Empty<UiNode>()) }
-                ));
+                inputItems.Add(
+                    Ui.Row($"{fieldKey}-labelrow",
+                        labelNode,
+                        Ui.Text($"{fieldKey}-labelrow-placeholder", "")
+                    ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)) })
+                );
 
                 // Array content row: left spacer, right the multi-line control
-                inputItems.Add(new UiNode(
-                    $"{fieldKey}-arrayrow",
-                    UiKind.Row,
-                    new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.Layout] = "grid",
-                        [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80))
-                    },
-                    new[] { new UiNode($"{fieldKey}-arrayrow-spacer", UiKind.Spacer, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>()), inputNode }
-                ));
+                inputItems.Add(
+                    Ui.Row($"{fieldKey}-arrayrow",
+                        Ui.Node($"{fieldKey}-arrayrow-spacer", UiKind.Spacer),
+                        inputNode
+                    ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)) })
+                );
             }
             else
             {
                 // Compose the field line as a single grid row (20% / 80%)
-                inputItems.Add(new UiNode(
-                    $"{fieldKey}-row",
-                    UiKind.Row,
-                    new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.Layout] = "grid",
-                        [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80))
-                    },
-                    new[] { labelNode, inputNode }
-                ));
+                inputItems.Add(
+                    Ui.Row($"{fieldKey}-row", labelNode, inputNode)
+                      .WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)) })
+                );
             }
 
             // Help text if present
@@ -400,126 +374,54 @@ public static class FormOverlay
                 if (field.Kind == UiFieldKind.Array)
                 {
                     // Align help under right column for arrays
-                    inputItems.Add(new UiNode(
-                        $"{fieldKey}-help-row",
-                        UiKind.Row,
-                        new Dictionary<UiProperty, object?>
-                        {
-                            [UiProperty.Layout] = "grid",
-                            [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80))
-                        },
-                        new[]
-                        {
-                            new UiNode($"{fieldKey}-help-row-spacer", UiKind.Spacer, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>()),
-                            new UiNode($"{fieldKey}-help", UiKind.Label, new Dictionary<UiProperty, object?> { [UiProperty.Text] = field.Help }, Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.Style, "dim")))
-                        }
-                    ));
+                    inputItems.Add(
+                        Ui.Row($"{fieldKey}-help-row",
+                            Ui.Node($"{fieldKey}-help-row-spacer", UiKind.Spacer),
+                            Ui.Text($"{fieldKey}-help", field.Help).WithStyles(Style.Tag("dim"))
+                        ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)) })
+                    );
                 }
                 else
                 {
-                    inputItems.Add(new UiNode(
-                        $"{fieldKey}-help",
-                        UiKind.Label,
-                        new Dictionary<UiProperty, object?>
-                        {
-                            [UiProperty.Text] = field.Help
-                        },
-                        Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.Style, "dim"))));
+                    inputItems.Add(
+                        Ui.Text($"{fieldKey}-help", field.Help).WithStyles(Style.Tag("dim"))
+                    );
                 }
             }
 
             // Error placeholder (initially empty)
             if (field.Kind == UiFieldKind.Array)
             {
-                inputItems.Add(new UiNode(
-                    $"{fieldKey}-error-row",
-                    UiKind.Row,
-                    new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.Layout] = "grid",
-                        [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80))
-                    },
-                    new[]
-                    {
-                        new UiNode($"{fieldKey}-error-row-spacer", UiKind.Spacer, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>()),
-                        new UiNode($"{fieldKey}-error", UiKind.Label, new Dictionary<UiProperty, object?> { [UiProperty.Text] = "" }, Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.ForegroundColor, "Red")))
-                    }
-                ));
+                inputItems.Add(
+                    Ui.Row($"{fieldKey}-error-row",
+                        Ui.Node($"{fieldKey}-error-row-spacer", UiKind.Spacer),
+                        Ui.Text($"{fieldKey}-error", "").WithStyles(Style.Color(ConsoleColor.Red))
+                    ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)) })
+                );
             }
             else
             {
-                inputItems.Add(new UiNode(
-                    $"{fieldKey}-error",
-                    UiKind.Label,
-                    new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.Text] = ""
-                    },
-                    Array.Empty<UiNode>(), UiStyles.Of((UiStyleKey.ForegroundColor, "Red"))
-                ));
+                inputItems.Add(
+                    Ui.Text($"{fieldKey}-error", "").WithStyles(Style.Color(ConsoleColor.Red))
+                );
             }
         }
 
         // stack input items in a scrollable column (sticky header/footer is achieved by making only this body scrollable)
-        var inputItemColumn = new UiNode(
-            "overlay-form-input-items",
-            UiKind.Column,
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.AutoScroll] = true,
-                [UiProperty.Scrollable] = true,
-            },
-            inputItems
-        );
+        var inputItemColumn = Ui.Column("overlay-form-input-items", inputItems.ToArray())
+            .WithProps(new { AutoScroll = true, Scrollable = true });
         children.Add(inputItemColumn);
 
         // Button row (grid 1fr 1fr)
-        children.Add(new UiNode(
-            "overlay-form-buttons",
-            UiKind.Row,
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.Layout] = "grid",
-                [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Fr(1), GridColumnSpec.Fr(1))
-            },
-            new[]
-            {
-                new UiNode(
-                    "overlay-form-submit",
-                    UiKind.Button,
-                    new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.Text] = "Submit",
-                        [UiProperty.Focusable] = true
-                    },
-                    Array.Empty<UiNode>()
-                ),
-                new UiNode(
-                    "overlay-form-cancel",
-                    UiKind.Button,
-                    new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.Text] = "Cancel",
-                        [UiProperty.Focusable] = true
-                    },
-                    Array.Empty<UiNode>()
-                )
-            }
-        ));
-
-        return new UiNode(
-            "overlay-form",
-            UiKind.Column,
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.Modal] = true,
-                [UiProperty.Role] = "overlay",
-                [UiProperty.ZIndex] = 3000, // ensure forms sit above menu overlays
-                [UiProperty.Width] = "80%",
-                [UiProperty.Padding] = "2"
-            },
-            children
+        children.Add(
+            Ui.Row("overlay-form-buttons",
+                Ui.Button("overlay-form-submit", "Submit").WithProps(new { Focusable = true }),
+                Ui.Button("overlay-form-cancel", "Cancel").WithProps(new { Focusable = true })
+            ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Fr(1), GridColumnSpec.Fr(1)) })
         );
+
+        return Ui.Column("overlay-form", children.ToArray())
+            .WithProps(new { Modal = true, Role = "overlay", ZIndex = 3000, Width = "80%", Padding = "2" });
     }
 
     /// <summary>
@@ -580,7 +482,7 @@ public static class FormOverlay
         // Helper: update visual focus state on each field row
         async Task UpdateRowFocusAsync()
         {
-            var ops = new List<UiOp>();
+            var pb = ui.MakePatch();
             var focusedKeyNow = currentFocusKey;
             for (int i = 0; i < form.Fields.Count; i++)
             {
@@ -590,32 +492,31 @@ public static class FormOverlay
                 {
                     var rowKey1 = $"overlay-form-field-{f.Key}-labelrow";
                     var rowKey2 = $"overlay-form-field-{f.Key}-arrayrow";
-                    ops.Add(new UpdatePropsOp(rowKey1, new Dictionary<UiProperty, object?>
+                    pb.Update(rowKey1, new Dictionary<UiProperty, object?>
                     {
                         [UiProperty.Layout] = "grid",
                         [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)),
                         [UiProperty.State] = focused
-                    }));
-                    ops.Add(new UpdatePropsOp(rowKey2, new Dictionary<UiProperty, object?>
+                    });
+                    pb.Update(rowKey2, new Dictionary<UiProperty, object?>
                     {
                         [UiProperty.Layout] = "grid",
                         [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)),
                         [UiProperty.State] = focused
-                    }));
+                    });
                 }
                 else
                 {
                     var rowKey = $"overlay-form-field-{f.Key}-row";
-                    ops.Add(new UpdatePropsOp(rowKey, new Dictionary<UiProperty, object?>
+                    pb.Update(rowKey, new Dictionary<UiProperty, object?>
                     {
                         [UiProperty.Layout] = "grid",
                         [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)),
                         [UiProperty.State] = focused
-                    }));
+                    });
                 }
             }
-            if (ops.Count > 0)
-                await ui.PatchAsync(new UiPatch(ops.ToArray()));
+            await pb.PatchAsync();
         }
 
         // Initial row highlight
@@ -662,13 +563,12 @@ public static class FormOverlay
         }
 
         // Clear all errors initially
-        var clearOps = new List<UiOp>();
+        var clearPb = ui.MakePatch();
         foreach (var f in form.Fields)
         {
-            clearOps.Add(new UpdatePropsOp($"overlay-form-field-{f.Key}-error", new Dictionary<UiProperty, object?> { [UiProperty.Text] = "" }));
+            clearPb.Update($"overlay-form-field-{f.Key}-error", new Dictionary<UiProperty, object?> { [UiProperty.Text] = "" });
         }
-        if (clearOps.Count > 0)
-            await ui.PatchAsync(new UiPatch(clearOps.ToArray()));
+        await clearPb.PatchAsync();
 
         // Helper: update a field node's UI props from local 'values'
         async Task RefreshFieldAsync(IUiField f)
@@ -959,10 +859,10 @@ public static class FormOverlay
         if (submitted)
         {
             // Clear errors
-            var ops = new List<UiOp>();
+            var pb = ui.MakePatch();
             foreach (var f in form.Fields)
-                ops.Add(new UpdatePropsOp($"overlay-form-field-{f.Key}-error", new Dictionary<UiProperty, object?> { [UiProperty.Text] = "" }));
-            if (ops.Count > 0) await ui.PatchAsync(new UiPatch(ops.ToArray()));
+                pb.Update($"overlay-form-field-{f.Key}-error", new Dictionary<UiProperty, object?> { [UiProperty.Text] = "" });
+            await pb.PatchAsync();
 
             bool allOk = true;
             // Apply per-field
@@ -1041,12 +941,7 @@ public static class FormOverlay
             try { items = (currentText ?? "[]").FromJson<List<string>>() ?? new List<string>(); }
             catch { items = new List<string>(); }
             var col = BuildArrayColumn(fieldKey, items, field.Label, field.Placeholder);
-            return new UiNode(
-                fieldKey,
-                UiKind.Column,
-                new Dictionary<UiProperty, object?> { [UiProperty.Focusable] = false },
-                new[] { col }
-            );
+            return Ui.Column(fieldKey, col).WithProps(new { Focusable = false });
         }
 
         // Add choices for enum fields
@@ -1090,12 +985,7 @@ public static class FormOverlay
                 break;
         }
 
-        return new UiNode(
-            fieldKey,
-            kind,
-            props,
-            Array.Empty<UiNode>()
-        );
+        return Ui.Node(fieldKey, kind).WithProps(props);
     }
 
     // Builds the column that holds per-item rows and an Add button for an array field
@@ -1104,63 +994,27 @@ public static class FormOverlay
         var rows = new List<UiNode>();
         for (int i = 0; i < items.Count; i++)
         {
-            var textNode = new UiNode(
-                $"{fieldKey}-item-{i}-text",
-                UiKind.Label,
-                new Dictionary<UiProperty, object?> { [UiProperty.Text] = items[i] ?? string.Empty, [UiProperty.Wrap] = true },
-                Array.Empty<UiNode>()
+            var textNode = Ui.Text($"{fieldKey}-item-{i}-text", items[i] ?? string.Empty)
+                .WithProps(new { Wrap = true });
+            var editBtn = Ui.Button($"{fieldKey}-item-{i}-edit", "✎")
+                .WithProps(new { Focusable = true, Align = "right" });
+            var delBtn = Ui.Button($"{fieldKey}-item-{i}-delete", "×")
+                .WithProps(new { Focusable = true, Align = "right" });
+            rows.Add(
+                Ui.Row($"{fieldKey}-item-{i}-row", textNode, editBtn, delBtn)
+                    .WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Fr(1), GridColumnSpec.Percent(8), GridColumnSpec.Percent(8)) })
             );
-            var editBtn = new UiNode(
-                $"{fieldKey}-item-{i}-edit",
-                UiKind.Button,
-                new Dictionary<UiProperty, object?> { [UiProperty.Text] = "✎", [UiProperty.Focusable] = true, [UiProperty.Align] = "right" },
-                Array.Empty<UiNode>()
-            );
-            var delBtn = new UiNode(
-                $"{fieldKey}-item-{i}-delete",
-                UiKind.Button,
-                new Dictionary<UiProperty, object?> { [UiProperty.Text] = "×", [UiProperty.Focusable] = true, [UiProperty.Align] = "right" },
-                Array.Empty<UiNode>()
-            );
-            rows.Add(new UiNode(
-                $"{fieldKey}-item-{i}-row",
-                UiKind.Row,
-                new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Layout] = "grid",
-                    [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Fr(1), GridColumnSpec.Percent(8), GridColumnSpec.Percent(8))
-                },
-                new[] { textNode, editBtn, delBtn }
-            ));
         }
 
         // Add button row (right aligned)
-        var addBtn = new UiNode(
-            $"{fieldKey}-add",
-            UiKind.Button,
-            new Dictionary<UiProperty, object?> { [UiProperty.Text] = "+", [UiProperty.Focusable] = true },
-            Array.Empty<UiNode>()
-        );
-        rows.Add(new UiNode(
-            $"{fieldKey}-add-row",
-            UiKind.Row,
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.Layout] = "grid",
-                [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Fr(1), GridColumnSpec.Percent(16))
-            },
-            new[]
-            {
-                new UiNode($"{fieldKey}-add-row-spacer", UiKind.Spacer, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>()),
+        var addBtn = Ui.Button($"{fieldKey}-add", "+").WithProps(new { Focusable = true });
+        rows.Add(
+            Ui.Row($"{fieldKey}-add-row",
+                Ui.Node($"{fieldKey}-add-row-spacer", UiKind.Spacer),
                 addBtn
-            }
-        ));
-
-        return new UiNode(
-            $"{fieldKey}-col",
-            UiKind.Column,
-            new Dictionary<UiProperty, object?> { [UiProperty.Focusable] = false },
-            rows
+            ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Fr(1), GridColumnSpec.Percent(16)) })
         );
+
+        return Ui.Column($"{fieldKey}-col", rows.ToArray()).WithProps(new { Focusable = false });
     }
 }

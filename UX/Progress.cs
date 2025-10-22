@@ -300,24 +300,13 @@ public static class ProgressUi
         var statsText = $"in-flight: {running}   queued: {queued}   completed: {completed}   failed: {failed}   canceled: {canceled}";
         var etaText = !string.IsNullOrWhiteSpace(snapshot.EtaHint) ? $"ETA: {snapshot.EtaHint}" : null;
 
-        var headerChildren = new List<UiNode>
-        {
-            new UiNode($"{keyPrefix}-title", UiKind.Label,
-                new Dictionary<UiProperty, object?> { [UiProperty.Text] = snapshot.Title },
-                Array.Empty<UiNode>(),
-                UiStyles.Of((UiStyleKey.Bold, true)))
-        };
         var rightHeaderText = string.IsNullOrWhiteSpace(etaText) ? statsText : $"{statsText}   {etaText}";
-        headerChildren.Add(
-            new UiNode($"{keyPrefix}-stats", UiKind.Label,
-                new Dictionary<UiProperty, object?> { [UiProperty.Text] = rightHeaderText, [UiProperty.Align] = "right" },
-                Array.Empty<UiNode>(),
-                UiStyles.Empty)
-        );
 
-        var header = new UiNode($"{keyPrefix}-header", UiKind.Row,
-            new Dictionary<UiProperty, object?> { [UiProperty.Layout] = "row-justify" },
-            headerChildren.ToArray());
+        var header = Ui.Row($"{keyPrefix}-header",
+                Ui.Text($"{keyPrefix}-title", snapshot.Title).WithStyles(Style.Bold),
+                Ui.Text($"{keyPrefix}-stats", rightHeaderText).WithProps(new { Align = "right" })
+            )
+            .WithProps(new { Layout = "row-justify" });
 
         // Items list (rank interesting tasks first)
         static int Rank(ProgressState s) => s switch
@@ -348,37 +337,20 @@ public static class ProgressUi
                 var leftText = $"{glyph} {r.name}" + (string.IsNullOrWhiteSpace(r.note) ? string.Empty : $" — {r.note}");
                 var rightText = $"{r.percent:0.0}%{steps}";
 
-                var left = new UiNode($"{keyPrefix}-item-{idx}-left", UiKind.Label,
-                    new Dictionary<UiProperty, object?> { [UiProperty.Text] = leftText },
-                    Array.Empty<UiNode>());
-                var right = new UiNode($"{keyPrefix}-item-{idx}-right", UiKind.Label,
-                    new Dictionary<UiProperty, object?> { [UiProperty.Text] = rightText, [UiProperty.Align] = "right" },
-                    Array.Empty<UiNode>());
+                var left = Ui.Text($"{keyPrefix}-item-{idx}-left", leftText);
+                var right = Ui.Text($"{keyPrefix}-item-{idx}-right", rightText).WithProps(new { Align = "right" });
 
-                return new UiNode($"{keyPrefix}-item-{idx}", UiKind.Row,
-                    new Dictionary<UiProperty, object?> { [UiProperty.Layout] = "row-justify" },
-                    new[] { left, right });
+                return Ui.Row($"{keyPrefix}-item-{idx}", left, right)
+                    .WithProps(new { Layout = "row-justify" });
             })
             .ToArray();
 
-        var itemsContainer = new UiNode($"{keyPrefix}-items", UiKind.Column,
-            new Dictionary<UiProperty, object?>(),
-            rows);
+        var itemsContainer = Ui.Column($"{keyPrefix}-items", rows);
 
         // Footer hint
-        var hint = new UiNode($"{keyPrefix}-hint", UiKind.Label,
-            new Dictionary<UiProperty, object?> { [UiProperty.Text] = "Press ESC to cancel", [UiProperty.Style] = "dim" },
-            Array.Empty<UiNode>());
+        var hint = Ui.Text($"{keyPrefix}-hint", "Press ESC to cancel").WithProps(new { Style = "dim" });
 
-        return new UiNode(
-            keyPrefix,
-            UiKind.Column,
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.State] = ChatMessageState.EphemeralActive.ToString(),
-                [UiProperty.Role] = "progress"
-            },
-            new[] { header, itemsContainer, hint }
-        );
+        return Ui.Column(keyPrefix, header, itemsContainer, hint)
+            .WithProps(new { State = ChatMessageState.EphemeralActive.ToString(), Role = "progress" });
     }
 }
