@@ -71,8 +71,7 @@ public enum UiKind
     TextArea,
     ListView,
     Html,
-    Spacer,
-    Progress
+    Spacer
 }
 
 /// <summary>
@@ -118,13 +117,6 @@ public enum UiProperty
     Max,
     Label,
     Checked,
-
-    // Progress-specific
-    ProgressItems,      // List of progress item data
-    ProgressStats,      // Progress statistics (running, completed, etc.)
-    EtaHint,           // Estimated time remaining
-    IsActive,          // Whether progress is still ongoing
-    Cancellable,       // Whether progress can be cancelled
 
     // Event handlers
     OnClick,

@@ -144,7 +144,7 @@ public abstract partial class CUiBase : IUi
             if (_uiTree.Root != null && _uiTree.FindNode(UiFrameKeys.Messages) != null)
             {
                 // Insert ephemeral progress node
-                var progressNode = CreateProgressNode(id, title, new ProgressSnapshot(
+                var progressNode = ProgressUi.CreateNode(id, new ProgressSnapshot(
                     Id: id,
                     Title: title,
                     Description: "",
@@ -183,29 +183,20 @@ public abstract partial class CUiBase : IUi
                 }
             }
 
-            // Check if our progress node exists
+            // Build composed progress subtree and either replace existing node or insert a new one
             var nodeKey = $"progress-{id}";
+            var newNode = ProgressUi.CreateNode(id, snapshot);
             if (_uiTree.Root != null && _uiTree.FindNode(nodeKey) != null)
             {
-                // Update existing progress node
-                var patch = new UiPatchBuilder(this)
-                    .Update(
-                        nodeKey,
-                        new Dictionary<UiProperty, object?>
-                        {
-                            [UiProperty.ProgressItems] = snapshot.Items,
-                            [UiProperty.ProgressStats] = snapshot.Stats,
-                            [UiProperty.EtaHint] = snapshot.EtaHint,
-                            [UiProperty.IsActive] = snapshot.IsActive
-                        });
-                patch.PatchAsync().GetAwaiter().GetResult();
+                MakePatch()
+                    .Replace(nodeKey, newNode)
+                    .PatchAsync().GetAwaiter().GetResult();
             }
             else if (_uiTree.Root != null && _uiTree.FindNode(UiFrameKeys.Messages) != null)
             {
                 // Node doesn't exist yet (maybe tree was replaced) - insert it
-                var progressNode = CreateProgressNode(id, snapshot.Title, snapshot);
                 MakePatch()
-                    .Insert(UiFrameKeys.Messages, int.MaxValue, progressNode)
+                    .Insert(UiFrameKeys.Messages, int.MaxValue, newNode)
                     .PatchAsync().GetAwaiter().GetResult();
             }
         }
@@ -240,24 +231,7 @@ public abstract partial class CUiBase : IUi
         }
     }
 
-    private UiNode CreateProgressNode(string id, string title, ProgressSnapshot snapshot)
-    {
-        return new UiNode(
-            $"progress-{id}",
-            UiKind.Progress,
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.Title] = title,
-                [UiProperty.ProgressItems] = snapshot.Items,
-                [UiProperty.ProgressStats] = snapshot.Stats,
-                [UiProperty.EtaHint] = snapshot.EtaHint,
-                [UiProperty.IsActive] = snapshot.IsActive,
-                [UiProperty.Cancellable] = true,
-                [UiProperty.State] = ChatMessageState.EphemeralActive.ToString() // Mark as ephemeral
-            },
-            Array.Empty<UiNode>()
-        );
-    }
+    // Progress UI composition is implemented in ProgressUi.CreateNode
     public abstract IInputRouter GetInputRouter();
     public string? RenderMenu(string header, List<string> choices, int selected = 0)
     {

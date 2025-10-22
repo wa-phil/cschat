@@ -8,7 +8,7 @@ using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text;
 
-static class Program
+public static class Program
 {
     public static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
     public static Config config = null!;

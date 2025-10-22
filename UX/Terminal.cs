@@ -447,7 +447,7 @@ public class Terminal : CUiBase
 
         return Task.CompletedTask;
     }
-    
+
     /// <summary>
     /// Terminal Virtual-DOM for incremental rendering
     /// Flattens UiNode -> lines with attributes, maintains key→region map, computes minimal edits
@@ -652,115 +652,6 @@ public class Terminal : CUiBase
                             LayoutNode(child, ctx.Indent + 1, ctx.Width, ctx.ScreenHeight, ctx.FocusedKey, ctx.Lines, ctx.KeyMap);
                         }
                     }
-                },
-
-                // Progress
-                [UiKind.Progress] = (ctx, node) =>
-                {
-                    var progressTitle = node.Props.TryGetValue(UiProperty.Title, out var pt) ? pt?.ToString() ?? "Progress" : "Progress";
-                    var progressItems = node.Props.TryGetValue(UiProperty.ProgressItems, out var pi)
-                        ? pi as IReadOnlyList<(string name, double percent, ProgressState state, string? note, (int done, int total) steps)>
-                        : null;
-                    var progressStats = node.Props.TryGetValue(UiProperty.ProgressStats, out var ps)
-                        ? ps as ValueTuple<int, int, int, int, int>?
-                        : null;
-                    var etaHint = node.Props.TryGetValue(UiProperty.EtaHint, out var eta) ? eta?.ToString() : null;
-
-                    if (progressItems == null || !progressStats.HasValue) return;
-
-                    var headerTop = "┌" + new string('─', Math.Max(0, ctx.Width - ctx.Indent * 2 - 2)) + "┐";
-                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{headerTop}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
-
-                    var innerWidth = Math.Max(0, ctx.Width - ctx.Indent * 2 - 2);
-                    var centeredTitle = progressTitle.Length > innerWidth
-                        ? progressTitle.Substring(0, Math.Max(0, innerWidth - 3)) + "..."
-                        : progressTitle.PadLeft((innerWidth + progressTitle.Length) / 2).PadRight(innerWidth);
-                    var titleLine = "│" + centeredTitle + "│";
-                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{titleLine}", ConsoleColor.Green, ConsoleColor.Black, TextAlign.Left));
-
-                    var sep = "├" + new string('─', Math.Max(0, ctx.Width - ctx.Indent * 2 - 2)) + "┤";
-                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{sep}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
-
-                    var topN = Math.Min(10, Program.config.MaxMenuItems);
-                    static int Rank(ProgressState s) => s switch
-                    {
-                        ProgressState.Running => 3,
-                        ProgressState.Queued => 2,
-                        ProgressState.Failed => 1,
-                        _ => 0
-                    };
-
-                    var rows = progressItems
-                        .Where(x => x.state != ProgressState.Completed && x.state != ProgressState.Canceled)
-                        .OrderByDescending(x => Rank(x.state))
-                        .ThenBy(x => x.percent)
-                        .ThenBy(x => x.name)
-                        .Take(topN)
-                        .ToList();
-
-                    foreach (var r in rows)
-                    {
-                        var glyph = r.state switch
-                        {
-                            ProgressState.Running => "▶",
-                            ProgressState.Completed => "✓",
-                            ProgressState.Failed => "✖",
-                            ProgressState.Canceled => "■",
-                            _ => "•"
-                        };
-
-                        var name = r.name.Length > 40 ? r.name.Substring(0, 37) + "..." : r.name;
-                        var steps = r.steps.total > 0 ? $" ({r.steps.done}/{r.steps.total})" : string.Empty;
-                        var left = $"{glyph} {name}";
-                        var right = $"{r.percent,6:0.0}%{steps}";
-                        var contentWidth = Math.Max(10, ctx.Width - ctx.Indent * 2);
-
-                        var rightLen = right.Length;
-                        var availLeft = Math.Max(0, contentWidth - rightLen - 1);
-                        if (left.Length > availLeft)
-                            left = (availLeft > 3 ? left.Substring(0, availLeft - 3) + "..." : left.Substring(0, Math.Max(0, availLeft)));
-                        var gap = Math.Max(1, contentWidth - left.Length - rightLen);
-                        var composed = left + new string(' ', gap) + right;
-
-                        var fillWidth = (int)Math.Round(Math.Clamp(r.percent, 0, 100) / 100.0 * contentWidth);
-
-                        var barBack = r.state switch
-                        {
-                            ProgressState.Failed => ConsoleColor.DarkRed,
-                            ProgressState.Canceled => ConsoleColor.DarkGray,
-                            ProgressState.Completed => ConsoleColor.DarkGray,
-                            ProgressState.Running => ConsoleColor.DarkGray,
-                            _ => ConsoleColor.DarkBlue,
-                        };
-
-                        var fg = r.state switch
-                        {
-                            ProgressState.Failed => ConsoleColor.Yellow,
-                            ProgressState.Canceled => ConsoleColor.Gray,
-                            _ => ConsoleColor.Gray
-                        };
-
-                        var runs = new List<TermRun>();
-                        if (ctx.IndentStr.Length > 0) runs.Add(new TermRun(ctx.IndentStr, fg, ConsoleColor.Black));
-                        var seg1Len = Math.Min(fillWidth, composed.Length);
-                        if (seg1Len > 0) runs.Add(new TermRun(composed.Substring(0, seg1Len), fg, barBack));
-                        var seg2Start = seg1Len;
-                        var seg2Len = Math.Max(0, composed.Length - seg2Start);
-                        if (seg2Len > 0) runs.Add(new TermRun(composed.Substring(seg2Start), fg, ConsoleColor.Black));
-                        var totalLen = ctx.IndentStr.Length + composed.Length;
-                        if (totalLen < ctx.Width)
-                            runs.Add(new TermRun(new string(' ', ctx.Width - totalLen), fg, ConsoleColor.Black));
-
-                        ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{composed}", fg, ConsoleColor.Black, TextAlign.Left) { Runs = runs });
-                    }
-
-                    var (running, queued, completed, failed, canceled) = progressStats.Value;
-                    var stats = $"in-flight: {running}   queued: {queued}   completed: {completed}   failed: {failed}   canceled: {canceled}";
-                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{stats}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
-
-                    var hint = "Press ESC to cancel";
-                    var etaText = !string.IsNullOrEmpty(etaHint) ? $"ETA: {etaHint} • " : string.Empty;
-                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{etaText}{hint}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
                 },
             };
 
@@ -1031,16 +922,16 @@ public class Terminal : CUiBase
             var indentStr = new string(' ', indent * 2);
             var isFocused = node.Key == focusedKey;
 
-            // Early dispatch to registry for leaf/simple controls
+            // Early dispatch to registry for leaf/simple controls; otherwise fall back to container/layout handling
             var ctx = new TermCtx(indent, width, screenHeight, focusedKey, lines, keyMap);
             if (_draw.TryGetValue(node.Kind, out var renderer))
             {
                 renderer(ctx, node);
-                goto RecordRegion;
             }
-
-            switch (node.Kind)
+            else
             {
+                switch (node.Kind)
+                {
                 case UiKind.Column:
                 case UiKind.Row:
                     // Support special row layout that composes two children inline with right child right-aligned.
@@ -1357,9 +1248,9 @@ public class Terminal : CUiBase
                     break;
 
                 // no default leaf cases here; those are handled by registry above
+                }
             }
 
-        RecordRegion:
             // Record region for this node
             var endLine = lines.Count;
             if (endLine > startLine)

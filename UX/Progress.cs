@@ -172,9 +172,12 @@ public sealed class AsyncProgress
                     var pi = new ProgressItem(nameOf(item));
                     progressItems[item!] = pi;
 
-                    await sem.WaitAsync(ct);
+                    bool acquired = false;
                     try
                     {
+                        await sem.WaitAsync(ct);
+                        acquired = true;
+
                         var result = await processAsync(item, pi, ct);
 
                         // if the worker didn’t set a total, guarantee a completion transition
@@ -184,6 +187,7 @@ public sealed class AsyncProgress
                     }
                     catch (OperationCanceledException)
                     {
+                        // Swallow OCE to avoid bubbling to WhenAll; mark item canceled
                         pi.Cancel("canceled");
                         failures.Add((pi.Name, "canceled"));
                     }
@@ -194,7 +198,7 @@ public sealed class AsyncProgress
                     }
                     finally
                     {
-                        sem.Release();
+                        if (acquired) sem.Release();
                     }
                 }).ToList();
 
@@ -274,5 +278,107 @@ $@"**{s.Title+(string.IsNullOrWhiteSpace(s.Description) ? "" : $": {s.Descriptio
 
 {(f>0 ? ("### Failed items\n" + string.Join("\n", failedList) + moreLine) : "_No failures._")}";
         }
+    }
+}
+
+/// <summary>
+/// UI composition helpers for Progress. Builds a backend-agnostic UiNode subtree
+/// for rendering progress as generic nodes (Column/Row/Label).
+/// </summary>
+public static class ProgressUi
+{
+    /// <summary>
+    /// Create a composed progress node with header (title + stats/eta), items list, and footer hint.
+    /// Root node key: "progress-{id}".
+    /// </summary>
+    public static UiNode CreateNode(string id, ProgressSnapshot snapshot)
+    {
+        var keyPrefix = $"progress-{id}";
+
+        // Header: left title, right stats+eta
+        var (running, queued, completed, failed, canceled) = snapshot.Stats;
+        var statsText = $"in-flight: {running}   queued: {queued}   completed: {completed}   failed: {failed}   canceled: {canceled}";
+        var etaText = !string.IsNullOrWhiteSpace(snapshot.EtaHint) ? $"ETA: {snapshot.EtaHint}" : null;
+
+        var headerChildren = new List<UiNode>
+        {
+            new UiNode($"{keyPrefix}-title", UiKind.Label,
+                new Dictionary<UiProperty, object?> { [UiProperty.Text] = snapshot.Title },
+                Array.Empty<UiNode>(),
+                UiStyles.Of((UiStyleKey.Bold, true)))
+        };
+        var rightHeaderText = string.IsNullOrWhiteSpace(etaText) ? statsText : $"{statsText}   {etaText}";
+        headerChildren.Add(
+            new UiNode($"{keyPrefix}-stats", UiKind.Label,
+                new Dictionary<UiProperty, object?> { [UiProperty.Text] = rightHeaderText, [UiProperty.Align] = "right" },
+                Array.Empty<UiNode>(),
+                UiStyles.Empty)
+        );
+
+        var header = new UiNode($"{keyPrefix}-header", UiKind.Row,
+            new Dictionary<UiProperty, object?> { [UiProperty.Layout] = "row-justify" },
+            headerChildren.ToArray());
+
+        // Items list (rank interesting tasks first)
+        static int Rank(ProgressState s) => s switch
+        {
+            ProgressState.Running => 3,
+            ProgressState.Queued => 2,
+            ProgressState.Failed => 1,
+            _ => 0
+        };
+
+        var items = snapshot.Items ?? Array.Empty<(string name, double percent, ProgressState state, string? note, (int done, int total) steps)>();
+        var rows = items
+            .OrderByDescending(x => Rank(x.state))
+            .ThenBy(x => x.percent)
+            .ThenBy(x => x.name)
+            .Take(Math.Min(10, Program.config.MaxMenuItems))
+            .Select((r, idx) =>
+            {
+                var glyph = r.state switch
+                {
+                    ProgressState.Running => "▶",
+                    ProgressState.Completed => "✓",
+                    ProgressState.Failed => "✖",
+                    ProgressState.Canceled => "■",
+                    _ => "•"
+                };
+                var steps = r.steps.total > 0 ? $" ({r.steps.done}/{r.steps.total})" : string.Empty;
+                var leftText = $"{glyph} {r.name}" + (string.IsNullOrWhiteSpace(r.note) ? string.Empty : $" — {r.note}");
+                var rightText = $"{r.percent:0.0}%{steps}";
+
+                var left = new UiNode($"{keyPrefix}-item-{idx}-left", UiKind.Label,
+                    new Dictionary<UiProperty, object?> { [UiProperty.Text] = leftText },
+                    Array.Empty<UiNode>());
+                var right = new UiNode($"{keyPrefix}-item-{idx}-right", UiKind.Label,
+                    new Dictionary<UiProperty, object?> { [UiProperty.Text] = rightText, [UiProperty.Align] = "right" },
+                    Array.Empty<UiNode>());
+
+                return new UiNode($"{keyPrefix}-item-{idx}", UiKind.Row,
+                    new Dictionary<UiProperty, object?> { [UiProperty.Layout] = "row-justify" },
+                    new[] { left, right });
+            })
+            .ToArray();
+
+        var itemsContainer = new UiNode($"{keyPrefix}-items", UiKind.Column,
+            new Dictionary<UiProperty, object?>(),
+            rows);
+
+        // Footer hint
+        var hint = new UiNode($"{keyPrefix}-hint", UiKind.Label,
+            new Dictionary<UiProperty, object?> { [UiProperty.Text] = "Press ESC to cancel", [UiProperty.Style] = "dim" },
+            Array.Empty<UiNode>());
+
+        return new UiNode(
+            keyPrefix,
+            UiKind.Column,
+            new Dictionary<UiProperty, object?>
+            {
+                [UiProperty.State] = ChatMessageState.EphemeralActive.ToString(),
+                [UiProperty.Role] = "progress"
+            },
+            new[] { header, itemsContainer, hint }
+        );
     }
 }

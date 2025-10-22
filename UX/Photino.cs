@@ -173,9 +173,6 @@ public sealed class PhotinoUi : CUiBase
 		return tcs.Task;
 	}
 
-	// Progress is now implemented in CUiBase using UiNodes
-	// Photino renders Progress UiKind in SerializeNode method
-
 	private void HandleInbound(string raw) => Log.Method(ctx =>
 	{
 		ctx.OnlyEmitOnFailure();
@@ -262,13 +259,7 @@ public sealed class PhotinoUi : CUiBase
 						break;
 					}
 
-				case "CancelProgress":
-					{
-						var pid = S("id", "Id");
-						if (!string.IsNullOrWhiteSpace(pid) && _progressMap.TryGetValue(pid, out var cts))
-							try { cts.Cancel(); } catch { }
-						break;
-					}
+				// CancelProgress no longer used; ESC key cancels via input router
 
 				case "UserText":
 					if (!string.IsNullOrWhiteSpace(S("text", "Text")))

@@ -521,36 +521,7 @@
 		} 
 	};
 
-	// Progress (avoid referencing KINDS inside its own spec)
-	const progressSpec = { 
-		create(node){ 
-			return renderProgressNode(node, node.props||{}); 
-		}, props:{ 
-			ProgressItems(el,v){ 
-				progressSpec._reRender(el); 
-			}, ProgressStats(el,v){ 
-				progressSpec._reRender(el); 
-			}, EtaHint(el,v){ 
-				progressSpec._reRender(el); 
-			}, IsActive(el,v){ 
-				progressSpec._reRender(el); 
-			} 
-		}, _reRender(el){ 
-			const key=el.dataset.nodeKey; 
-			const props = el._progressProps || {}; 
-			const parentNode={ 
-				key, kind:'Progress', 
-				props, children: []
-			};
-			const newEl = renderProgressNode(parentNode, props); 
-			if(newEl && el.parentNode){ 
-				el.parentNode.replaceChild(newEl, el); 
-				controlNodes.set(key,newEl); 
-			} 
-		}, init(){ /* already rendered */ } 
-	};
-
-	KINDS.Progress = progressSpec;
+	// Progress is composed in backend as generic nodes; no special frontend renderer needed
 
 	function wireEventsForNode(el, spec, node){
 		const props = node.props || {};
@@ -589,143 +560,7 @@
 		return el;
 	}
 	
-	function renderProgressNode(node, props) {
-		const element = document.createElement('div');
-		element.classList.add('bubble', 'tool');
-		element.style.padding = '12px';
-		element.style.background = '#f9f9f9';
-		element.style.border = '1px solid #ddd';
-		element.style.borderRadius = '4px';
-		
-		const title = props.Title || 'Progress';
-		const items = props.ProgressItems || [];
-		const stats = props.ProgressStats || [0, 0, 0, 0, 0];
-		const etaHint = props.EtaHint || null;
-		const isActive = props.IsActive !== false;
-		const cancellable = props.Cancellable || false;
-		
-		// Title
-		const titleEl = document.createElement('h3');
-		titleEl.textContent = title;
-		titleEl.style.marginTop = '0';
-		element.appendChild(titleEl);
-		
-		// Stats line
-		const statsEl = document.createElement('div');
-		statsEl.textContent = `Running: ${stats[0]}, Queued: ${stats[1]}, Completed: ${stats[2]}, Failed: ${stats[3]}, Canceled: ${stats[4]}`;
-		statsEl.style.fontSize = '0.9em';
-		statsEl.style.color = '#666';
-		statsEl.style.marginBottom = '8px';
-		element.appendChild(statsEl);
-		
-		// ETA hint
-		if (etaHint) {
-			const etaEl = document.createElement('div');
-			etaEl.textContent = `ETA: ${etaHint}`;
-			etaEl.style.fontSize = '0.9em';
-			etaEl.style.color = '#666';
-			etaEl.style.marginBottom = '8px';
-			element.appendChild(etaEl);
-		}
-		
-		// Progress items (show only active work)
-		const activeItems = items.filter(item => {
-			const state = item[2]; // ProgressState enum value
-			return state !== 'Completed' && state !== 'Canceled';
-		});
-		
-		if (activeItems.length > 0) {
-			const listEl = document.createElement('div');
-			listEl.style.marginTop = '12px';
-			
-			activeItems.forEach(item => {
-				const [name, percent, state, note, steps] = item;
-				const itemEl = document.createElement('div');
-				itemEl.style.marginBottom = '8px';
-				itemEl.style.padding = '8px';
-				itemEl.style.background = '#fff';
-				itemEl.style.border = '1px solid #e0e0e0';
-				itemEl.style.borderRadius = '4px';
-				
-				// Item name and state
-				const headerEl = document.createElement('div');
-				headerEl.style.display = 'flex';
-				headerEl.style.justifyContent = 'space-between';
-				headerEl.style.marginBottom = '4px';
-				
-				const nameEl = document.createElement('span');
-				nameEl.textContent = name;
-				nameEl.style.fontWeight = 'bold';
-				
-				const stateEl = document.createElement('span');
-				stateEl.textContent = state;
-				stateEl.style.fontSize = '0.85em';
-				stateEl.style.color = state === 'Running' ? '#2196f3' : state === 'Failed' ? '#f44336' : '#666';
-				
-				headerEl.appendChild(nameEl);
-				headerEl.appendChild(stateEl);
-				itemEl.appendChild(headerEl);
-				
-				// Progress bar
-				const progressBarBg = document.createElement('div');
-				progressBarBg.style.width = '100%';
-				progressBarBg.style.height = '8px';
-				progressBarBg.style.background = '#e0e0e0';
-				progressBarBg.style.borderRadius = '4px';
-				progressBarBg.style.overflow = 'hidden';
-				
-				const progressBarFg = document.createElement('div');
-				progressBarFg.style.width = percent + '%';
-				progressBarFg.style.height = '100%';
-				progressBarFg.style.background = state === 'Running' ? '#2196f3' : state === 'Failed' ? '#f44336' : '#4caf50';
-				progressBarFg.style.transition = 'width 0.3s ease';
-				
-				progressBarBg.appendChild(progressBarFg);
-				itemEl.appendChild(progressBarBg);
-				
-				// Note or steps
-				if (note) {
-					const noteEl = document.createElement('div');
-					noteEl.textContent = note;
-					noteEl.style.fontSize = '0.85em';
-					noteEl.style.color = '#666';
-					noteEl.style.marginTop = '4px';
-					itemEl.appendChild(noteEl);
-				} else if (steps && steps[1] > 0) {
-					const stepsEl = document.createElement('div');
-					stepsEl.textContent = `${steps[0]} / ${steps[1]} steps`;
-					stepsEl.style.fontSize = '0.85em';
-					stepsEl.style.color = '#666';
-					stepsEl.style.marginTop = '4px';
-					itemEl.appendChild(stepsEl);
-				}
-				
-				listEl.appendChild(itemEl);
-			});
-			
-			element.appendChild(listEl);
-		}
-		
-		// Cancel button
-		if (cancellable && isActive) {
-			const cancelBtn = document.createElement('button');
-			cancelBtn.textContent = 'Cancel (ESC)';
-			cancelBtn.style.marginTop = '12px';
-			cancelBtn.style.padding = '6px 12px';
-			cancelBtn.style.border = '1px solid #ccc';
-			cancelBtn.style.borderRadius = '4px';
-			cancelBtn.style.background = '#f0f0f0';
-			cancelBtn.style.cursor = 'pointer';
-			
-			cancelBtn.addEventListener('click', () => {
-				post({ type: 'CancelProgress', id: node.key.replace('progress-', '') });
-			});
-			
-			element.appendChild(cancelBtn);
-		}
-		
-		return element;
-	}
+	// (renderProgressNode removed)
 		
 	function applyTextStyles(element, styles) {
 		if (styles.ForegroundColor) {
@@ -795,8 +630,6 @@
 		const kind = el.dataset.kind; const spec = KINDS[kind];
 		Object.keys(props).forEach(k => {
 			const v = props[k];
-			// Progress nodes accumulate props before re-render
-			if(kind==='Progress') { el._progressProps = el._progressProps || {}; el._progressProps[k] = v; }
 			if(spec && spec.props && spec.props[k]) { try { spec.props[k](el, v); } catch(e){ debugLog(`prop handler error ${kind}.${k}: ${e.message}`); } return; }
 			// Generic fallbacks
 			if(k==='Text'){ if(el.tagName==='INPUT' || el.tagName==='TEXTAREA'){ if(el.value !== (v||'')) el.value = v||''; } else el.textContent = v||''; }
@@ -806,7 +639,6 @@
 			else if(k==='Height' && kind!=='Spacer'){ el.style.height = v||''; }
 			else if(k==='Padding'){ el.style.padding = v||''; }
 		});
-		if(kind==='Progress'){ KINDS.Progress._reRender(el); }
 		if(el.dataset.autoScroll==='true'){ setTimeout(()=>{ el.scrollTop = el.scrollHeight; },0); }
 	}
 
