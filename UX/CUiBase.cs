@@ -61,8 +61,8 @@ public abstract partial class CUiBase : IUi
         _uiTree.ApplyPatch(patch);
 
         // Debug: Log the messages panel child count after applying realtime patches
-        var messagesNode = _uiTree.FindNode("messages");
-        if (messagesNode != null && patch.Ops.Any(op => op is InsertChildOp ico && ico.ParentKey == "messages"))
+        var messagesNode = _uiTree.FindNode(UiFrameKeys.Messages);
+        if (messagesNode != null && patch.Ops.Any(op => op is InsertChildOp ico && ico.ParentKey == UiFrameKeys.Messages))
         {
             ctx.Append(Log.Data.Message, $"Messages panel has {messagesNode.Children.Count} children after patch");
         }
@@ -141,7 +141,7 @@ public abstract partial class CUiBase : IUi
         try
         {
             // Check if messages panel exists
-            if (_uiTree.Root != null && _uiTree.FindNode("messages") != null)
+            if (_uiTree.Root != null && _uiTree.FindNode(UiFrameKeys.Messages) != null)
             {
                 // Insert ephemeral progress node
                 var progressNode = CreateProgressNode(id, title, new ProgressSnapshot(
@@ -156,7 +156,7 @@ public abstract partial class CUiBase : IUi
 
                 // Use fluent builder to insert the node
                 MakePatch()
-                    .Insert("messages", int.MaxValue, progressNode)
+                    .Insert(UiFrameKeys.Messages, int.MaxValue, progressNode)
                     .PatchAsync().GetAwaiter().GetResult();
             }
         }
@@ -200,12 +200,12 @@ public abstract partial class CUiBase : IUi
                         });
                 patch.PatchAsync().GetAwaiter().GetResult();
             }
-            else if (_uiTree.Root != null && _uiTree.FindNode("messages") != null)
+            else if (_uiTree.Root != null && _uiTree.FindNode(UiFrameKeys.Messages) != null)
             {
                 // Node doesn't exist yet (maybe tree was replaced) - insert it
                 var progressNode = CreateProgressNode(id, snapshot.Title, snapshot);
                 MakePatch()
-                    .Insert("messages", int.MaxValue, progressNode)
+                    .Insert(UiFrameKeys.Messages, int.MaxValue, progressNode)
                     .PatchAsync().GetAwaiter().GetResult();
             }
         }
@@ -322,7 +322,7 @@ public abstract partial class CUiBase : IUi
             // This makes realtime output scrollable with chat history but not persisted
             try
             {
-                if (_ui._uiTree.Root != null && _ui._uiTree.FindNode("messages") != null)
+                if (_ui._uiTree.Root != null && _ui._uiTree.FindNode(UiFrameKeys.Messages) != null)
                 {
                     _content.AppendLine(title);
                     
@@ -367,7 +367,7 @@ public abstract partial class CUiBase : IUi
             try
             {
                 // Check if messages panel exists
-                if (_ui._uiTree.Root != null && _ui._uiTree.FindNode("messages") != null)
+                if (_ui._uiTree.Root != null && _ui._uiTree.FindNode(UiFrameKeys.Messages) != null)
                 {
                     // Check if our node exists
                     var nodeExists = _ui._uiTree.FindNode($"msg-{_realtimeKey}") != null;
@@ -392,7 +392,7 @@ public abstract partial class CUiBase : IUi
                 else
                 {
                     // Messages panel not found - log for debugging
-                    ctx.Append(Log.Data.Message, $"Messages panel not found for realtime key {_realtimeKey}, root={_ui._uiTree.Root != null}, messages={_ui._uiTree.FindNode("messages") != null}");
+                    ctx.Append(Log.Data.Message, $"Messages panel not found for realtime key {_realtimeKey}, root={_ui._uiTree.Root != null}, messages={_ui._uiTree.FindNode(UiFrameKeys.Messages) != null}");
                 }
 
                 ctx.Succeeded(_nodeInserted);

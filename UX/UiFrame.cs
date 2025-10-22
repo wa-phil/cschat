@@ -1,7 +1,24 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Collections.Generic;
+
+/// <summary>
+/// Centralized keys for well-known UI nodes to avoid string duplication and typos.
+/// </summary>
+public static class UiFrameKeys
+{
+    // Frame structure
+    public const string Root = "frame.root";
+    public const string Header = "frame.header";
+    public const string Content = "frame.content";
+    public const string Overlays = "frame.overlays";
+
+    // Chat surface
+    public const string Messages = "messages";
+    public const string ComposerInput = "composer.input"; // reserved for future use
+    public const string SendButton = "send-btn";
+}
 
 /// <summary>
 /// UiFrameController constructs the main frame (header + content), wires the input router,
@@ -52,13 +69,13 @@ public sealed class UiFrameController
         ctx.OnlyEmitOnFailure();
         var messages = _context.Messages(InluceSystemMessage: false).ToList();
         ctx.Append(Log.Data.Count, messages.Count);
-        
+
         // Append messages one by one to preserve realtime nodes
         for (int i = 0; i < messages.Count; i++)
         {
             await _ui.PatchAsync(ChatSurface.AppendMessage(messages[i], i));
         }
-        
+
         ctx.Succeeded();
     });
 

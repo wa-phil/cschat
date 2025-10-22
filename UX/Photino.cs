@@ -368,14 +368,14 @@ public sealed class PhotinoUi : CUiBase
 
 						// Route composer input/send-btn events to InputRouter if active
 						// This handles the unified I/O stack for ChatSurface integration
-						if (_inputRouter != null && (key == "input" || key == "send-btn"))
+						if (_inputRouter != null && (key == "input" || key == UiFrameKeys.SendButton))
 						{
 							_inputRouter.HandleControlEvent(key, name, value);
 							break;
 						}
 
 						// (e.g., ReadInputWithFeaturesAsync before full InputRouter migration)
-						if ((key == "input" && name == "enter") || (key == "send-btn" && name == "click"))
+						if ((key == "input" && name == "enter") || (key == UiFrameKeys.SendButton && name == "click"))
 						{
 							if (!string.IsNullOrWhiteSpace(value))
 								_lastInput = value;
@@ -576,7 +576,7 @@ public sealed class PhotinoUi : CUiBase
 		// JavaScript already has frame.root created in initializeRootContainer()
 		
 		// Replace frame.root with the new root tree
-		var patch = new UiPatch(new ReplaceOp("frame.root", root));
+		var patch = new UiPatch(new ReplaceOp(UiFrameKeys.Root, root));
 		
 		// Send the patch to mount the tree
 		var result = PostPatchAsync(patch);
@@ -723,7 +723,7 @@ public sealed class PhotinoInputRouter : IInputRouter
         }
         
         // Handle submit events (Enter key or Send button click)
-        else if ((key == "input" && eventName == "enter") || (key == "send-btn" && eventName == "click"))
+		else if ((key == "input" && eventName == "enter") || (key == UiFrameKeys.SendButton && eventName == "click"))
         {
             var textToSubmit = _currentInputText;
             

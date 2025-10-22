@@ -796,7 +796,7 @@ public static class UiFrameBuilder
             .ToList();
 
         var overlaysContainer = new UiNode(
-            "frame.overlays",
+            UiFrameKeys.Overlays,
             UiKind.Column,
             new Dictionary<UiProperty, object?>
             {
@@ -807,7 +807,7 @@ public static class UiFrameBuilder
 
         // Build root frame
         return new UiNode(
-            "frame.root",
+            UiFrameKeys.Root,
             UiKind.Column,
             new Dictionary<UiProperty, object?>
             {
@@ -826,7 +826,7 @@ public static class UiFrameBuilder
             throw new ArgumentNullException(nameof(newContent));
 
         var contentWithRole = AddRoleIfMissing(newContent, "content");
-        return new UiPatch(new ReplaceOp("frame.content", contentWithRole));
+        return new UiPatch(new ReplaceOp(UiFrameKeys.Content, contentWithRole));
     }    
 
     /// <summary>
@@ -844,7 +844,7 @@ public static class UiFrameBuilder
             "overlay");
 
         // Insert at the end (highest index = topmost)
-        return new UiPatch(new InsertChildOp("frame.overlays", int.MaxValue, overlayWithRole));
+        return new UiPatch(new InsertChildOp(UiFrameKeys.Overlays, int.MaxValue, overlayWithRole));
     }
 
     /// <summary>
@@ -867,8 +867,14 @@ public static class UiFrameBuilder
             throw new ArgumentNullException(nameof(newHeader));
 
         var headerWithRole = AddRoleIfMissing(newHeader, "header");
-        return new UiPatch(new ReplaceOp("frame.header", headerWithRole));
+        return new UiPatch(new ReplaceOp(UiFrameKeys.Header, headerWithRole));
     }
+
+    // Expose helpers for key access to encourage consistent usage
+    public static string RootKey => UiFrameKeys.Root;
+    public static string HeaderKey => UiFrameKeys.Header;
+    public static string ContentKey => UiFrameKeys.Content;
+    public static string OverlaysKey => UiFrameKeys.Overlays;
     
     // Helper: adds role prop if not present, preserving other props
     private static UiNode AddRoleIfMissing(UiNode node, string role)

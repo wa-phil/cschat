@@ -15,7 +15,7 @@ public static class ChatSurface
     {
         public string Text { get; init; } = "";
         public int Caret { get; init; } = 0;
-        public string FocusKey { get; set; } = "input"; // "input" or "send-btn"
+    public string FocusKey { get; set; } = "input"; // "input" or UiFrameKeys.SendButton
         public int Scroll { get; init; } = 0;
     }
 
@@ -87,8 +87,8 @@ public static class ChatSurface
         {
             if (current.FocusKey == "input")
             {
-                await ui.FocusAsync("send-btn");
-                current.FocusKey = "send-btn";
+                await ui.FocusAsync(UiFrameKeys.SendButton);
+                current.FocusKey = UiFrameKeys.SendButton;
             }
             else
             {
@@ -99,7 +99,7 @@ public static class ChatSurface
         }
 
         // If focus is on send button, Enter/Space triggers submit
-        if (current.FocusKey == "send-btn" && (key.Key == ConsoleKey.Enter || key.Key == ConsoleKey.Spacebar))
+    if (current.FocusKey == UiFrameKeys.SendButton && (key.Key == ConsoleKey.Enter || key.Key == ConsoleKey.Spacebar))
         {
             return (current, ChatInputAction.Submit);
         }
@@ -200,7 +200,7 @@ public static class ChatSurface
         {
             await ui.MakePatch()
                 .Update(
-                    "messages",
+                    UiFrameKeys.Messages,
                     new Dictionary<UiProperty, object?>
                     {
                         [UiProperty.AutoScroll] = false,
@@ -250,7 +250,7 @@ public static class ChatSurface
     private static UiNode CreateMessagesPanel(UiNode[] messageNodes)
     {
         return new UiNode(
-            "messages",
+            UiFrameKeys.Messages,
             UiKind.Column,
             new Dictionary<UiProperty, object?>
             {
@@ -368,7 +368,7 @@ public static class ChatSurface
             new[]
             {
                 new UiNode("input", UiKind.TextBox, inputProps, Array.Empty<UiNode>(), inputStyle),
-                new UiNode("send-btn", UiKind.Button, sendButtonProps, Array.Empty<UiNode>(), buttonStyle)
+                new UiNode(UiFrameKeys.SendButton, UiKind.Button, sendButtonProps, Array.Empty<UiNode>(), buttonStyle)
             },
             composerStyle
         );
@@ -381,7 +381,7 @@ public static class ChatSurface
     {
         var messageNode = CreateMessageNode(message, index);
         // Use int.MaxValue to clamp to append at end; the Term UI tree will append safely.
-        return new UiPatch(new InsertChildOp("messages", int.MaxValue, messageNode));
+    return new UiPatch(new InsertChildOp(UiFrameKeys.Messages, int.MaxValue, messageNode));
     }
 
     /// <summary>
@@ -416,7 +416,7 @@ public static class ChatSurface
                 }
             ),
             new UpdatePropsOp(
-                "send-btn",
+                UiFrameKeys.SendButton,
                 new Dictionary<UiProperty, object?>
                 {
                     [UiProperty.Text] = "Send",
@@ -433,9 +433,9 @@ public static class ChatSurface
     {
         return new UiPatch(
             new ReplaceOp(
-                "messages",
+                UiFrameKeys.Messages,
                 new UiNode(
-                    "messages",
+                    UiFrameKeys.Messages,
                     UiKind.Column,
                     new Dictionary<UiProperty, object?>
                     {
@@ -459,9 +459,9 @@ public static class ChatSurface
 
         return new UiPatch(
             new ReplaceOp(
-                "messages",
+                UiFrameKeys.Messages,
                 new UiNode(
-                    "messages",
+                    UiFrameKeys.Messages,
                     UiKind.Column,
                     new Dictionary<UiProperty, object?>
                     {
@@ -551,7 +551,7 @@ public static class ChatSurface
         var messageNode = CreateMessageNode(realtimeMessage, -1);
         
         // Insert at the end of messages panel (before composer)
-        return new UiPatch(new InsertChildOp("messages", int.MaxValue, messageNode));
+    return new UiPatch(new InsertChildOp(UiFrameKeys.Messages, int.MaxValue, messageNode));
     }
 
     /// <summary>
@@ -586,7 +586,7 @@ public static class ChatSurface
         // Ensure view snaps to bottom after sending
         await ui.MakePatch()
             .Update(
-                "messages",
+                UiFrameKeys.Messages,
                 new Dictionary<UiProperty, object?>
                 {
                     [UiProperty.AutoScroll] = true,

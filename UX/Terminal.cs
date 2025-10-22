@@ -175,7 +175,6 @@ public class Terminal : CUiBase
     }
 
     // Progress is now implemented in CUiBase using UiNodes
-    // Terminal renders Progress UiKind in RenderNode method
 
     private async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
     {
@@ -448,167 +447,246 @@ public class Terminal : CUiBase
 
         return Task.CompletedTask;
     }
-
+    
     /// <summary>
-    /// Renders a UiNode and its children to the terminal
+    /// Terminal Virtual-DOM for incremental rendering
+    /// Flattens UiNode -> lines with attributes, maintains key→region map, computes minimal edits
     /// </summary>
-    private void RenderNode(UiNode node, int indent)
+    private sealed class TermDom
     {
-        var indentStr = new string(' ', indent * 2);
-        var isFocused = node.Key == _uiTree.FocusedKey;
-
-        switch (node.Kind)
+        // Lightweight drawing context provided to per-kind renderers
+        private readonly struct TermCtx
         {
-            case UiKind.Column:
-            case UiKind.Row:
-                // Layout containers - just render children
-                foreach (var child in node.Children)
-                {
-                    RenderNode(child, node.Kind == UiKind.Column ? indent : indent + 1);
-                }
-                break;
+            public TermCtx(int indent, int width, int screenHeight, string? focusedKey, List<TermLine> lines, Dictionary<string, TermRegion> keyMap)
+            {
+                Indent = indent;
+                Width = width;
+                ScreenHeight = screenHeight;
+                FocusedKey = focusedKey;
+                Lines = lines;
+                KeyMap = keyMap;
+            }
+            public int Indent { get; }
+            public int Width { get; }
+            public int ScreenHeight { get; }
+            public string? FocusedKey { get; }
+            public List<TermLine> Lines { get; }
+            public Dictionary<string, TermRegion> KeyMap { get; }
+            public string IndentStr => new string(' ', Indent * 2);
+            public bool IsFocused(UiNode n) => n.Key == FocusedKey;
+        }
 
-            case UiKind.Label:
-                if (node.Props.TryGetValue(UiProperty.Text, out var labelText))
-                {
-                    ForegroundColor = node.Props.TryGetValue(UiProperty.Color, out var color) && color is ConsoleColor cc
-                        ? cc
-                        : ConsoleColor.Gray;
-                    WriteLine($"{indentStr}{labelText}");
-                    ResetColor();
-                }
-                break;
+        // UiKind -> draw function registry (terminal-side KINDS)
+        private readonly Dictionary<UiKind, Action<TermCtx, UiNode>> _draw;
 
-            case UiKind.Button:
-                if (node.Props.TryGetValue(UiProperty.Text, out var btnText))
+        public TermDom()
+        {
+            _draw = new()
+            {
+                // Label
+                [UiKind.Label] = (ctx, node) =>
                 {
-                    if (isFocused)
+                    var align = ResolveAlign(node);
+                    var wrap = ResolveWrap(node);
+                    var fg = ResolveFg(node, ConsoleColor.Gray);
+                    var bg = ResolveBg(node, ctx.IsFocused(node) ? ConsoleColor.DarkGray : ConsoleColor.Black);
+
+                    var raw = node.Props.TryGetValue(UiProperty.Text, out var labelText)
+                        ? (labelText?.ToString() ?? string.Empty)
+                        : string.Empty;
+
+                    if (wrap)
                     {
-                        ForegroundColor = ConsoleColor.Black;
-                        BackgroundColor = ConsoleColor.White;
+                        int labAvail = Math.Max(1, ctx.Width - ctx.Indent * 2);
+                        foreach (var seg in WrapText(raw, labAvail))
+                        {
+                            var textOut = (align == TextAlign.Center) ? seg : ($"{ctx.IndentStr}{seg}");
+                            ctx.Lines.Add(new TermLine(textOut, fg, bg, align));
+                        }
                     }
                     else
                     {
-                        ForegroundColor = ConsoleColor.Cyan;
-                    }
-                    WriteLine($"{indentStr}[{btnText}]");
-                    ResetColor();
-                }
-                break;
-
-            case UiKind.TextBox:
-            case UiKind.TextArea:
-                var text = node.Props.TryGetValue(UiProperty.Text, out var t) ? t?.ToString() : "";
-                var placeholder = node.Props.TryGetValue(UiProperty.Placeholder, out var ph) ? ph?.ToString() : "";
-                var displayText = string.IsNullOrEmpty(text) ? $"({placeholder})" : text;
-
-                if (isFocused)
-                {
-                    ForegroundColor = ConsoleColor.Black;
-                    BackgroundColor = ConsoleColor.White;
-                }
-                else
-                {
-                    ForegroundColor = ConsoleColor.Gray;
-                }
-                WriteLine($"{indentStr}{displayText}");
-                ResetColor();
-                break;
-
-            case UiKind.CheckBox:
-            case UiKind.Toggle:
-                var isChecked = node.Props.TryGetValue(UiProperty.Checked, out var chk) && chk is bool b && b;
-                var cbLabel = node.Props.TryGetValue(UiProperty.Label, out var lbl) ? lbl?.ToString() : "";
-                var checkbox = isChecked ? "[X]" : "[ ]";
-
-                if (isFocused)
-                {
-                    ForegroundColor = ConsoleColor.Black;
-                    BackgroundColor = ConsoleColor.White;
-                }
-                WriteLine($"{indentStr}{checkbox} {cbLabel}");
-                ResetColor();
-                break;
-
-            case UiKind.ListView:
-                if (node.Props.TryGetValue(UiProperty.Items, out var itemsObj) && itemsObj is IEnumerable<object> items)
-                {
-                    var selectedIndex = node.Props.TryGetValue(UiProperty.SelectedIndex, out var si) && si is int idx ? idx : -1;
-                    var itemList = items.ToList();
-
-                    for (int i = 0; i < itemList.Count; i++)
-                    {
-                        var isSelected = i == selectedIndex;
-                        if (isSelected || isFocused)
+                        var parts = (raw ?? string.Empty).Replace("\r\n", "\n").Split('\n');
+                        foreach (var part in parts)
                         {
-                            ForegroundColor = ConsoleColor.Black;
-                            BackgroundColor = ConsoleColor.White;
+                            var textOut = (align == TextAlign.Center) ? part : ($"{ctx.IndentStr}{part}");
+                            ctx.Lines.Add(new TermLine(textOut, fg, bg, align));
                         }
-                        WriteLine($"{indentStr}  {(isSelected ? ">" : " ")} {itemList[i]}");
-                        ResetColor();
                     }
-                }
-                break;
+                },
 
-            case UiKind.Html:
-                // Render as plain text in terminal
-                if (node.Props.TryGetValue(UiProperty.Content, out var htmlContent))
+                // Button
+                [UiKind.Button] = (ctx, node) =>
                 {
-                    WriteLine($"{indentStr}{htmlContent}");
-                }
-                break;
+                    if (!node.Props.TryGetValue(UiProperty.Text, out var btnText)) btnText = string.Empty;
+                    var isFocused = ctx.IsFocused(node);
+                    var fg = isFocused ? ConsoleColor.Black : ConsoleColor.White;
+                    var bg = isFocused ? ConsoleColor.White : ConsoleColor.DarkGray;
+                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}[ {btnText} ]", fg, bg, TextAlign.Left));
+                },
 
-            case UiKind.Spacer:
-                var height = node.Props.TryGetValue(UiProperty.Height, out var h) && h is int ht ? ht : 1;
-                for (int i = 0; i < height; i++)
+                // TextBox/TextArea
+                [UiKind.TextBox] = (ctx, node) => DrawTextInput(ctx, node),
+                [UiKind.TextArea] = (ctx, node) => DrawTextInput(ctx, node),
+
+                // CheckBox/Toggle
+                [UiKind.CheckBox] = (ctx, node) => DrawCheckLike(ctx, node),
+                [UiKind.Toggle] = (ctx, node) => DrawCheckLike(ctx, node),
+
+                // ListView (includes dropdown role)
+                [UiKind.ListView] = (ctx, node) =>
                 {
-                    WriteLine();
-                }
-                break;
+                    if (!node.Props.TryGetValue(UiProperty.Items, out var itemsObj) || itemsObj is not IEnumerable<object> items)
+                        return;
 
-            case UiKind.Accordion:
-                var title = node.Props.TryGetValue(UiProperty.Title, out var t2) ? t2?.ToString() : "Accordion";
-                var isExpanded = node.Props.TryGetValue(UiProperty.Expanded, out var exp) && exp is bool e && e;
+                    var isFocused = ctx.IsFocused(node);
+                    var isDropdown = node.Props.TryGetValue(UiProperty.Role, out var role) && string.Equals(role?.ToString(), "dropdown", StringComparison.OrdinalIgnoreCase);
+                    var selectedIndex = node.Props.TryGetValue(UiProperty.SelectedIndex, out var si) && si is int idx ? idx : -1;
+                    var itemList = items.Select(o => o?.ToString() ?? string.Empty).ToList();
 
-                ForegroundColor = isFocused ? ConsoleColor.Yellow : ConsoleColor.Cyan;
-                WriteLine($"{indentStr}{(isExpanded ? "▼" : "▶")} {title}");
-                ResetColor();
-
-                if (isExpanded)
-                {
-                    foreach (var child in node.Children)
+                    if (isDropdown)
                     {
-                        RenderNode(child, indent + 1);
+                        string current = (selectedIndex >= 0 && selectedIndex < itemList.Count) ? itemList[selectedIndex] : string.Empty;
+                        if (string.IsNullOrWhiteSpace(current))
+                            current = node.Props.TryGetValue(UiProperty.Placeholder, out var phv) ? (phv?.ToString() ?? "Select…") : "Select…";
+
+                        var fg = isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.Gray);
+                        var bg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
+                        var text = $"⭥[ {current} ]";
+                        var outLine = $"{ctx.IndentStr}{text}";
+                        outLine = EnsureWidth(outLine, ctx.Width);
+                        ctx.Lines.Add(new TermLine(outLine, fg, bg, TextAlign.Left));
+                        return;
                     }
-                }
-                break;
 
-            case UiKind.Progress:
-                // Render progress using the existing Progress helper class
-                var progressTitle = node.Props.TryGetValue(UiProperty.Title, out var pt) ? pt?.ToString() ?? "Progress" : "Progress";
-                var progressItems = node.Props.TryGetValue(UiProperty.ProgressItems, out var pi) 
-                    ? pi as IReadOnlyList<(string name, double percent, ProgressState state, string? note, (int done, int total) steps)>
-                    : null;
-                var progressStats = node.Props.TryGetValue(UiProperty.ProgressStats, out var ps)
-                    ? ps as ValueTuple<int, int, int, int, int>?
-                    : null;
-                var etaHint = node.Props.TryGetValue(UiProperty.EtaHint, out var eta) ? eta?.ToString() : null;
-                var isActive = node.Props.TryGetValue(UiProperty.IsActive, out var ia) && ia is bool active && active;
+                    int maxVisible = TryGetIntProp(node.Props, UiProperty.Height) ?? Program.config.MaxMenuItems;
+                    maxVisible = Math.Max(1, maxVisible);
+                    int count = itemList.Count;
 
-                if (progressItems != null && progressStats.HasValue)
+                    if (count == 0)
+                    {
+                        var fgEmpty = isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.DarkGray);
+                        var bgEmpty = isFocused ? ConsoleColor.DarkGray : ResolveBg(node, ConsoleColor.Black);
+                        var emptyText = $"{ctx.IndentStr}  (empty)";
+                        emptyText = EnsureWidth(emptyText, ctx.Width);
+                        ctx.Lines.Add(new TermLine(emptyText, fgEmpty, bgEmpty, TextAlign.Left));
+                        return;
+                    }
+
+                    if (selectedIndex < 0) selectedIndex = 0;
+                    if (selectedIndex >= count) selectedIndex = count - 1;
+
+                    int visibleCount = Math.Min(maxVisible, count);
+                    int offset = Math.Min(Math.Max(0, selectedIndex - visibleCount + 1), Math.Max(0, count - visibleCount));
+                    bool showScrollbar = count > visibleCount;
+                    int contentRight = showScrollbar ? (ctx.Width - 1) : ctx.Width;
+
+                    // Scrollbar metrics
+                    int trackHeight = visibleCount;
+                    int thumbHeight = 1;
+                    int thumbTop = 0;
+                    if (showScrollbar)
+                    {
+                        thumbHeight = Math.Max(1, (int)Math.Round((double)trackHeight * visibleCount / Math.Max(1, count)));
+                        thumbHeight = Math.Min(thumbHeight, trackHeight);
+                        int maxThumbTop = Math.Max(0, trackHeight - thumbHeight);
+                        int scrollRange = Math.Max(1, count - visibleCount);
+                        thumbTop = (int)Math.Round(offset / (double)scrollRange * maxThumbTop);
+                        thumbTop = Math.Clamp(thumbTop, 0, maxThumbTop);
+                    }
+
+                    for (int j = 0; j < visibleCount; j++)
+                    {
+                        int i = offset + j;
+                        var isSelected = i == selectedIndex;
+                        var fg = isSelected ? ConsoleColor.Black : (isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.Gray));
+                        var bg = isSelected ? ConsoleColor.White : (isFocused ? ConsoleColor.DarkGray : ResolveBg(node, ConsoleColor.Black));
+
+                        var prefix = $"{ctx.IndentStr}    ";
+                        int availForItem = Math.Max(1, contentRight - prefix.Length);
+                        var itemText = itemList[i] ?? string.Empty;
+                        if (itemText.Length > availForItem)
+                            itemText = itemText.Substring(0, Math.Max(0, availForItem - 1)) + "…";
+
+                        var rowText = prefix + itemText;
+                        if (rowText.Length < contentRight) rowText = rowText.PadRight(contentRight);
+                        else if (rowText.Length > contentRight) rowText = rowText.Substring(0, contentRight);
+
+                        if (showScrollbar)
+                        {
+                            char sb = (j >= thumbTop && j < thumbTop + thumbHeight) ? '█' : '│';
+                            rowText += sb;
+                        }
+
+                        rowText = EnsureWidth(rowText, ctx.Width);
+                        ctx.Lines.Add(new TermLine(rowText, fg, bg, TextAlign.Left));
+                    }
+                },
+
+                // Html
+                [UiKind.Html] = (ctx, node) =>
                 {
-                    // Render header
-                    Progress.DrawBoxedHeader(progressTitle);
+                    if (node.Props.TryGetValue(UiProperty.Content, out var htmlContent))
+                        ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{htmlContent}", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
+                },
 
-                    // Show only active work (running, queued, failed)
-                    var topN = Program.config.MaxMenuItems;
+                // Spacer
+                [UiKind.Spacer] = (ctx, node) =>
+                {
+                    var height = node.Props.TryGetValue(UiProperty.Height, out var h) && h is int ht ? ht : 1;
+                    for (int i = 0; i < height; i++)
+                        ctx.Lines.Add(new TermLine(string.Empty, ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
+                },
+
+                // Accordion
+                [UiKind.Accordion] = (ctx, node) =>
+                {
+                    var title = node.Props.TryGetValue(UiProperty.Title, out var t2) ? t2?.ToString() : "Accordion";
+                    var isExpanded = node.Props.TryGetValue(UiProperty.Expanded, out var exp) && exp is bool e && e;
+                    var accFg = ctx.IsFocused(node) ? ConsoleColor.Yellow : ConsoleColor.Cyan;
+                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{(isExpanded ? "▼" : "▶")} {title}", accFg, ConsoleColor.Black, TextAlign.Left));
+                    if (isExpanded)
+                    {
+                        foreach (var child in node.Children)
+                        {
+                            LayoutNode(child, ctx.Indent + 1, ctx.Width, ctx.ScreenHeight, ctx.FocusedKey, ctx.Lines, ctx.KeyMap);
+                        }
+                    }
+                },
+
+                // Progress
+                [UiKind.Progress] = (ctx, node) =>
+                {
+                    var progressTitle = node.Props.TryGetValue(UiProperty.Title, out var pt) ? pt?.ToString() ?? "Progress" : "Progress";
+                    var progressItems = node.Props.TryGetValue(UiProperty.ProgressItems, out var pi)
+                        ? pi as IReadOnlyList<(string name, double percent, ProgressState state, string? note, (int done, int total) steps)>
+                        : null;
+                    var progressStats = node.Props.TryGetValue(UiProperty.ProgressStats, out var ps)
+                        ? ps as ValueTuple<int, int, int, int, int>?
+                        : null;
+                    var etaHint = node.Props.TryGetValue(UiProperty.EtaHint, out var eta) ? eta?.ToString() : null;
+
+                    if (progressItems == null || !progressStats.HasValue) return;
+
+                    var headerTop = "┌" + new string('─', Math.Max(0, ctx.Width - ctx.Indent * 2 - 2)) + "┐";
+                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{headerTop}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
+
+                    var innerWidth = Math.Max(0, ctx.Width - ctx.Indent * 2 - 2);
+                    var centeredTitle = progressTitle.Length > innerWidth
+                        ? progressTitle.Substring(0, Math.Max(0, innerWidth - 3)) + "..."
+                        : progressTitle.PadLeft((innerWidth + progressTitle.Length) / 2).PadRight(innerWidth);
+                    var titleLine = "│" + centeredTitle + "│";
+                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{titleLine}", ConsoleColor.Green, ConsoleColor.Black, TextAlign.Left));
+
+                    var sep = "├" + new string('─', Math.Max(0, ctx.Width - ctx.Indent * 2 - 2)) + "┤";
+                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{sep}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
+
+                    var topN = Math.Min(10, Program.config.MaxMenuItems);
                     static int Rank(ProgressState s) => s switch
                     {
                         ProgressState.Running => 3,
                         ProgressState.Queued => 2,
                         ProgressState.Failed => 1,
-                        ProgressState.Canceled => 0,
-                        ProgressState.Completed => -1,
                         _ => 0
                     };
 
@@ -622,34 +700,136 @@ public class Terminal : CUiBase
 
                     foreach (var r in rows)
                     {
-                        var apState = r.state switch
+                        var glyph = r.state switch
                         {
-                            ProgressState.Running => Progress.ProgressState.Running,
-                            ProgressState.Queued => Progress.ProgressState.Queued,
-                            ProgressState.Completed => Progress.ProgressState.Completed,
-                            ProgressState.Failed => Progress.ProgressState.Failed,
-                            ProgressState.Canceled => Progress.ProgressState.Canceled,
-                            _ => Progress.ProgressState.Queued
+                            ProgressState.Running => "▶",
+                            ProgressState.Completed => "✓",
+                            ProgressState.Failed => "✖",
+                            ProgressState.Canceled => "■",
+                            _ => "•"
                         };
-                        Progress.DrawProgressRow(r.name, r.percent, apState, r.note, r.steps.done, r.steps.total);
+
+                        var name = r.name.Length > 40 ? r.name.Substring(0, 37) + "..." : r.name;
+                        var steps = r.steps.total > 0 ? $" ({r.steps.done}/{r.steps.total})" : string.Empty;
+                        var left = $"{glyph} {name}";
+                        var right = $"{r.percent,6:0.0}%{steps}";
+                        var contentWidth = Math.Max(10, ctx.Width - ctx.Indent * 2);
+
+                        var rightLen = right.Length;
+                        var availLeft = Math.Max(0, contentWidth - rightLen - 1);
+                        if (left.Length > availLeft)
+                            left = (availLeft > 3 ? left.Substring(0, availLeft - 3) + "..." : left.Substring(0, Math.Max(0, availLeft)));
+                        var gap = Math.Max(1, contentWidth - left.Length - rightLen);
+                        var composed = left + new string(' ', gap) + right;
+
+                        var fillWidth = (int)Math.Round(Math.Clamp(r.percent, 0, 100) / 100.0 * contentWidth);
+
+                        var barBack = r.state switch
+                        {
+                            ProgressState.Failed => ConsoleColor.DarkRed,
+                            ProgressState.Canceled => ConsoleColor.DarkGray,
+                            ProgressState.Completed => ConsoleColor.DarkGray,
+                            ProgressState.Running => ConsoleColor.DarkGray,
+                            _ => ConsoleColor.DarkBlue,
+                        };
+
+                        var fg = r.state switch
+                        {
+                            ProgressState.Failed => ConsoleColor.Yellow,
+                            ProgressState.Canceled => ConsoleColor.Gray,
+                            _ => ConsoleColor.Gray
+                        };
+
+                        var runs = new List<TermRun>();
+                        if (ctx.IndentStr.Length > 0) runs.Add(new TermRun(ctx.IndentStr, fg, ConsoleColor.Black));
+                        var seg1Len = Math.Min(fillWidth, composed.Length);
+                        if (seg1Len > 0) runs.Add(new TermRun(composed.Substring(0, seg1Len), fg, barBack));
+                        var seg2Start = seg1Len;
+                        var seg2Len = Math.Max(0, composed.Length - seg2Start);
+                        if (seg2Len > 0) runs.Add(new TermRun(composed.Substring(seg2Start), fg, ConsoleColor.Black));
+                        var totalLen = ctx.IndentStr.Length + composed.Length;
+                        if (totalLen < ctx.Width)
+                            runs.Add(new TermRun(new string(' ', ctx.Width - totalLen), fg, ConsoleColor.Black));
+
+                        ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{composed}", fg, ConsoleColor.Black, TextAlign.Left) { Runs = runs });
                     }
 
-                    // Footer with stats
                     var (running, queued, completed, failed, canceled) = progressStats.Value;
-                    var hint = "Press ESC to cancel";
-                    var etaText = !string.IsNullOrEmpty(etaHint) ? $"ETA: {etaHint} • " : "";
-                    Progress.DrawFooterStats(running, queued, completed, failed, canceled, etaText + hint);
-                }
-                break;
-        }
-    }
+                    var stats = $"in-flight: {running}   queued: {queued}   completed: {completed}   failed: {failed}   canceled: {canceled}";
+                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{stats}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
 
-    /// <summary>
-    /// Terminal Virtual-DOM for incremental rendering
-    /// Flattens UiNode -> lines with attributes, maintains key→region map, computes minimal edits
-    /// </summary>
-    private sealed class TermDom
-    {
+                    var hint = "Press ESC to cancel";
+                    var etaText = !string.IsNullOrEmpty(etaHint) ? $"ETA: {etaHint} • " : string.Empty;
+                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{etaText}{hint}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
+                },
+            };
+
+            // Local helpers used by registry entries
+            static void DrawTextInput(TermCtx ctx, UiNode node)
+            {
+                var isFocused = ctx.IsFocused(node);
+                var value = node.Props.TryGetValue(UiProperty.Text, out var v) ? v?.ToString() : (node.Props.TryGetValue(UiProperty.Value, out var v2) ? v2?.ToString() : "");
+                var placeholder = node.Props.TryGetValue(UiProperty.Placeholder, out var p) ? p?.ToString() : "";
+                var displayText = string.IsNullOrEmpty(value) ? placeholder : value;
+                var textFg = isFocused ? ConsoleColor.Black : (string.IsNullOrEmpty(value) ? ConsoleColor.DarkGray : ResolveFg(node, ConsoleColor.White));
+                var textBg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
+                int avail = Math.Max(1, ctx.Width - ctx.Indent * 2);
+                if (string.IsNullOrEmpty(displayText)) displayText = "";
+                var wrapped = WrapText(displayText, avail);
+                foreach (var wline in wrapped)
+                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{wline}", textFg, textBg, TextAlign.Left));
+            }
+
+            static void DrawCheckLike(TermCtx ctx, UiNode node)
+            {
+                var isFocused = ctx.IsFocused(node);
+                var isChecked = node.Props.TryGetValue(UiProperty.Checked, out var chk) && chk is bool c && c;
+                var checkbox = isChecked ? "[✓]" : "[ ]";
+                var cbLabel = node.Props.TryGetValue(UiProperty.Text, out var cbt) ? cbt?.ToString() : "";
+                var cbFg = isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.Gray);
+                var cbBg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
+                ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{checkbox} {cbLabel}", cbFg, cbBg, TextAlign.Left));
+            }
+        }
+
+        // Shared helpers (moved to class scope so draw registry can use them)
+        private static bool TryParseColor(object? val, out ConsoleColor color)
+        {
+            if (val is ConsoleColor cc) { color = cc; return true; }
+            if (val is string s && Enum.TryParse<ConsoleColor>(s, true, out var parsed)) { color = parsed; return true; }
+            color = ConsoleColor.Gray; return false;
+        }
+
+        private static ConsoleColor ResolveFg(UiNode n, ConsoleColor @default)
+        {
+            if (n.Styles.Get<object?>(UiStyleKey.ForegroundColor) is object st && TryParseColor(st, out var c)) return c;
+            if (n.Props.TryGetValue(UiProperty.Color, out var legacy) && TryParseColor(legacy, out var c2)) return c2;
+            var boldObj = n.Styles.Get<object?>(UiStyleKey.Bold);
+            if (boldObj is bool isBold && isBold) return ConsoleColor.White;
+            var styleStr = n.Styles.Get<string>(UiStyleKey.Style) ?? (n.Props.TryGetValue(UiProperty.Style, out var ls) ? ls as string : null);
+            if (string.Equals(styleStr, "dim", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkGray;
+            return @default;
+        }
+
+        private static ConsoleColor ResolveBg(UiNode n, ConsoleColor @default)
+        {
+            if (n.Styles.Get<object?>(UiStyleKey.BackgroundColor) is object st && TryParseColor(st, out var c)) return c;
+            return @default;
+        }
+
+        private static TextAlign ResolveAlign(UiNode n)
+        {
+            var a = n.Styles.Get<string>(UiStyleKey.Align) ?? (n.Props.TryGetValue(UiProperty.Align, out var la) ? la?.ToString() : null);
+            return string.Equals(a, "center", StringComparison.OrdinalIgnoreCase) ? TextAlign.Center : TextAlign.Left;
+        }
+
+        private static bool ResolveWrap(UiNode n)
+        {
+            var sv = n.Styles.Get<object?>(UiStyleKey.Wrap);
+            if (sv is bool b) return b;
+            if (n.Props.TryGetValue(UiProperty.Wrap, out var lv) && lv is bool lb) return lb;
+            return false;
+        }
         /// <summary>
         /// Flattens UiNode -> lines with attributes (fg/bg), maintains key→region map
         /// </summary>
@@ -660,11 +840,11 @@ public class Terminal : CUiBase
 
             // Base layout (header + content). Skip overlays container; we'll composite overlays later.
             UiNode? overlaysContainer = null;
-            if (root.Key == "frame.root")
+            if (root.Key == UiFrameKeys.Root)
             {
                 foreach (var child in root.Children)
                 {
-                    if (child.Key == "frame.overlays")
+                    if (child.Key == UiFrameKeys.Overlays)
                     {
                         overlaysContainer = child;
                         continue;
@@ -851,45 +1031,12 @@ public class Terminal : CUiBase
             var indentStr = new string(' ', indent * 2);
             var isFocused = node.Key == focusedKey;
 
-            // Helpers to resolve styles with legacy fallback
-            static bool TryParseColor(object? val, out ConsoleColor color)
+            // Early dispatch to registry for leaf/simple controls
+            var ctx = new TermCtx(indent, width, screenHeight, focusedKey, lines, keyMap);
+            if (_draw.TryGetValue(node.Kind, out var renderer))
             {
-                if (val is ConsoleColor cc) { color = cc; return true; }
-                if (val is string s && Enum.TryParse<ConsoleColor>(s, true, out var parsed)) { color = parsed; return true; }
-                color = ConsoleColor.Gray; return false;
-            }
-
-            ConsoleColor ResolveFg(UiNode n, ConsoleColor @default)
-            {
-                if (n.Styles.Get<object?>(UiStyleKey.ForegroundColor) is object st && TryParseColor(st, out var c)) return c;
-                if (n.Props.TryGetValue(UiProperty.Color, out var legacy) && TryParseColor(legacy, out var c2)) return c2;
-                // Bold hint if no explicit color
-                var boldObj = n.Styles.Get<object?>(UiStyleKey.Bold);
-                if (boldObj is bool isBold && isBold) return ConsoleColor.White;
-                // simple style hint: dim
-                var styleStr = n.Styles.Get<string>(UiStyleKey.Style) ?? (n.Props.TryGetValue(UiProperty.Style, out var ls) ? ls as string : null);
-                if (string.Equals(styleStr, "dim", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkGray;
-                return @default;
-            }
-
-            ConsoleColor ResolveBg(UiNode n, ConsoleColor @default)
-            {
-                if (n.Styles.Get<object?>(UiStyleKey.BackgroundColor) is object st && TryParseColor(st, out var c)) return c;
-                return @default;
-            }
-
-            TextAlign ResolveAlign(UiNode n)
-            {
-                var a = n.Styles.Get<string>(UiStyleKey.Align) ?? (n.Props.TryGetValue(UiProperty.Align, out var la) ? la?.ToString() : null);
-                return string.Equals(a, "center", StringComparison.OrdinalIgnoreCase) ? TextAlign.Center : TextAlign.Left;
-            }
-
-            bool ResolveWrap(UiNode n)
-            {
-                var sv = n.Styles.Get<object?>(UiStyleKey.Wrap);
-                if (sv is bool b) return b;
-                if (n.Props.TryGetValue(UiProperty.Wrap, out var lv) && lv is bool lb) return lb;
-                return false;
+                renderer(ctx, node);
+                goto RecordRegion;
             }
 
             switch (node.Kind)
@@ -983,7 +1130,7 @@ public class Terminal : CUiBase
                         UiNode? messagesChild = null;
                         for (int i = 0; i < node.Children.Count - 1; i++)
                         {
-                            if (node.Children[i].Key == "messages") { messagesChild = node.Children[i]; break; }
+                            if (node.Children[i].Key == UiFrameKeys.Messages) { messagesChild = node.Children[i]; break; }
                         }
                         bool autoScroll = messagesChild != null && messagesChild.Props.TryGetValue(UiProperty.AutoScroll, out var asv) && asv is bool ab && ab;
                         int requestedScroll = (messagesChild != null) ? (TryGetIntProp(messagesChild.Props, UiProperty.Min) ?? 0) : 0; // 0=bottom, higher=scroll up
@@ -1209,352 +1356,10 @@ public class Terminal : CUiBase
                     }
                     break;
 
-                case UiKind.Label:
-                    if (node.Props.TryGetValue(UiProperty.Text, out var labelText))
-                    {
-                        var align = ResolveAlign(node);
-                        var wrap = ResolveWrap(node);
-                        var fg = ResolveFg(node, ConsoleColor.Gray);
-                        var bg = ResolveBg(node, isFocused ? ConsoleColor.DarkGray : ConsoleColor.Black);
-
-                        string raw = labelText?.ToString() ?? string.Empty;
-                        if (wrap)
-                        {
-                            int labAvail = Math.Max(1, width - indent * 2);
-                            // Wrap while respecting explicit newlines
-                            foreach (var seg in WrapText(raw, labAvail))
-                            {
-                                var textOut = (align == TextAlign.Center) ? seg : ($"{indentStr}{seg}");
-                                lines.Add(new TermLine(textOut, fg, bg, align));
-                            }
-                        }
-                        else
-                        {
-                            // Even without wrapping, respect explicit newlines to avoid emitting '\n' inside a single TermLine
-                            var parts = (raw ?? string.Empty).Replace("\r\n", "\n").Split('\n');
-                            foreach (var part in parts)
-                            {
-                                var textOut = (align == TextAlign.Center) ? part : ($"{indentStr}{part}");
-                                lines.Add(new TermLine(textOut, fg, bg, align));
-                            }
-                        }
-                    }
-                    break;
-
-                case UiKind.Button:
-                    if (node.Props.TryGetValue(UiProperty.Text, out var btnText))
-                    {
-                        var fg = isFocused ? ConsoleColor.Black : ConsoleColor.White;
-                        var bg = isFocused ? ConsoleColor.White : ConsoleColor.DarkGray;
-
-                        lines.Add(new TermLine($"{indentStr}[ {btnText} ]", fg, bg, TextAlign.Left));
-                    }
-                    break;
-
-                case UiKind.TextBox:
-                case UiKind.TextArea:
-                    // Prefer "text" prop (UiNode-based), fallback to legacy "value"
-                    var value = node.Props.TryGetValue(UiProperty.Text, out var v) ? v?.ToString() : (node.Props.TryGetValue(UiProperty.Value, out var v2) ? v2?.ToString() : "");
-                    var placeholder = node.Props.TryGetValue(UiProperty.Placeholder, out var p) ? p?.ToString() : "";
-                    var displayText = string.IsNullOrEmpty(value) ? placeholder : value;
-
-                    var textFg = isFocused ? ConsoleColor.Black : (string.IsNullOrEmpty(value) ? ConsoleColor.DarkGray : ResolveFg(node, ConsoleColor.White));
-                    var textBg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
-
-                    // Wrap display text to available width
-                    int avail = Math.Max(1, width - indent * 2);
-                    if (string.IsNullOrEmpty(displayText)) displayText = "";
-                    var wrapped = WrapText(displayText, avail);
-                    foreach (var wline in wrapped)
-                    {
-                        lines.Add(new TermLine($"{indentStr}{wline}", textFg, textBg, TextAlign.Left));
-                    }
-                    break;
-
-                case UiKind.CheckBox:
-                case UiKind.Toggle:
-                    var isChecked = node.Props.TryGetValue(UiProperty.Checked, out var chk) && chk is bool c && c;
-                    var checkbox = isChecked ? "[✓]" : "[ ]";
-                    var cbLabel = node.Props.TryGetValue(UiProperty.Text, out var cbt) ? cbt?.ToString() : "";
-
-                    var cbFg = isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.Gray);
-                    var cbBg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
-
-                    lines.Add(new TermLine($"{indentStr}{checkbox} {cbLabel}", cbFg, cbBg, TextAlign.Left));
-                    break;
-
-                case UiKind.ListView:
-                    if (node.Props.TryGetValue(UiProperty.Items, out var itemsObj) && itemsObj is IEnumerable<object> items)
-                    {
-                        // Collapsed dropdown representation
-                        var isDropdown = node.Props.TryGetValue(UiProperty.Role, out var role) && string.Equals(role?.ToString(), "dropdown", StringComparison.OrdinalIgnoreCase);
-                        var selectedIndex = node.Props.TryGetValue(UiProperty.SelectedIndex, out var si) && si is int idx ? idx : -1;
-                        var itemList = items.ToList();
-
-                        if (isDropdown)
-                        {
-                            string current = (selectedIndex >= 0 && selectedIndex < itemList.Count) ? (itemList[selectedIndex]?.ToString() ?? string.Empty) : string.Empty;
-                            if (string.IsNullOrWhiteSpace(current))
-                                current = node.Props.TryGetValue(UiProperty.Placeholder, out var phv) ? (phv?.ToString() ?? "Select…") : "Select…";
-
-                            var fg = isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.Gray);
-                            var bg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
-
-                            var text = $"⭥[ {current} ]";
-                            var outLine = $"{indentStr}{text}";
-                            outLine = EnsureWidth(outLine, width);
-                            lines.Add(new TermLine(outLine, fg, bg, TextAlign.Left));
-                            break;
-                        }
-
-                        // Fixed viewport height for list view so surrounding content doesn't shift
-                        int maxVisible = TryGetIntProp(node.Props, UiProperty.Height) ?? Program.config.MaxMenuItems;
-                        maxVisible = Math.Max(1, maxVisible);
-
-                        int count = itemList.Count;
-                        if (count == 0)
-                        {
-                            // Render an empty placeholder line to keep consistent height
-                            var fgEmpty = isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.DarkGray);
-                            var bgEmpty = isFocused ? ConsoleColor.DarkGray : ResolveBg(node, ConsoleColor.Black);
-                            var emptyText = $"{indentStr}  (empty)";
-                            // Ensure line width to keep columns aligned (esp. inside split layout)
-                            emptyText = EnsureWidth(emptyText, width);
-                            lines.Add(new TermLine(emptyText, fgEmpty, bgEmpty, TextAlign.Left));
-                            break;
-                        }
-
-                        // Clamp selection
-                        if (selectedIndex < 0) selectedIndex = 0;
-                        if (selectedIndex >= count) selectedIndex = count - 1;
-
-                        int visibleCount = Math.Min(maxVisible, count);
-
-                        // Compute scrolling offset so selected item remains visible
-                        int offset = Math.Min(Math.Max(0, selectedIndex - visibleCount + 1), Math.Max(0, count - visibleCount));
-
-                        bool showScrollbar = count > visibleCount;
-                        int contentRight = showScrollbar ? (width - 1) : width; // reserve 1 col for scrollbar when needed
-
-                        // Scrollbar metrics
-                        int trackHeight = visibleCount;
-                        int thumbHeight = 1;
-                        int thumbTop = 0;
-                        if (showScrollbar)
-                        {
-                            thumbHeight = Math.Max(1, (int)Math.Round((double)trackHeight * visibleCount / Math.Max(1, count)));
-                            thumbHeight = Math.Min(thumbHeight, trackHeight);
-                            int maxThumbTop = Math.Max(0, trackHeight - thumbHeight);
-                            int scrollRange = Math.Max(1, count - visibleCount);
-                            thumbTop = (int)Math.Round(offset / (double)scrollRange * maxThumbTop);
-                            thumbTop = Math.Clamp(thumbTop, 0, maxThumbTop);
-                        }
-
-                        for (int j = 0; j < visibleCount; j++)
-                        {
-                            int i = offset + j;
-                            var isSelected = i == selectedIndex;
-                            var fg = isSelected ? ConsoleColor.Black : (isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.Gray));
-                            var bg = isSelected ? ConsoleColor.White : (isFocused ? ConsoleColor.DarkGray : ResolveBg(node, ConsoleColor.Black));
-
-                            // Compose content within available width, placing scrollbar at right edge when shown
-                            var prefix = $"{indentStr}    ";
-                            int availForItem = Math.Max(1, contentRight - prefix.Length);
-                            var itemText = itemList[i]?.ToString() ?? string.Empty;
-                            // Fit item text
-                            if (itemText.Length > availForItem)
-                                itemText = itemText.Substring(0, Math.Max(0, availForItem - 1)) + "…";
-
-                            var rowText = prefix + itemText;
-                            if (rowText.Length < contentRight)
-                                rowText = rowText.PadRight(contentRight);
-                            else if (rowText.Length > contentRight)
-                                rowText = rowText.Substring(0, contentRight);
-
-                            if (showScrollbar)
-                            {
-                                // Choose scrollbar glyph for this row
-                                char sb = (j >= thumbTop && j < thumbTop + thumbHeight) ? '█' : '│';
-                                rowText += sb;
-                            }
-
-                            // Ensure total width alignment for parent composers
-                            rowText = EnsureWidth(rowText, width);
-                            lines.Add(new TermLine(rowText, fg, bg, TextAlign.Left));
-                        }
-                    }
-                    break;
-
-                case UiKind.Html:
-                    if (node.Props.TryGetValue(UiProperty.Content, out var htmlContent))
-                    {
-                        lines.Add(new TermLine($"{indentStr}{htmlContent}", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
-                    }
-                    break;
-
-                case UiKind.Spacer:
-                    var height = node.Props.TryGetValue(UiProperty.Height, out var h) && h is int ht ? ht : 1;
-                    for (int i = 0; i < height; i++)
-                    {
-                        lines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
-                    }
-                    break;
-
-                case UiKind.Accordion:
-                    var title = node.Props.TryGetValue(UiProperty.Title, out var t2) ? t2?.ToString() : "Accordion";
-                    var isExpanded = node.Props.TryGetValue(UiProperty.Expanded, out var exp) && exp is bool e && e;
-
-                    var accFg = isFocused ? ConsoleColor.Yellow : ConsoleColor.Cyan;
-                    lines.Add(new TermLine($"{indentStr}{(isExpanded ? "▼" : "▶")} {title}", accFg, ConsoleColor.Black, TextAlign.Left));
-
-                    if (isExpanded)
-                    {
-                        foreach (var child in node.Children)
-                        {
-                            LayoutNode(child, indent + 1, width, screenHeight, focusedKey, lines, keyMap);
-                        }
-                    }
-                    break;
-
-                case UiKind.Progress:
-                    // Render progress using the helper methods - convert to TermLine format
-                    var progressTitle = node.Props.TryGetValue(UiProperty.Title, out var pt) ? pt?.ToString() ?? "Progress" : "Progress";
-                    var progressItems = node.Props.TryGetValue(UiProperty.ProgressItems, out var pi) 
-                        ? pi as IReadOnlyList<(string name, double percent, ProgressState state, string? note, (int done, int total) steps)>
-                        : null;
-                    var progressStats = node.Props.TryGetValue(UiProperty.ProgressStats, out var ps)
-                        ? ps as ValueTuple<int, int, int, int, int>?
-                        : null;
-                    var etaHint = node.Props.TryGetValue(UiProperty.EtaHint, out var eta) ? eta?.ToString() : null;
-
-                    if (progressItems != null && progressStats.HasValue)
-                    {
-                        // Header with box drawing
-                        var headerTop = "┌" + new string('─', Math.Max(0, width - indent * 2 - 2)) + "┐";
-                        lines.Add(new TermLine($"{indentStr}{headerTop}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
-
-                        var innerWidth = Math.Max(0, width - indent * 2 - 2);
-                        var centeredTitle = progressTitle.Length > innerWidth 
-                            ? progressTitle.Substring(0, Math.Max(0, innerWidth - 3)) + "..." 
-                            : progressTitle.PadLeft((innerWidth + progressTitle.Length) / 2).PadRight(innerWidth);
-                        var titleLine = "│" + centeredTitle + "│";
-                        lines.Add(new TermLine($"{indentStr}{titleLine}", ConsoleColor.Green, ConsoleColor.Black, TextAlign.Left));
-
-                        var sep = "├" + new string('─', Math.Max(0, width - indent * 2 - 2)) + "┤";
-                        lines.Add(new TermLine($"{indentStr}{sep}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
-
-                        // Show only active work
-                        var topN = Math.Min(10, Program.config.MaxMenuItems);
-                        static int Rank(ProgressState s) => s switch
-                        {
-                            ProgressState.Running => 3,
-                            ProgressState.Queued => 2,
-                            ProgressState.Failed => 1,
-                            _ => 0
-                        };
-
-                        var rows = progressItems
-                            .Where(x => x.state != ProgressState.Completed && x.state != ProgressState.Canceled)
-                            .OrderByDescending(x => Rank(x.state))
-                            .ThenBy(x => x.percent)
-                            .ThenBy(x => x.name)
-                            .Take(topN)
-                            .ToList();
-
-                        foreach (var r in rows)
-                        {
-                            var glyph = r.state switch
-                            {
-                                ProgressState.Running => "▶",
-                                ProgressState.Completed => "✓",
-                                ProgressState.Failed => "✖",
-                                ProgressState.Canceled => "■",
-                                _ => "•"
-                            };
-
-                            var name = r.name.Length > 40 ? r.name.Substring(0, 37) + "..." : r.name;
-                            var steps = r.steps.total > 0 ? $" ({r.steps.done}/{r.steps.total})" : "";
-                            var left = $"{glyph} {name}";
-                            var right = $"{r.percent,6:0.0}%{steps}";
-                            var contentWidth = Math.Max(10, width - indent * 2);
-                            
-                            // Compose left/right with proper spacing
-                            var rightLen = right.Length;
-                            var availLeft = Math.Max(0, contentWidth - rightLen - 1);
-                            if (left.Length > availLeft)
-                                left = (availLeft > 3 ? left.Substring(0, availLeft - 3) + "..." : left.Substring(0, Math.Max(0, availLeft)));
-                            var gap = Math.Max(1, contentWidth - left.Length - rightLen);
-                            var composed = left + new string(' ', gap) + right;
-
-                            // Calculate fill width for progress bar (based on content width, not including indent)
-                            var fillWidth = (int)Math.Round(Math.Clamp(r.percent, 0, 100) / 100.0 * contentWidth);
-
-                            // Colors for progress bar
-                            var barBack = r.state switch
-                            {
-                                ProgressState.Failed => ConsoleColor.DarkRed,
-                                ProgressState.Canceled => ConsoleColor.DarkGray,
-                                ProgressState.Completed => ConsoleColor.DarkGray,
-                                ProgressState.Running => ConsoleColor.DarkGray,
-                                _ => ConsoleColor.DarkBlue,
-                            };
-
-                            var fg = r.state switch
-                            {
-                                ProgressState.Failed => ConsoleColor.Yellow,
-                                ProgressState.Canceled => ConsoleColor.Gray,
-                                _ => ConsoleColor.Gray
-                            };
-
-                            // Create runs for progress bar effect: filled part + empty part
-                            var runs = new List<TermRun>();
-                            
-                            // Add indent as first run (no background fill)
-                            if (indentStr.Length > 0)
-                            {
-                                runs.Add(new TermRun(indentStr, fg, ConsoleColor.Black));
-                            }
-                            
-                            // Segment 1: Filled part of progress bar (with colored background)
-                            var seg1Len = Math.Min(fillWidth, composed.Length);
-                            if (seg1Len > 0)
-                            {
-                                var seg1Text = composed.Substring(0, seg1Len);
-                                runs.Add(new TermRun(seg1Text, fg, barBack));
-                            }
-
-                            // Segment 2: Empty part of progress bar (black background)
-                            var seg2Start = seg1Len;
-                            var seg2Len = Math.Max(0, composed.Length - seg2Start);
-                            if (seg2Len > 0)
-                            {
-                                var seg2Text = composed.Substring(seg2Start);
-                                runs.Add(new TermRun(seg2Text, fg, ConsoleColor.Black));
-                            }
-                            
-                            // Pad to full width if needed
-                            var totalLen = indentStr.Length + composed.Length;
-                            if (totalLen < width)
-                            {
-                                runs.Add(new TermRun(new string(' ', width - totalLen), fg, ConsoleColor.Black));
-                            }
-
-                            // Add line with runs for progress bar effect
-                            lines.Add(new TermLine($"{indentStr}{composed}", fg, ConsoleColor.Black, TextAlign.Left) { Runs = runs });
-                        }
-
-                        // Stats footer
-                        var (running, queued, completed, failed, canceled) = progressStats.Value;
-                        var stats = $"in-flight: {running}   queued: {queued}   completed: {completed}   failed: {failed}   canceled: {canceled}";
-                        lines.Add(new TermLine($"{indentStr}{stats}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
-
-                        var hint = "Press ESC to cancel";
-                        var etaText = !string.IsNullOrEmpty(etaHint) ? $"ETA: {etaHint} • " : "";
-                        lines.Add(new TermLine($"{indentStr}{etaText}{hint}", ConsoleColor.DarkGray, ConsoleColor.Black, TextAlign.Left));
-                    }
-                    break;
+                // no default leaf cases here; those are handled by registry above
             }
 
+        RecordRegion:
             // Record region for this node
             var endLine = lines.Count;
             if (endLine > startLine)
