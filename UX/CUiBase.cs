@@ -74,6 +74,11 @@ public abstract partial class CUiBase : IUi
     });
 
     /// <summary>
+    /// Returns a UiPatchBuilder bound to this UI for fluent patch construction and application.
+    /// </summary>
+    public UiPatchBuilder MakePatch() => new UiPatchBuilder(this);
+
+    /// <summary>
     /// Moves input focus to the specified node
     /// </summary>
     public virtual Task FocusAsync(string key)
@@ -149,8 +154,10 @@ public abstract partial class CUiBase : IUi
                     IsActive: true
                 ));
 
-                var patch = new UiPatch(new InsertChildOp("messages", int.MaxValue, progressNode));
-                PatchAsync(patch).GetAwaiter().GetResult();
+                // Use fluent builder to insert the node
+                MakePatch()
+                    .Insert("messages", int.MaxValue, progressNode)
+                    .PatchAsync().GetAwaiter().GetResult();
             }
         }
         catch
@@ -181,8 +188,8 @@ public abstract partial class CUiBase : IUi
             if (_uiTree.Root != null && _uiTree.FindNode(nodeKey) != null)
             {
                 // Update existing progress node
-                var patch = new UiPatch(
-                    new UpdatePropsOp(
+                var patch = new UiPatchBuilder(this)
+                    .Update(
                         nodeKey,
                         new Dictionary<UiProperty, object?>
                         {
@@ -190,17 +197,16 @@ public abstract partial class CUiBase : IUi
                             [UiProperty.ProgressStats] = snapshot.Stats,
                             [UiProperty.EtaHint] = snapshot.EtaHint,
                             [UiProperty.IsActive] = snapshot.IsActive
-                        }
-                    )
-                );
-                PatchAsync(patch).GetAwaiter().GetResult();
+                        });
+                patch.PatchAsync().GetAwaiter().GetResult();
             }
             else if (_uiTree.Root != null && _uiTree.FindNode("messages") != null)
             {
                 // Node doesn't exist yet (maybe tree was replaced) - insert it
                 var progressNode = CreateProgressNode(id, snapshot.Title, snapshot);
-                var patch = new UiPatch(new InsertChildOp("messages", int.MaxValue, progressNode));
-                PatchAsync(patch).GetAwaiter().GetResult();
+                MakePatch()
+                    .Insert("messages", int.MaxValue, progressNode)
+                    .PatchAsync().GetAwaiter().GetResult();
             }
         }
         catch
@@ -220,8 +226,9 @@ public abstract partial class CUiBase : IUi
             // Remove the progress node
             if (_uiTree.Root != null && _uiTree.FindNode(nodeKey) != null)
             {
-                var patch = new UiPatch(new RemoveOp(nodeKey));
-                PatchAsync(patch).GetAwaiter().GetResult();
+                MakePatch()
+                    .Remove(nodeKey)
+                    .PatchAsync().GetAwaiter().GetResult();
             }
 
             // Display the artifact as a Tool message (same as old behavior)

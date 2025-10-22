@@ -97,6 +97,12 @@ public interface IUi
     Task PatchAsync(UiPatch patch);
 
     /// <summary>
+    /// Creates a fluent UiPatchBuilder bound to this UI, allowing chaining ops and then calling PatchAsync().
+    /// Usage: await ui.MakePatch().Update(key, props).PatchAsync();
+    /// </summary>
+    UiPatchBuilder MakePatch();
+
+    /// <summary>
     /// Moves input focus to the specified node
     /// </summary>
     /// <param name="key">The key of the node to focus</param>

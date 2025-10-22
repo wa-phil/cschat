@@ -653,11 +653,12 @@ public static class FormOverlay
         // Helper: set error text for a field key
         async Task SetErrorAsync(string fieldKey, string? message)
         {
-            var op = new UpdatePropsOp($"overlay-form-field-{fieldKey}-error", new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.Text] = message ?? ""
-            });
-            await ui.PatchAsync(new UiPatch(op));
+            await ui.MakePatch()
+                .Update($"overlay-form-field-{fieldKey}-error", new Dictionary<UiProperty, object?>
+                {
+                    [UiProperty.Text] = message ?? ""
+                })
+                .PatchAsync();
         }
 
         // Clear all errors initially
@@ -693,7 +694,9 @@ public static class FormOverlay
                     try { arr = (val?.ToString() ?? "[]").FromJson<List<string>>() ?? new List<string>(); }
                     catch { arr = new List<string>(); }
                     var colNode = BuildArrayColumn(fk, arr, f.Label, f.Placeholder);
-                    await ui.PatchAsync(new UiPatch(new ReplaceOp($"{fk}-col", colNode)));
+                    await ui.MakePatch()
+                        .Replace($"{fk}-col", colNode)
+                        .PatchAsync();
                     // Rebuild focus order to include the per-item controls
                     RebuildFocusOrder(values);
                     return; // array handled via replace
@@ -701,7 +704,9 @@ public static class FormOverlay
                     props[UiProperty.Text] = val?.ToString() ?? "";
                     break;
             }
-            await ui.PatchAsync(new UiPatch(new UpdatePropsOp(fk, props)));
+            await ui.MakePatch()
+                .Update(fk, props)
+                .PatchAsync();
         }
 
         // Initial refresh for accuracy (selectedIndex/checked)
@@ -717,13 +722,15 @@ public static class FormOverlay
         // Helper: patch scroll state on the AutoScroll body
         async Task PatchBodyScrollAsync()
         {
-            await ui.PatchAsync(new UiPatch(new UpdatePropsOp(
-                "overlay-form-input-items",
-                new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.AutoScroll] = false,
-                    [UiProperty.Min] = Math.Max(0, bodyScroll)
-                })));
+            await ui.MakePatch()
+                .Update(
+                    "overlay-form-input-items",
+                    new Dictionary<UiProperty, object?>
+                    {
+                        [UiProperty.AutoScroll] = false,
+                        [UiProperty.Min] = Math.Max(0, bodyScroll)
+                    })
+                .PatchAsync();
         }
 
         // Helper: move focus respecting Tab/Shift+Tab
@@ -919,7 +926,9 @@ public static class FormOverlay
                             var curText = (values.TryGetValue(fk, out var tv) ? tv?.ToString() : "") ?? "";
                             curText += key.KeyChar;
                             values[fk] = curText;
-                            await ui.PatchAsync(new UiPatch(new UpdatePropsOp(fk, new Dictionary<UiProperty, object?> { [UiProperty.Text] = curText })));
+                            await ui.MakePatch()
+                                .Update(fk, new Dictionary<UiProperty, object?> { [UiProperty.Text] = curText })
+                                .PatchAsync();
                         }
                         else if (key.Key == ConsoleKey.Backspace)
                         {
@@ -928,7 +937,9 @@ public static class FormOverlay
                             {
                                 curText = curText.Substring(0, curText.Length - 1);
                                 values[fk] = curText;
-                                await ui.PatchAsync(new UiPatch(new UpdatePropsOp(fk, new Dictionary<UiProperty, object?> { [UiProperty.Text] = curText })));
+                                await ui.MakePatch()
+                                    .Update(fk, new Dictionary<UiProperty, object?> { [UiProperty.Text] = curText })
+                                    .PatchAsync();
                             }
                         }
                         else if (key.Key == ConsoleKey.Enter)

@@ -198,14 +198,16 @@ public static class ChatSurface
 
         if (scrolled)
         {
-            await ui.PatchAsync(new UiPatch(new UpdatePropsOp(
-                "messages",
-                new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.AutoScroll] = false,
-                    // Using Min as a simple numeric holder for scroll offset (from bottom)
-                    [UiProperty.Min] = current.Scroll
-                })));
+            await ui.MakePatch()
+                .Update(
+                    "messages",
+                    new Dictionary<UiProperty, object?>
+                    {
+                        [UiProperty.AutoScroll] = false,
+                        // Using Min as a simple numeric holder for scroll offset (from bottom)
+                        [UiProperty.Min] = current.Scroll
+                    })
+                .PatchAsync();
             return (current, ChatInputAction.None);
         }
 
@@ -582,13 +584,15 @@ public static class ChatSurface
         // Clear the input box
         await ui.PatchAsync(UpdateInput(""));
         // Ensure view snaps to bottom after sending
-        await ui.PatchAsync(new UiPatch(new UpdatePropsOp(
-            "messages",
-            new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.AutoScroll] = true,
-                [UiProperty.Min] = 0
-            })));
+        await ui.MakePatch()
+            .Update(
+                "messages",
+                new Dictionary<UiProperty, object?>
+                {
+                    [UiProperty.AutoScroll] = true,
+                    [UiProperty.Min] = 0
+                })
+            .PatchAsync();
 
         try
         {

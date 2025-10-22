@@ -8,20 +8,21 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 
 public sealed class PhotinoUi : CUiBase
 {
 	private class BoolBox { public bool Answer { get; set; } }
 	private PhotinoWindow? _win;
 	private Thread? _uiThread;
-	private readonly Queue<string> _outbox = new();
-	private readonly object _gate = new();
-
-	private volatile bool _ready = false;
-	private volatile bool _uiAlive = false;
+	// Outbound and inbound message channels
+	private readonly Channel<string> _tx = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+	private readonly Channel<string> _rx = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+	private Task? _txPumpTask;
+	private Task? _rxPumpTask;
+	private int _txStarted = 0; // 0 = not started, 1 = started
 
 	private TaskCompletionSource<ConsoleKeyInfo>? _tcsKey;
-	private TaskCompletionSource<Dictionary<string, string?>?>? _tcsForm;
 
 	private readonly IFilePicker _picker = FilePicker.Create();
 	private PhotinoInputRouter? _inputRouter;
@@ -47,8 +48,11 @@ public sealed class PhotinoUi : CUiBase
 
 	private void NudgeWaitersAndStop()
 	{
-		_uiAlive = false;
 		_tcsKey?.TrySetResult(new ConsoleKeyInfo('\0', ConsoleKey.Escape, false, false, false));
+
+		// Complete channels to stop pumps
+		try { _tx.Writer.TryComplete(); } catch { }
+		try { _rx.Writer.TryComplete(); } catch { }
 	}
 
 	public override async Task RunAsync(Func<Task> appMain)
@@ -110,10 +114,12 @@ public sealed class PhotinoUi : CUiBase
 
 			_win.RegisterWindowClosingHandler((s, e) => { NudgeWaitersAndStop(); return false; });
 
-			// Register message handler BEFORE loading HTML so window.external is available
-			_win.RegisterWebMessageReceivedHandler((sender, raw) => 
+			// Start inbound pump and register handler BEFORE loading HTML so window.external is available
+			_rxPumpTask = Task.Run(PumpInboundAsync);
+			_win.RegisterWebMessageReceivedHandler((sender, raw) =>
 			{
-				HandleInbound(raw);
+				// Enqueue inbound messages for processing on background pump
+				_rx.Writer.TryWrite(raw);
 			});
 
 			if (File.Exists(IndexHtmlPath))
@@ -121,7 +127,6 @@ public sealed class PhotinoUi : CUiBase
 				_win.Load(IndexHtmlPath);
 			}
 
-			_uiAlive = true;
 			if (OperatingSystem.IsWindows()) { uiReady!.Set(); }
 			// Block the main thread here
 			_win.WaitForClose();
@@ -129,7 +134,6 @@ public sealed class PhotinoUi : CUiBase
 		finally
 		{
 			NudgeWaitersAndStop();
-			_uiAlive = false;
 			if (OperatingSystem.IsWindows())
 			{
 				uiExited!.Set();
@@ -177,14 +181,6 @@ public sealed class PhotinoUi : CUiBase
 		ctx.OnlyEmitOnFailure();
 		try
 		{
-			// First message from web view indicates it's ready
-			if (!_ready)
-			{
-				_ready = true;
-				// Flush any queued messages that were sent before the web view was ready
-				SafeFlush();
-			}
-
 			var map = JSONParser.FromJson<Dictionary<string, object?>>(raw);
 			if (map is null) return;
 
@@ -227,7 +223,11 @@ public sealed class PhotinoUi : CUiBase
 							ctx.Append(Log.Data.Message, "Received Ready from JS");
 							ctx.Succeeded();
 						});
-						// Send an immediate ack and a few follow-up ticks to verify host->JS channel
+						// Start outbound pump exactly once, then send an immediate ack and ticks
+						if (System.Threading.Interlocked.Exchange(ref _txStarted, 1) == 0)
+						{
+							_txPumpTask = Task.Run(PumpAsync);
+						}
 						Post(new { type = "Debug", message = "Host Ack Ready" });
 						_ = Task.Run(async () =>
 						{
@@ -300,21 +300,6 @@ public sealed class PhotinoUi : CUiBase
 							ctx.Append(Log.Data.Message, msg);
 							ctx.Succeeded();
 						});
-						break;
-					}
-
-				case "FormResult":
-					{
-						// map: { ok: bool, values?: { "Label": "stringValue", ... } }
-						bool ok = B("ok", "OK");
-						if (!ok) { _tcsForm?.TrySetResult(null); break; }
-
-						var dict = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-						if (map.TryGetValue("values", out var v) && v is Dictionary<string, object?> dv)
-						{
-							foreach (var kv in dv) dict[kv.Key] = Convert.ToString(kv.Value);
-						}
-						_tcsForm?.TrySetResult(dict);
 						break;
 					}
 
@@ -524,35 +509,33 @@ public sealed class PhotinoUi : CUiBase
 	// ---------- Internals ----------
 	private void Post(object payload)
 	{
+		// Serialize and enqueue; the pump will deliver when the webview is ready
 		var json = payload.ToJson();
-		lock (_gate) { _outbox.Enqueue(json); }
-		SafeFlush();
+		_tx.Writer.TryWrite(json);
 	}
 
-	private void SafeFlush()
+	private async Task PumpAsync()
 	{
-		if (!_uiAlive || _win is null) return;
-		
-		// If not ready yet, messages will remain queued and be flushed when _ready becomes true
-		if (!_ready) return;
-		
-		try
+		await foreach (var msg in _tx.Reader.ReadAllAsync())
 		{
-			_win.Invoke(() =>
+			var win = _win;
+			if (win is null) continue;
+			try
 			{
-				lock (_gate)
-				{
-					while (_outbox.Count > 0)
-					{
-						var json = _outbox.Dequeue();
-						_win.SendWebMessage(json);
-					}
-				}
-			});
+				win.Invoke(() => win.SendWebMessage(msg));
+			}
+			catch
+			{
+				// UI going down or unavailable
+			}
 		}
-		catch
+	}
+
+	private async Task PumpInboundAsync()
+	{
+		await foreach (var raw in _rx.Reader.ReadAllAsync())
 		{
-			// UI going down
+			HandleInbound(raw);
 		}
 	}
 

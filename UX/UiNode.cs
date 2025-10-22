@@ -218,6 +218,78 @@ public sealed record UiPatch(params UiOp[] Ops)
 }
 
 /// <summary>
+/// Fluent builder for constructing UiPatch instances with multiple operations
+/// without verbose new UiPatch(new Op(...)) boilerplate.
+/// </summary>
+public sealed class UiPatchBuilder
+{
+    private readonly List<UiOp> _ops = new();
+    private readonly IUi? _ui;
+
+    public UiPatchBuilder()
+    {
+    }
+
+    public UiPatchBuilder(IUi ui)
+    {
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
+    }
+
+    /// <summary>
+    /// Queue a replace operation for the node with the given key.
+    /// </summary>
+    public UiPatchBuilder Replace(string key, UiNode node)
+    {
+        _ops.Add(new ReplaceOp(key, node));
+        return this;
+    }
+
+    /// <summary>
+    /// Queue an update-properties operation for an existing node.
+    /// </summary>
+    public UiPatchBuilder Update(string key, IReadOnlyDictionary<UiProperty, object?> props)
+    {
+        _ops.Add(new UpdatePropsOp(key, props));
+        return this;
+    }
+
+    /// <summary>
+    /// Queue an insert-child operation under the specified parent at index.
+    /// </summary>
+    public UiPatchBuilder Insert(string parentKey, int index, UiNode node)
+    {
+        _ops.Add(new InsertChildOp(parentKey, index, node));
+        return this;
+    }
+
+    /// <summary>
+    /// Queue a remove operation for the node with the given key.
+    /// </summary>
+    public UiPatchBuilder Remove(string key)
+    {
+        _ops.Add(new RemoveOp(key));
+        return this;
+    }
+
+    /// <summary>
+    /// Build a UiPatch containing all queued operations.
+    /// </summary>
+    public UiPatch Build() => new UiPatch(_ops.ToArray());
+
+    /// <summary>
+    /// Builds and applies this patch using a bound IUi if available.
+    /// Use via: await ui.MakePatch().Update(...).PatchAsync();
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown if the builder wasn't created via IUi.MakePatch()</exception>
+    public Task PatchAsync()
+    {
+        if (_ui is null)
+            throw new InvalidOperationException("UiPatchBuilder is not bound to a UI. Use ui.MakePatch() to obtain a bound builder or call Build() and ui.PatchAsync(...) manually.");
+        return _ui.PatchAsync(Build());
+    }
+}
+
+/// <summary>
 /// Manages a retained-mode UI tree with validation and patch operations
 /// </summary>
 public sealed class UiNodeTree

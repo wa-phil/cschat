@@ -60,10 +60,12 @@ public static class InputOverlay
 
         async Task RefreshAsync()
         {
-            await ui.PatchAsync(new UiPatch(new UpdatePropsOp("overlay-input-box", new Dictionary<UiProperty, object?>
-            {
-                [UiProperty.Text] = buffer
-            })));
+            await ui.MakePatch()
+                .Update("overlay-input-box", new Dictionary<UiProperty, object?>
+                {
+                    [UiProperty.Text] = buffer
+                })
+                .PatchAsync();
         }
 
         string? result = null;
