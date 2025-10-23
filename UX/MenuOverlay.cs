@@ -16,9 +16,12 @@ public static class MenuOverlay
     /// </summary>
     public static UiNode Create(string title, IReadOnlyList<string> choices, int selectedIndex = 0, string filterText = "")
     {
-        if (choices == null || choices.Count == 0)
-            throw new ArgumentException("Choices cannot be null or empty", nameof(choices));
+        if (choices == null)
+            throw new ArgumentException("Choices cannot be null", nameof(choices));
 
+        if (0 == choices.Count)
+            selectedIndex = -1;
+            
         if (selectedIndex < 0 || selectedIndex >= choices.Count)
             selectedIndex = 0;
 

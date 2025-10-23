@@ -631,7 +631,35 @@ public sealed class UiNodeTree
             index = parent.Children.Count;
         }
 
-        // Validate new child doesn't have duplicate keys with existing tree
+        // If a node with the same key already exists anywhere in the tree, treat this
+        // insert as a move/replace: remove the existing node first, then insert the new one.
+        // This makes overlay/menu "re-open" operations and similar idempotent.
+        if (_nodeMap.ContainsKey(newChild.Key))
+        {
+            // Determine if the existing node is under the same parent to adjust index after removal
+            var existingParentKey = _parentMap.TryGetValue(newChild.Key, out var pk) ? pk : null;
+            int originalSiblingIndex = -1;
+            if (existingParentKey != null && _nodeMap.TryGetValue(existingParentKey, out var existingParent))
+            {
+                originalSiblingIndex = existingParent.Children.ToList().FindIndex(c => c.Key == newChild.Key);
+            }
+
+            // Remove existing node with the same key
+            ApplyRemove(newChild.Key);
+
+            // Re-resolve parent after structural change
+            if (!_nodeMap.TryGetValue(parentKey, out parent))
+                throw new InvalidOperationException($"Parent '{parentKey}' not found after removing existing node '{newChild.Key}'");
+
+            // If we removed from the same parent and the original index was before the desired insert index,
+            // the list has shifted left; adjust the target index accordingly.
+            if (existingParentKey == parentKey && originalSiblingIndex >= 0 && originalSiblingIndex < index)
+            {
+                index--;
+            }
+        }
+
+        // Validate new child doesn't have duplicate keys with existing tree (after any removal)
         var seen = new HashSet<string>(_nodeMap.Keys);
         ValidateUniqueKeys(newChild, seen);
 
