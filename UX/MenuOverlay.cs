@@ -14,7 +14,7 @@ public static class MenuOverlay
     /// Builds a modal overlay node with a list view, filter box, and OK/Cancel
     /// Keys: "overlay-menu", "overlay-menu-title", "overlay-menu-filter", "overlay-menu-list", "overlay-menu-ok", "overlay-menu-cancel"
     /// </summary>
-    public static UiNode Create(string title, IReadOnlyList<string> choices, int selectedIndex = 0)
+    public static UiNode Create(string title, IReadOnlyList<string> choices, int selectedIndex = 0, string filterText = "")
     {
         if (choices == null || choices.Count == 0)
             throw new ArgumentException("Choices cannot be null or empty", nameof(choices));
@@ -25,7 +25,7 @@ public static class MenuOverlay
         var children = new List<UiNode>
         {
             Ui.Text("overlay-menu-title", title).WithStyles(Style.Combine(Style.AlignCenter, Style.Bold)),
-            Ui.TextBox("overlay-menu-filter", "", "Filter...").WithProps(new { Focusable = true }),
+            Ui.TextBox("overlay-menu-filter", filterText, "Filter...").WithProps(new { Focusable = true }),
             Ui.Node("overlay-menu-list", UiKind.ListView, new { Items = choices.ToList(), SelectedIndex = selectedIndex, Focusable = true })
         };
 
@@ -54,8 +54,9 @@ public static class MenuOverlay
         const int page = 10;
 
         // Create and push overlay (no external handlers; we'll drive via input router)
-        var menuNode = Create(title, filteredChoices, currentSelected);
+        var menuNode = Create(title, filteredChoices, currentSelected, currentFilter);
         await ui.PatchAsync(UiFrameBuilder.PushOverlay(menuNode));
+        var prevNode = menuNode;
 
         // Set initial focus to filter box so users can start typing immediately
         await ui.FocusAsync("overlay-menu-filter");
@@ -63,31 +64,17 @@ public static class MenuOverlay
         // Helper to refresh the list and filter text in UI
         async Task RefreshAsync(bool updateFilter = true, bool updateList = true)
         {
-            var ops = new List<UiOp>();
-            if (updateFilter)
-            {
-                ops.Add(new UpdatePropsOp("overlay-menu-filter", new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Text] = currentFilter
-                }));
-            }
+            // Clamp selection based on filtered list
             if (updateList)
             {
-                // clamp selection
                 if (filteredChoices.Count == 0) currentSelected = -1;
                 else if (currentSelected < 0) currentSelected = 0;
                 else if (currentSelected >= filteredChoices.Count) currentSelected = filteredChoices.Count - 1;
+            }
 
-                ops.Add(new UpdatePropsOp("overlay-menu-list", new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Items] = filteredChoices.ToList(),
-                    [UiProperty.SelectedIndex] = Math.Max(0, currentSelected)
-                }));
-            }
-            if (ops.Count > 0)
-            {
-                await ui.PatchAsync(new UiPatch(ops.ToArray()));
-            }
+            var nextNode = Create(title, filteredChoices, currentSelected, currentFilter);
+            await ui.ReconcileAsync(prevNode, nextNode);
+            prevNode = nextNode;
         }
 
         // Main input loop (implementation detail of MenuOverlay)

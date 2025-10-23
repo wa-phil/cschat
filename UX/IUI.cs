@@ -97,6 +97,15 @@ public interface IUi
     Task PatchAsync(UiPatch patch);
 
     /// <summary>
+    /// Computes a minimal patch between previous and next UiNode trees using the reconciler
+    /// and applies it atomically to this UI. If previous is null, this will emit a Replace
+    /// operation for the next node's key.
+    /// </summary>
+    /// <param name="previous">The previous UiNode subtree (or null if mounting)</param>
+    /// <param name="next">The next UiNode subtree to render</param>
+    Task ReconcileAsync(UiNode? previous, UiNode next);
+
+    /// <summary>
     /// Creates a fluent UiPatchBuilder bound to this UI, allowing chaining ops and then calling PatchAsync().
     /// Usage: await ui.MakePatch().Update(key, props).PatchAsync();
     /// </summary>

@@ -10,6 +10,12 @@ using Microsoft.Azure.Pipelines.WebApi;
 /// </summary>
 public static class ChatSurface
 {
+    // Declarative VM representing the chat surface
+    public sealed record ChatVm(IReadOnlyList<ChatMessage> Messages, string InputText);
+
+    // Cache of last rendered root for reconciler-based updates
+    private static UiNode? _prevRoot;
+
     // Encapsulate input state for chat composer
     public sealed record ChatInputState
     {
@@ -58,12 +64,54 @@ public static class ChatSurface
             try { await Program.ui.FocusAsync("input"); } catch { /* best effort */ }
         };
 
-    return Ui.Column("chat-root",
-        messagesPanel,
-                Ui.Node("spacer", UiKind.Spacer, new { Height = 1 }),
-                CreateComposer(string.Empty, onSend, onInput)
-            )
-            .WithProps(new { Layout = "dock-bottom" });
+        return Ui.Column("chat-root",
+            messagesPanel,
+            Ui.Spacer("spacer", new { Height = 1 }),
+            CreateComposer(string.Empty, onSend, onInput)
+        ).WithProps(new { Layout = "dock-bottom" });
+    }
+
+    /// <summary>
+    /// Render the chat surface for a given VM using the provided UI's event wiring, and reconcile with the previous render.
+    /// </summary>
+    public static async Task UpdateAsync(IUi ui, ChatVm vm)
+    {
+        if (ui == null) throw new ArgumentNullException(nameof(ui));
+        if (vm == null) throw new ArgumentNullException(nameof(vm));
+
+        // Build handlers bound to this UI instance
+        UiHandler onInput = async e => {
+            var currentInputText = e.Value ?? "";
+            await UpdateAsync(ui, vm with { InputText = currentInputText });
+        };
+
+        UiHandler onSend = async e => {
+            var text = e.Value ?? vm.InputText;
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            await ProcessChatInputAsync(
+                ui,
+                text,
+                Program.Context,
+                async (ctx) => await Engine.PostChatAsync(ctx)
+            );
+
+            try { await ui.FocusAsync("input"); } catch { /* best effort */ }
+        };
+
+        // Build next tree
+        var messagesPanel = Ui.Column(UiFrameKeys.Messages)
+            .WithProps(new { Scrollable = true, AutoScroll = true })
+            .ForEach(vm.Messages.Select((msg, index) => (msg, index)), t => CreateMessageNode(t.msg, t.index));
+
+        var root = Ui.Column("chat-root",
+            messagesPanel,
+            Ui.Spacer("spacer", new { Height = 1 }),
+            CreateComposer(vm.InputText, onSend, onInput)
+        ).WithProps(new { Layout = "dock-bottom" });
+
+        await ui.ReconcileAsync(_prevRoot, root);
+        _prevRoot = root;
     }
 
     /// <summary>
@@ -91,7 +139,7 @@ public static class ChatSurface
         }
 
         // If focus is on send button, Enter/Space triggers submit
-    if (current.FocusKey == UiFrameKeys.SendButton && (key.Key == ConsoleKey.Enter || key.Key == ConsoleKey.Spacebar))
+        if (current.FocusKey == UiFrameKeys.SendButton && (key.Key == ConsoleKey.Enter || key.Key == ConsoleKey.Spacebar))
         {
             return (current, ChatInputAction.Submit);
         }
@@ -217,7 +265,7 @@ public static class ChatSurface
             .WithChildren(
                 Ui.Text("thread-title", title)
                     .WithStyles(Style.Combine(Style.AlignCenter, Style.Color(ConsoleColor.Cyan))),
-                Ui.Node("spacer-header", UiKind.Spacer, new { Width = 1 })
+                Ui.Spacer("spacer-header", new { Width = 1 })
             );
     }
 
@@ -448,23 +496,10 @@ public static class ChatSurface
         // Add user message to context
         context.AddUserMessage(userInput);
         var userMessage = context.Messages().Last();
-        
-        // Render user message via ChatSurface
-        var currentMessages = context.Messages(InluceSystemMessage: false).ToList();
-        await ui.PatchAsync(AppendMessage(userMessage, currentMessages.Count - 1));
 
-        // Clear the input box
-        await ui.PatchAsync(UpdateInput(""));
-        // Ensure view snaps to bottom after sending
-        await ui.MakePatch()
-            .Update(
-                UiFrameKeys.Messages,
-                new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.AutoScroll] = true,
-                    [UiProperty.Min] = 0
-                })
-            .PatchAsync();
+        // Re-render full chat surface via reconciler (clears input and appends message)
+        var currentMessages = context.Messages(InluceSystemMessage: false).ToList();
+        await UpdateAsync(ui, new ChatVm(currentMessages, ""));
 
         try
         {
@@ -483,12 +518,9 @@ public static class ChatSurface
             // Keep Program.Context in sync for other subsystems
             Program.Context = updatedContext;
 
-            // Append assistant message bubble
+            // Append assistant message and re-render
             currentMessages = updatedContext.Messages(InluceSystemMessage: false).ToList();
-            if (last != null)
-            {
-                await ui.PatchAsync(AppendMessage(last, currentMessages.Count - 1));
-            }
+            await UpdateAsync(ui, new ChatVm(currentMessages, ""));
         }
         catch (Exception ex)
         {
@@ -500,7 +532,8 @@ public static class ChatSurface
                 CreatedAt = DateTime.Now
             };
             currentMessages = context.Messages(InluceSystemMessage: false).ToList();
-            await ui.PatchAsync(AppendMessage(errorMsg, currentMessages.Count - 1));
+            currentMessages.Add(errorMsg);
+            await UpdateAsync(ui, new ChatVm(currentMessages, ""));
         }
     }
 }

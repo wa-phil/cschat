@@ -348,7 +348,7 @@ public sealed class UiNodeTree
             case UiKind.ListView:
                 // Could validate items, selectedIndex, etc.
                 break;
-            // Add more validations as needed
+                // Add more validations as needed
         }
     }
 
@@ -460,7 +460,7 @@ public sealed class UiNodeTree
     private UiNode RebuildNode(string currentKey, List<string> path, int pathIndex, string targetKey, Func<UiNode, UiNode> transform)
     {
         var node = _nodeMap[currentKey];
-        
+
         // If this is the target node, apply the transformation
         if (currentKey == targetKey)
         {
@@ -476,7 +476,7 @@ public sealed class UiNodeTree
         // Find which child is on the path to the target
         var nextKeyInPath = path[pathIndex + 1];
         var childIndex = node.Children.ToList().FindIndex(c => c.Key == nextKeyInPath);
-        
+
         if (childIndex < 0)
         {
             // Child not found - this shouldn't happen if maps are consistent
@@ -485,7 +485,7 @@ public sealed class UiNodeTree
 
         // Rebuild the child that's on the path
         var rebuiltChild = RebuildNode(nextKeyInPath, path, pathIndex + 1, targetKey, transform);
-        
+
         // Create a new version of this node with the rebuilt child
         return ReplaceChild(node, childIndex, rebuiltChild);
     }
@@ -589,7 +589,7 @@ public sealed class UiNodeTree
         ValidateProps(node.Kind, merged);
 
         var updatedNode = node with { Props = merged };
-        
+
         if (_root == null)
             throw new InvalidOperationException("No root node set");
 
@@ -654,7 +654,7 @@ public sealed class UiNodeTree
         _nodeMap.Clear();
         _parentMap.Clear();
         BuildMaps(_root);
-        
+
         // Validate that the operation succeeded correctly
         if (!_nodeMap.ContainsKey(parentKey))
         {
@@ -743,5 +743,139 @@ public sealed class UiNodeTree
             _focusedKey = originalFocusedKey;
             throw;
         }
+    }
+}
+
+/// <summary>
+/// Reconciler for UiNode trees with stable keys.
+/// - Keys drive identity. When a key exists in prev but not in next: Remove.
+/// - When key exists in next but not in prev: Insert at computed index.
+/// - When both exist: if Kind or Styles differ -> Replace; else compare props and recurse children.
+/// </summary>
+public sealed class UiReconciler 
+{
+    public UiPatch BuildPatch(UiNode? prev, UiNode next)
+    {
+        var ops = new List<UiOp>();
+
+        // No previous subtree → replace target by next at next.Key (mount semantics).
+        if (prev is null)
+        {
+            ops.Add(new ReplaceOp(next.Key, next));
+            return new UiPatch(ops.ToArray());
+        }
+
+        // If identity (key) changed or kind changed, or styles changed → replace entire subtree at prev location.
+        if (!string.Equals(prev.Key, next.Key, StringComparison.Ordinal) ||
+            prev.Kind != next.Kind ||
+            !StylesEqual(prev.Styles, next.Styles))
+        {
+            // Replace at existing location (prev.Key) so ApplyReplace can find the target.
+            ops.Add(new ReplaceOp(prev.Key, next));
+            return new UiPatch(ops.ToArray());
+        }
+
+        // Diff props (enum-keyed). We only set changed/added props. We do not remove missing props to preserve persistent metadata.
+        var propUpdates = DiffProps(prev.Props, next.Props);
+        if (propUpdates.Count > 0)
+        {
+            ops.Add(new UpdatePropsOp(prev.Key, propUpdates));
+        }
+
+        // Diff children keyed by .Key with order reconciliation (remove+insert to reorder).
+        ops.AddRange(DiffChildren(prev, next));
+
+        return new UiPatch(ops.ToArray());
+    }
+
+    private static bool StylesEqual(UiStyles a, UiStyles b)
+    {
+        // Null-safe and empty-handled: UiStyles.Empty is the default.
+        var ad = a?.Values ?? new Dictionary<UiStyleKey, object?>();
+        var bd = b?.Values ?? new Dictionary<UiStyleKey, object?>();
+        if (ad.Count != bd.Count) return false;
+        foreach (var kv in ad)
+        {
+            if (!bd.TryGetValue(kv.Key, out var bv)) return false;
+            if (!object.Equals(kv.Value, bv)) return false;
+        }
+        return true;
+    }
+
+    private static Dictionary<UiProperty, object?> DiffProps(
+        IReadOnlyDictionary<UiProperty, object?> prev,
+        IReadOnlyDictionary<UiProperty, object?> next)
+    {
+        var updates = new Dictionary<UiProperty, object?>();
+
+        // Only emit changed or added props; leave removals to Replace semantics.
+        foreach (var kv in next)
+        {
+            if (!prev.TryGetValue(kv.Key, out var pv) || !object.Equals(pv, kv.Value))
+            {
+                updates[kv.Key] = kv.Value;
+            }
+        }
+
+        return updates;
+    }
+
+    private static IEnumerable<UiOp> DiffChildren(UiNode prev, UiNode next)
+    {
+        var ops = new List<UiOp>();
+
+        var prevList = prev.Children.ToList();
+        var nextList = next.Children.ToList();
+
+        var prevIndexByKey = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (int i = 0; i < prevList.Count; i++) prevIndexByKey[prevList[i].Key] = i;
+
+        var nextKeySet = new HashSet<string>(nextList.Select(c => c.Key), StringComparer.Ordinal);
+        var prevKeySet = new HashSet<string>(prevList.Select(c => c.Key), StringComparer.Ordinal);
+
+        // 1) Remove children that no longer exist (in reverse order to keep indices valid from a conceptual standpoint; UiNodeTree handles atomically anyway).
+        for (int i = prevList.Count - 1; i >= 0; i--)
+        {
+            var child = prevList[i];
+            if (!nextKeySet.Contains(child.Key))
+            {
+                ops.Add(new RemoveOp(child.Key));
+                prevList.RemoveAt(i);
+            }
+        }
+
+        // Rebuild index mapping after removals
+        prevIndexByKey.Clear();
+        for (int i = 0; i < prevList.Count; i++) prevIndexByKey[prevList[i].Key] = i;
+
+        // 2) Walk next children in order; insert new or moved children at the correct position; reconcile existing.
+        for (int i = 0; i < nextList.Count; i++)
+        {
+            var nextChild = nextList[i];
+            if (!prevIndexByKey.TryGetValue(nextChild.Key, out var currentIndex))
+            {
+                // Brand-new child → insert at desired index
+                ops.Add(new InsertChildOp(prev.Key, i, nextChild));
+            }
+            else
+            {
+                // Child exists; if position differs, move by remove + insert
+                if (currentIndex != i)
+                {
+                    // Movement: remove old and insert next at desired spot; subtree is provided by nextChild
+                    ops.Add(new RemoveOp(nextChild.Key));
+                    ops.Add(new InsertChildOp(prev.Key, i, nextChild));
+                }
+                else
+                {
+                    // No movement: diff the subtree (props/content)
+                    var prevChild = prev.Children.First(c => c.Key == nextChild.Key);
+                    var subPatch = new UiReconciler().BuildPatch(prevChild, nextChild);
+                    ops.AddRange(subPatch.Ops);
+                }
+            }
+        }
+
+        return ops;
     }
 }

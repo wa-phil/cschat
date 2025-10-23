@@ -354,7 +354,7 @@ public static class FormOverlay
                 // Array content row: left spacer, right the multi-line control
                 inputItems.Add(
                     Ui.Row($"{fieldKey}-arrayrow",
-                        Ui.Node($"{fieldKey}-arrayrow-spacer", UiKind.Spacer),
+                        Ui.Spacer($"{fieldKey}-arrayrow-spacer"),
                         inputNode
                     ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)) })
                 );
@@ -376,7 +376,7 @@ public static class FormOverlay
                     // Align help under right column for arrays
                     inputItems.Add(
                         Ui.Row($"{fieldKey}-help-row",
-                            Ui.Node($"{fieldKey}-help-row-spacer", UiKind.Spacer),
+                            Ui.Spacer($"{fieldKey}-help-row-spacer"),
                             Ui.Text($"{fieldKey}-help", field.Help).WithStyles(Style.Tag("dim"))
                         ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)) })
                     );
@@ -394,7 +394,7 @@ public static class FormOverlay
             {
                 inputItems.Add(
                     Ui.Row($"{fieldKey}-error-row",
-                        Ui.Node($"{fieldKey}-error-row-spacer", UiKind.Spacer),
+                        Ui.Spacer($"{fieldKey}-error-row-spacer"),
                         Ui.Text($"{fieldKey}-error", "").WithStyles(Style.Color(ConsoleColor.Red))
                     ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)) })
                 );
@@ -435,15 +435,13 @@ public static class FormOverlay
         if (form == null)
             throw new ArgumentNullException(nameof(form));
 
-        // Create the form overlay
-        var formNode = Create(form);
+        // Local state mirrors UI props as user types/navigates
+        var values = new Dictionary<string, object?>(); // key -> value (string/bool/json)
+        var errors = new Dictionary<string, string?>(); // fieldKey -> error text
 
-        // Push overlay onto the frame
-        await ui.PatchAsync(UiFrameBuilder.PushOverlay(formNode));
-
-        // Build focus order dynamically: all scalar fields, and for array fields include each item's edit/delete buttons then the add button.
+        // Build focus order dynamically based on current values (for arrays)
         var focusOrder = new List<string>();
-        void RebuildFocusOrder(Dictionary<string, object?> currentValues)
+        void RebuildFocusOrder(Dictionary<String, object?> currentValues)
         {
             focusOrder.Clear();
             foreach (var f in form.Fields)
@@ -470,60 +468,7 @@ public static class FormOverlay
             focusOrder.Add("overlay-form-cancel");
         }
 
-        RebuildFocusOrder(new Dictionary<string, object?>());
-        int focusIndex = focusOrder.Count > 0 ? 0 : -1;
-        string? currentFocusKey = null;
-        if (focusIndex >= 0)
-        {
-            currentFocusKey = focusOrder[focusIndex];
-            await ui.FocusAsync(currentFocusKey);
-        }
-
-        // Helper: update visual focus state on each field row
-        async Task UpdateRowFocusAsync()
-        {
-            var pb = ui.MakePatch();
-            var focusedKeyNow = currentFocusKey;
-            for (int i = 0; i < form.Fields.Count; i++)
-            {
-                var f = form.Fields[i];
-                bool focused = !string.IsNullOrEmpty(focusedKeyNow) && focusedKeyNow!.StartsWith($"overlay-form-field-{f.Key}");
-                if (f.Kind == UiFieldKind.Array)
-                {
-                    var rowKey1 = $"overlay-form-field-{f.Key}-labelrow";
-                    var rowKey2 = $"overlay-form-field-{f.Key}-arrayrow";
-                    pb.Update(rowKey1, new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.Layout] = "grid",
-                        [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)),
-                        [UiProperty.State] = focused
-                    });
-                    pb.Update(rowKey2, new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.Layout] = "grid",
-                        [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)),
-                        [UiProperty.State] = focused
-                    });
-                }
-                else
-                {
-                    var rowKey = $"overlay-form-field-{f.Key}-row";
-                    pb.Update(rowKey, new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.Layout] = "grid",
-                        [UiProperty.Columns] = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)),
-                        [UiProperty.State] = focused
-                    });
-                }
-            }
-            await pb.PatchAsync();
-        }
-
-        // Initial row highlight
-        await UpdateRowFocusAsync();
-
-        // Local state mirrors UI props as user types/navigates
-        var values = new Dictionary<string, object?>(); // key -> value (string/bool/int)
+        // Initialize values from model
         foreach (var f in form.Fields)
         {
             var key = $"overlay-form-field-{f.Key}";
@@ -531,7 +476,6 @@ public static class FormOverlay
             switch (f.Kind)
             {
                 case UiFieldKind.Bool:
-                    // interpret non-empty/non-false as true
                     values[key] = bool.TryParse(text, out var b) ? b : (!string.IsNullOrEmpty(text) && text != "0" && !text.Equals("false", StringComparison.OrdinalIgnoreCase));
                     break;
                 case UiFieldKind.Enum:
@@ -541,97 +485,32 @@ public static class FormOverlay
                     values[key] = text ?? string.Empty;
                     break;
             }
+            errors[f.Key] = ""; // seed error map
         }
-        // Initial focus map now depends on values
+
         RebuildFocusOrder(values);
-        // Keep focusIndex aligned to the same key after we rebuild order
-        if (!string.IsNullOrEmpty(currentFocusKey))
-        {
-            var ix = focusOrder.IndexOf(currentFocusKey);
-            if (ix >= 0) focusIndex = ix;
-        }
+        int focusIndex = focusOrder.Count > 0 ? 0 : -1;
+        string? currentFocusKey = focusIndex >= 0 ? focusOrder[focusIndex] : null;
+        int bodyScroll = 0;
 
-        // Helper: set error text for a field key
-        async Task SetErrorAsync(string fieldKey, string? message)
-        {
-            await ui.MakePatch()
-                .Update($"overlay-form-field-{fieldKey}-error", new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Text] = message ?? ""
-                })
-                .PatchAsync();
-        }
+        // Initial render + push via reconciler
+        var prevNode = RenderOverlay(form, values, errors, currentFocusKey, bodyScroll);
+        await ui.PatchAsync(UiFrameBuilder.PushOverlay(prevNode));
+        if (!string.IsNullOrEmpty(currentFocusKey)) await ui.FocusAsync(currentFocusKey!);
 
-        // Clear all errors initially
-        var clearPb = ui.MakePatch();
-        foreach (var f in form.Fields)
+        // Helper: re-render overlay and reconcile
+        async Task RefreshOverlayAsync()
         {
-            clearPb.Update($"overlay-form-field-{f.Key}-error", new Dictionary<UiProperty, object?> { [UiProperty.Text] = "" });
+            var next = RenderOverlay(form, values, errors, currentFocusKey, bodyScroll);
+            await ui.ReconcileAsync(prevNode, next);
+            prevNode = next;
         }
-        await clearPb.PatchAsync();
-
-        // Helper: update a field node's UI props from local 'values'
-        async Task RefreshFieldAsync(IUiField f)
-        {
-            var fk = $"overlay-form-field-{f.Key}";
-            var val = values.TryGetValue(fk, out var v) ? v : null;
-            var props = new Dictionary<UiProperty, object?>();
-            switch (f.Kind)
-            {
-                case UiFieldKind.Bool:
-                    props[UiProperty.Checked] = (val as bool?) ?? false;
-                    break;
-                case UiFieldKind.Enum:
-                    // keep items from Create; only update selectedIndex via value lookup
-                    var items = f.EnumChoices()?.ToList() ?? new List<string>();
-                    var s = (val as string) ?? "";
-                    var idx = Math.Max(0, items.FindIndex(i => string.Equals(i, s, StringComparison.OrdinalIgnoreCase)));
-                    props[UiProperty.SelectedIndex] = items.Count == 0 ? -1 : idx;
-                    break;
-                case UiFieldKind.Array:
-                    // For array, 'val' holds JSON string; rebuild the per-item rows and replace the column node content
-                    List<string> arr;
-                    try { arr = (val?.ToString() ?? "[]").FromJson<List<string>>() ?? new List<string>(); }
-                    catch { arr = new List<string>(); }
-                    var colNode = BuildArrayColumn(fk, arr, f.Label, f.Placeholder);
-                    await ui.MakePatch()
-                        .Replace($"{fk}-col", colNode)
-                        .PatchAsync();
-                    // Rebuild focus order to include the per-item controls
-                    RebuildFocusOrder(values);
-                    return; // array handled via replace
-                default:
-                    props[UiProperty.Text] = val?.ToString() ?? "";
-                    break;
-            }
-            await ui.MakePatch()
-                .Update(fk, props)
-                .PatchAsync();
-        }
-
-        // Initial refresh for accuracy (selectedIndex/checked)
-        foreach (var f in form.Fields)
-            await RefreshFieldAsync(f);
 
         // Input loop
         var router = ui.GetInputRouter();
         bool submitted = false;
 
-        int bodyScroll = 0; // offset from bottom, like ChatSurface
-
-        // Helper: patch scroll state on the AutoScroll body
-        async Task PatchBodyScrollAsync()
-        {
-            await ui.MakePatch()
-                .Update(
-                    "overlay-form-input-items",
-                    new Dictionary<UiProperty, object?>
-                    {
-                        [UiProperty.AutoScroll] = false,
-                        [UiProperty.Min] = Math.Max(0, bodyScroll)
-                    })
-                .PatchAsync();
-        }
+        // offset from bottom, like ChatSurface (already initialized)
 
         // Helper: move focus respecting Tab/Shift+Tab
         async Task MoveFocusAsync(int delta)
@@ -647,12 +526,9 @@ public static class FormOverlay
             if (focusIndex < 0) focusIndex += focusOrder.Count;
             currentFocusKey = focusOrder[focusIndex];
             await ui.FocusAsync(currentFocusKey);
-            // Only highlight actual field rows; non-field items (buttons) won't match any row and will leave all rows unhighlighted
-            await UpdateRowFocusAsync();
-            // Follow ChatSurface pattern: when user navigates, disable AutoScroll and keep a relative offset instead
-            // Move the view a bit to try to keep the focused element visible by nudging bodyScroll to 0 (bottom) after interactions
-            bodyScroll = 0; // keep bottom-aligned when navigating by Tab
-            await PatchBodyScrollAsync();
+            // Keep bottom-aligned when navigating by Tab
+            bodyScroll = 0;
+            await RefreshOverlayAsync();
         }
 
         while (true)
@@ -692,7 +568,7 @@ public static class FormOverlay
 
             if (scrolled)
             {
-                await PatchBodyScrollAsync();
+                await RefreshOverlayAsync();
                 continue;
             }
 
@@ -742,7 +618,7 @@ public static class FormOverlay
                         {
                             var cur = (values.TryGetValue(fk, out var v) && v is bool b && b);
                             values[fk] = !cur;
-                            await RefreshFieldAsync(matchedField);
+                            await RefreshOverlayAsync();
                         }
                         break;
                     case UiFieldKind.Enum:
@@ -750,12 +626,12 @@ public static class FormOverlay
                         var s = (values.TryGetValue(fk, out var vv) ? vv?.ToString() : "") ?? "";
                         var idx = Math.Max(0, items.FindIndex(i => string.Equals(i, s, StringComparison.OrdinalIgnoreCase)));
                         int enumPage = Math.Max(1, items.Count / 10);
-                        if (key.Key == ConsoleKey.UpArrow) { idx = Math.Max(0, idx - 1); values[fk] = items.Count > 0 ? items[idx] : ""; await RefreshFieldAsync(matchedField); }
-                        else if (key.Key == ConsoleKey.DownArrow) { idx = Math.Min(Math.Max(0, items.Count - 1), idx + 1); values[fk] = items.Count > 0 ? items[idx] : ""; await RefreshFieldAsync(matchedField); }
-                        else if (key.Key == ConsoleKey.PageUp) { idx = Math.Max(0, idx - enumPage); values[fk] = items.Count > 0 ? items[idx] : ""; await RefreshFieldAsync(matchedField); }
-                        else if (key.Key == ConsoleKey.PageDown) { idx = Math.Min(Math.Max(0, items.Count - 1), idx + enumPage); values[fk] = items.Count > 0 ? items[idx] : ""; await RefreshFieldAsync(matchedField); }
-                        else if (key.Key == ConsoleKey.Home) { idx = 0; values[fk] = items.Count > 0 ? items[idx] : ""; await RefreshFieldAsync(matchedField); }
-                        else if (key.Key == ConsoleKey.End) { idx = Math.Max(0, items.Count - 1); values[fk] = items.Count > 0 ? items[idx] : ""; await RefreshFieldAsync(matchedField); }
+                        if (key.Key == ConsoleKey.UpArrow) { idx = Math.Max(0, idx - 1); values[fk] = items.Count > 0 ? items[idx] : ""; await RefreshOverlayAsync(); }
+                        else if (key.Key == ConsoleKey.DownArrow) { idx = Math.Min(Math.Max(0, items.Count - 1), idx + 1); values[fk] = items.Count > 0 ? items[idx] : ""; await RefreshOverlayAsync(); }
+                        else if (key.Key == ConsoleKey.PageUp) { idx = Math.Max(0, idx - enumPage); values[fk] = items.Count > 0 ? items[idx] : ""; await RefreshOverlayAsync(); }
+                        else if (key.Key == ConsoleKey.PageDown) { idx = Math.Min(Math.Max(0, items.Count - 1), idx + enumPage); values[fk] = items.Count > 0 ? items[idx] : ""; await RefreshOverlayAsync(); }
+                        else if (key.Key == ConsoleKey.Home) { idx = 0; values[fk] = items.Count > 0 ? items[idx] : ""; await RefreshOverlayAsync(); }
+                        else if (key.Key == ConsoleKey.End) { idx = Math.Max(0, items.Count - 1); values[fk] = items.Count > 0 ? items[idx] : ""; await RefreshOverlayAsync(); }
                         else if (key.Key == ConsoleKey.Enter)
                         {
                             // Open an in-place menu overlay to pick from items
@@ -766,7 +642,7 @@ public static class FormOverlay
                                 if (!string.IsNullOrEmpty(picked))
                                 {
                                     values[fk] = picked;
-                                    await RefreshFieldAsync(matchedField);
+                                    await RefreshOverlayAsync();
                                 }
                             }
                             // keep focus on the field after selecting from overlay
@@ -784,7 +660,8 @@ public static class FormOverlay
                             {
                                 arrNow.Add(added);
                                 values[fk] = arrNow.ToJson();
-                                await RefreshFieldAsync(matchedField);
+                                RebuildFocusOrder(values);
+                                await RefreshOverlayAsync();
                             }
                             break;
                         }
@@ -806,14 +683,16 @@ public static class FormOverlay
                                     {
                                         arrNow[itemIndex] = edited;
                                         values[fk] = arrNow.ToJson();
-                                        await RefreshFieldAsync(matchedField);
+                                        RebuildFocusOrder(values);
+                                        await RefreshOverlayAsync();
                                     }
                                 }
                                 else if (currentKey.EndsWith("-delete"))
                                 {
                                     arrNow.RemoveAt(itemIndex);
                                     values[fk] = arrNow.ToJson();
-                                    await RefreshFieldAsync(matchedField);
+                                    RebuildFocusOrder(values);
+                                    await RefreshOverlayAsync();
                                 }
                             }
                             break;
@@ -826,9 +705,7 @@ public static class FormOverlay
                             var curText = (values.TryGetValue(fk, out var tv) ? tv?.ToString() : "") ?? "";
                             curText += key.KeyChar;
                             values[fk] = curText;
-                            await ui.MakePatch()
-                                .Update(fk, new Dictionary<UiProperty, object?> { [UiProperty.Text] = curText })
-                                .PatchAsync();
+                            await RefreshOverlayAsync();
                         }
                         else if (key.Key == ConsoleKey.Backspace)
                         {
@@ -837,9 +714,7 @@ public static class FormOverlay
                             {
                                 curText = curText.Substring(0, curText.Length - 1);
                                 values[fk] = curText;
-                                await ui.MakePatch()
-                                    .Update(fk, new Dictionary<UiProperty, object?> { [UiProperty.Text] = curText })
-                                    .PatchAsync();
+                                await RefreshOverlayAsync();
                             }
                         }
                         else if (key.Key == ConsoleKey.Enter)
@@ -859,10 +734,7 @@ public static class FormOverlay
         if (submitted)
         {
             // Clear errors
-            var pb = ui.MakePatch();
-            foreach (var f in form.Fields)
-                pb.Update($"overlay-form-field-{f.Key}-error", new Dictionary<UiProperty, object?> { [UiProperty.Text] = "" });
-            await pb.PatchAsync();
+            foreach (var f in form.Fields) errors[f.Key] = "";
 
             bool allOk = true;
             // Apply per-field
@@ -880,7 +752,7 @@ public static class FormOverlay
                 if (!f.TrySetFromString(form.Model!, rawString, out var err))
                 {
                     allOk = false;
-                    await SetErrorAsync(fk, err);
+                    errors[fk] = err ?? "";
                 }
             }
 
@@ -890,9 +762,11 @@ public static class FormOverlay
                 foreach (var (k, message) in form.Validate(form.Model!) ?? Array.Empty<(string, string)>())
                 {
                     allOk = false;
-                    await SetErrorAsync(k, message);
+                    errors[k] = message;
                 }
             }
+
+            await RefreshOverlayAsync();
 
             result = allOk;
         }
@@ -904,6 +778,103 @@ public static class FormOverlay
         // Pop overlay
         await ui.PatchAsync(UiFrameBuilder.PopOverlay("overlay-form"));
         return result;
+    }
+
+    // Render the full overlay from current state (values, errors, focus, scroll)
+    private static UiNode RenderOverlay(UiForm form, Dictionary<string, object?> values, Dictionary<string, string?> errors, string? currentFocusKey, int bodyScroll)
+    {
+        var children = new List<UiNode>();
+
+        children.Add(
+            Ui.Text("overlay-form-title", form.Title)
+              .WithStyles(Style.Combine(Style.Bold, Style.AlignCenter))
+        );
+
+        var inputItems = new List<UiNode>();
+        foreach (var field in form.Fields)
+        {
+            var fieldKey = $"overlay-form-field-{field.Key}";
+            var focused = !string.IsNullOrEmpty(currentFocusKey) && currentFocusKey!.StartsWith(fieldKey);
+            var currentVal = values.TryGetValue(fieldKey, out var vv) ? vv : null;
+            var currentText = field.Kind == UiFieldKind.Bool ? ((currentVal as bool?) ?? false ? "true" : "false") : currentVal?.ToString() ?? string.Empty;
+
+            var labelNode = Ui.Text($"{fieldKey}-label", field.Label + (field.Required ? " *" : ""));
+
+            UiNode inputNode = CreateFieldInput(fieldKey, field, currentText);
+
+            if (field.Kind == UiFieldKind.Array)
+            {
+                inputItems.Add(
+                    Ui.Row($"{fieldKey}-labelrow",
+                        labelNode,
+                        Ui.Text($"{fieldKey}-labelrow-placeholder", "")
+                    ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)), State = focused })
+                );
+                inputItems.Add(
+                    Ui.Row($"{fieldKey}-arrayrow",
+                        Ui.Spacer($"{fieldKey}-arrayrow-spacer"),
+                        inputNode
+                    ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)), State = focused })
+                );
+            }
+            else
+            {
+                inputItems.Add(
+                    Ui.Row($"{fieldKey}-row", labelNode, inputNode)
+                      .WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)), State = focused })
+                );
+            }
+
+            if (!string.IsNullOrEmpty(field.Help))
+            {
+                if (field.Kind == UiFieldKind.Array)
+                {
+                    inputItems.Add(
+                        Ui.Row($"{fieldKey}-help-row",
+                            Ui.Spacer($"{fieldKey}-help-row-spacer"),
+                            Ui.Text($"{fieldKey}-help", field.Help).WithStyles(Style.Tag("dim"))
+                        ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)) })
+                    );
+                }
+                else
+                {
+                    inputItems.Add(
+                        Ui.Text($"{fieldKey}-help", field.Help).WithStyles(Style.Tag("dim"))
+                    );
+                }
+            }
+
+            var errText = errors.TryGetValue(field.Key, out var em) ? (em ?? "") : "";
+            if (field.Kind == UiFieldKind.Array)
+            {
+                inputItems.Add(
+                    Ui.Row($"{fieldKey}-error-row",
+                        Ui.Spacer($"{fieldKey}-error-row-spacer"),
+                        Ui.Text($"{fieldKey}-error", errText).WithStyles(Style.Color(ConsoleColor.Red))
+                    ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Percent(20), GridColumnSpec.Percent(80)) })
+                );
+            }
+            else
+            {
+                inputItems.Add(
+                    Ui.Text($"{fieldKey}-error", errText).WithStyles(Style.Color(ConsoleColor.Red))
+                );
+            }
+        }
+
+        var inputItemColumn = Ui.Column("overlay-form-input-items", inputItems.ToArray())
+            .WithProps(new { AutoScroll = true, Scrollable = true, Min = Math.Max(0, bodyScroll) });
+        children.Add(inputItemColumn);
+
+        children.Add(
+            Ui.Row("overlay-form-buttons",
+                Ui.Button("overlay-form-submit", "Submit").WithProps(new { Focusable = true }),
+                Ui.Button("overlay-form-cancel", "Cancel").WithProps(new { Focusable = true })
+            ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Fr(1), GridColumnSpec.Fr(1)) })
+        );
+
+        return Ui.Column("overlay-form", children.ToArray())
+            .WithProps(new { Modal = true, Role = "overlay", ZIndex = 3000, Width = "80%", Padding = "2" });
     }
 
     private static UiNode CreateFieldInput(string fieldKey, IUiField field, string currentText)
@@ -1007,11 +978,10 @@ public static class FormOverlay
         }
 
         // Add button row (right aligned)
-        var addBtn = Ui.Button($"{fieldKey}-add", "+").WithProps(new { Focusable = true });
         rows.Add(
             Ui.Row($"{fieldKey}-add-row",
-                Ui.Node($"{fieldKey}-add-row-spacer", UiKind.Spacer),
-                addBtn
+                Ui.Spacer($"{fieldKey}-add-row-spacer"),
+                Ui.Button($"{fieldKey}-add", "+").WithProps(new { Focusable = true })
             ).WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Fr(1), GridColumnSpec.Percent(16)) })
         );
 

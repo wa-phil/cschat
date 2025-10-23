@@ -198,6 +198,9 @@ public static class Ui
 
     // Common shortcuts
 
+    public static UiNode Spacer(string key, object? props = null) =>
+        Node(key, UiKind.Spacer, props);
+
     public static UiNode Text(string key, string text) =>
         Node(key, UiKind.Label, new { Text = text });
 

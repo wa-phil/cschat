@@ -26,21 +26,20 @@ public static class InputOverlay
     {
         if (ui == null) throw new ArgumentNullException(nameof(ui));
 
-        var node = Create(title, initial, placeholder);
-        await ui.PatchAsync(UiFrameBuilder.PushOverlay(node));
+        // Initial render + push
+        var prevNode = Create(title, initial, placeholder);
+        await ui.PatchAsync(UiFrameBuilder.PushOverlay(prevNode));
         await ui.FocusAsync("overlay-input-box");
 
         string buffer = initial ?? string.Empty;
         var router = ui.GetInputRouter();
 
+        // Re-render the overlay and reconcile with previous
         async Task RefreshAsync()
         {
-            await ui.MakePatch()
-                .Update("overlay-input-box", new Dictionary<UiProperty, object?>
-                {
-                    [UiProperty.Text] = buffer
-                })
-                .PatchAsync();
+            var nextNode = Create(title, buffer, placeholder);
+            await ui.ReconcileAsync(prevNode, nextNode);
+            prevNode = nextNode;
         }
 
         string? result = null;

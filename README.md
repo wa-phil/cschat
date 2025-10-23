@@ -293,6 +293,34 @@ Notes:
 - Multi-line input is supported by pressing Shift+Enter for a soft new line.
 - Chat history is kept in memory and can be cleared with the `clear` command in the menu.
 
+## Declarative UI updates (render + diff)
+
+Most UI in cschat is rendered declaratively using a UiNode tree and a reconciler that computes the minimal UiPatch between a previous and next tree. This keeps app code simple: just render your subtree from state, then call the UI to reconcile.
+
+Example pattern:
+
+```csharp
+// cache the previous subtree somewhere (field/private var)
+private UiNode? _prevOverlay;
+
+async Task RefreshOverlayAsync(IUi ui, OverlayState state)
+{
+  var next = RenderOverlay(state);   // pure render from state → UiNode
+  await ui.ReconcileAsync(_prevOverlay, next); // compute diff + apply atomically
+  _prevOverlay = next;               // advance the cache
+}
+```
+
+Guidelines:
+- Use stable keys to preserve identity across renders (keys drive diffing and reordering).
+- When kind or styles change, the reconciler will replace the subtree; props are updated additively.
+- Reorders are emitted as remove + insert at the new position; in-place children are diffed recursively.
+- Prefer this render+diff path for most UI state changes. Use explicit PatchAsync operations for advanced, fine-grained streaming or targeted updates (e.g., realtime token streaming), or overlay stack management.
+
+API:
+- Call `await ui.ReconcileAsync(previous, next)` to compute and apply the minimal patch.
+- For initial mount of the entire UI surface, use `await ui.SetRootAsync(root, options)`.
+
 ## Building
 
 1. **Requirements:**

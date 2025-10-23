@@ -36,6 +36,10 @@ public sealed class UiFrameController
     // chat input state is owned by ChatSurface
     private ChatSurface.ChatInputState _chatState = new ChatSurface.ChatInputState();
 
+    // Cached subtrees for reconciler-based updates at the frame level
+    private UiNode? _prevHeaderNode;
+    private UiNode? _prevContentNode;
+
     public UiFrameController(IUi ui, IInputRouter inputRouter, Context context, Config config)
     {
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
@@ -97,6 +101,10 @@ public sealed class UiFrameController
         var root = UiFrameBuilder.Create(frame);
         await _ui.SetRootAsync(root, new UiControlOptions(TrapKeys: true, InitialFocusKey: "input"));
         _chatState.FocusKey = "input";
+
+        // Seed previous subtrees for future reconciler diffs
+        _prevHeaderNode = header;
+        _prevContentNode = content;
     }
 
     /// <summary>
@@ -172,11 +180,30 @@ public sealed class UiFrameController
 
                 // reset input state after sending
                 _chatState = new ChatSurface.ChatInputState();
-                await _ui.PatchAsync(ChatSurface.UpdateInput(""));
                 await _ui.FocusAsync("input");
                 continue;
             }
         }
+    }
+
+    /// <summary>
+    /// Reconcile header against previous header subtree and patch minimal changes.
+    /// </summary>
+    public async Task UpdateHeaderAsync(UiNode nextHeader)
+    {
+        if (nextHeader == null) throw new ArgumentNullException(nameof(nextHeader));
+    await _ui.ReconcileAsync(_prevHeaderNode, nextHeader);
+        _prevHeaderNode = nextHeader;
+    }
+
+    /// <summary>
+    /// Reconcile content against previous content subtree and patch minimal changes.
+    /// </summary>
+    public async Task UpdateContentAsync(UiNode nextContent)
+    {
+        if (nextContent == null) throw new ArgumentNullException(nameof(nextContent));
+        await _ui.ReconcileAsync(_prevContentNode, nextContent);
+        _prevContentNode = nextContent;
     }
 }
 

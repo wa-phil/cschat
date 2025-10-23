@@ -74,6 +74,15 @@ public abstract partial class CUiBase : IUi
     });
 
     /// <summary>
+    /// Compute a minimal patch between previous and next using UiReconciler and apply it.
+    /// </summary>
+    public virtual async Task ReconcileAsync(UiNode? previous, UiNode next)
+    {
+        var patch = new UiReconciler().BuildPatch(previous, next);
+        await PatchAsync(patch);
+    }
+
+    /// <summary>
     /// Returns a UiPatchBuilder bound to this UI for fluent patch construction and application.
     /// </summary>
     public UiPatchBuilder MakePatch() => new UiPatchBuilder(this);
@@ -132,6 +141,7 @@ public abstract partial class CUiBase : IUi
 
     // ========== Progress Implementation (UiNode-based) ==========
     protected readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _progressMap = new();
+    private readonly Dictionary<string, UiNode> _progressPrevNodes = new(); // key: progress-{id}
 
     public virtual string StartProgress(string title, CancellationTokenSource cts)
     {
@@ -158,6 +168,9 @@ public abstract partial class CUiBase : IUi
                 MakePatch()
                     .Insert(UiFrameKeys.Messages, int.MaxValue, progressNode)
                     .PatchAsync().GetAwaiter().GetResult();
+
+                // Cache as previous for reconciler-based updates
+                _progressPrevNodes[$"progress-{id}"] = progressNode;
             }
         }
         catch
@@ -183,21 +196,25 @@ public abstract partial class CUiBase : IUi
                 }
             }
 
-            // Build composed progress subtree and either replace existing node or insert a new one
+            // Build composed progress subtree and either reconcile against existing node or insert if missing
             var nodeKey = $"progress-{id}";
             var newNode = ProgressUi.CreateNode(id, snapshot);
             if (_uiTree.Root != null && _uiTree.FindNode(nodeKey) != null)
             {
-                MakePatch()
-                    .Replace(nodeKey, newNode)
-                    .PatchAsync().GetAwaiter().GetResult();
+                // Reconcile with previous snapshot if available, else use direct replace
+                if (!_progressPrevNodes.TryGetValue(nodeKey, out var prevNode))
+                {
+                    // Try to pull from current tree as previous
+                    prevNode = _uiTree.FindNode(nodeKey) ?? newNode;
+                }
+                this.ReconcileAsync(prevNode, newNode).GetAwaiter().GetResult();
+                _progressPrevNodes[nodeKey] = newNode;
             }
             else if (_uiTree.Root != null && _uiTree.FindNode(UiFrameKeys.Messages) != null)
             {
-                // Node doesn't exist yet (maybe tree was replaced) - insert it
-                MakePatch()
-                    .Insert(UiFrameKeys.Messages, int.MaxValue, newNode)
-                    .PatchAsync().GetAwaiter().GetResult();
+                // Node doesn't exist yet (maybe tree was replaced) - insert it and seed cache
+                MakePatch().Insert(UiFrameKeys.Messages, int.MaxValue, newNode).PatchAsync().GetAwaiter().GetResult();
+                _progressPrevNodes[nodeKey] = newNode;
             }
         }
         catch
@@ -208,7 +225,8 @@ public abstract partial class CUiBase : IUi
 
     public virtual void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown)
     {
-        _progressMap.TryRemove(id, out _);
+    _progressMap.TryRemove(id, out _);
+    _progressPrevNodes.Remove($"progress-{id}");
 
         try
         {
