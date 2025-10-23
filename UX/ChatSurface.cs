@@ -351,8 +351,7 @@ public static class ChatSurface
                 $"msg-{messageId}-content",
                 new Dictionary<UiProperty, object?>
                 {
-                    [UiProperty.Text] = newContent,
-                    [UiProperty.Wrap] = true
+                    [UiProperty.Text] = newContent
                 }
             )
         );
@@ -447,8 +446,7 @@ public static class ChatSurface
                 $"msg-{key}-content",
                 new Dictionary<UiProperty, object?>
                 {
-                    [UiProperty.Text] = content,
-                    [UiProperty.Wrap] = true
+                    [UiProperty.Text] = content
                 }
             )
         );

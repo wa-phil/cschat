@@ -187,11 +187,7 @@
 					
 				case 'AddBubble':
 					add(msg.kind, msg.text);
-					break;
-					
-				case 'MountControl':
-					mountControl(msg.tree, msg.options);
-					break;
+					break;				
 					
 				case 'PatchControl':
 					patchControl(msg.patch);
@@ -262,30 +258,6 @@
 		// Send a message to C# to trigger _ready=true
 		post({ type: 'Ready', message: 'UI initialized' });
 		debugLog('Sent Ready -> host');
-	}
-
-	function mountControl(tree, options) {
-		if (!tree) {
-			debugLog('[mountControl] No tree');
-			return;
-		}
-				
-		// Clear existing control surface
-		consoleEl.innerHTML = '';
-		controlNodes.clear();
-		
-		// Render new tree
-		controlRoot = renderNode(tree);
-		if (controlRoot) {
-			consoleEl.appendChild(controlRoot);
-		} else {
-			debugLog('[mountControl] renderNode returned null in mountControl!');
-		}
-		
-		// Set initial focus if specified
-		if (options && options.InitialFocusKey) {
-			setTimeout(() => focusControl(options.InitialFocusKey), 50);
-		}
 	}
 
 	// ================= Data-driven UiKind registry (rebuilt to avoid TDZ self-references) =================

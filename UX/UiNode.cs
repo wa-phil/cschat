@@ -95,10 +95,7 @@ public enum UiProperty
     Text,
     Value,        // legacy fallback for Text
     Placeholder,
-    Color,
-    Align,
     Style,
-    Wrap,
     Content,
     Title,
     Expanded,

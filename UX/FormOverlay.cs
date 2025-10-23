@@ -966,11 +966,13 @@ public static class FormOverlay
         for (int i = 0; i < items.Count; i++)
         {
             var textNode = Ui.Text($"{fieldKey}-item-{i}-text", items[i] ?? string.Empty)
-                .WithProps(new { Wrap = true });
+                .WithStyles(Style.Wrap);
             var editBtn = Ui.Button($"{fieldKey}-item-{i}-edit", "✎")
-                .WithProps(new { Focusable = true, Align = "right" });
+                .WithProps(new { Focusable = true })
+                .WithStyles(Style.AlignRight);
             var delBtn = Ui.Button($"{fieldKey}-item-{i}-delete", "×")
-                .WithProps(new { Focusable = true, Align = "right" });
+                .WithProps(new { Focusable = true })
+                .WithStyles(Style.AlignRight);
             rows.Add(
                 Ui.Row($"{fieldKey}-item-{i}-row", textNode, editBtn, delBtn)
                     .WithProps(new { Layout = "grid", Columns = GridColumns.Of(GridColumnSpec.Fr(1), GridColumnSpec.Percent(8), GridColumnSpec.Percent(8)) })

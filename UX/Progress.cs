@@ -304,7 +304,7 @@ public static class ProgressUi
 
         var header = Ui.Row($"{keyPrefix}-header",
                 Ui.Text($"{keyPrefix}-title", snapshot.Title).WithStyles(Style.Bold),
-                Ui.Text($"{keyPrefix}-stats", rightHeaderText).WithProps(new { Align = "right" })
+                Ui.Text($"{keyPrefix}-stats", rightHeaderText).WithStyles(Style.AlignRight)
             )
             .WithProps(new { Layout = "row-justify" });
 
@@ -338,7 +338,7 @@ public static class ProgressUi
                 var rightText = $"{r.percent:0.0}%{steps}";
 
                 var left = Ui.Text($"{keyPrefix}-item-{idx}-left", leftText);
-                var right = Ui.Text($"{keyPrefix}-item-{idx}-right", rightText).WithProps(new { Align = "right" });
+                var right = Ui.Text($"{keyPrefix}-item-{idx}-right", rightText).WithStyles(Style.AlignRight);
 
                 return Ui.Row($"{keyPrefix}-item-{idx}", left, right)
                     .WithProps(new { Layout = "row-justify" });

@@ -694,9 +694,6 @@ public class Terminal : CUiBase
         private static ConsoleColor ResolveFg(UiNode n, ConsoleColor @default)
         {
             if (n.Styles.Get<object?>(UiStyleKey.ForegroundColor) is object st && TryParseColor(st, out var c)) return c;
-            if (n.Props.TryGetValue(UiProperty.Color, out var legacy) && TryParseColor(legacy, out var c2)) return c2;
-            var boldObj = n.Styles.Get<object?>(UiStyleKey.Bold);
-            if (boldObj is bool isBold && isBold) return ConsoleColor.White;
             var styleStr = n.Styles.Get<string>(UiStyleKey.Style) ?? (n.Props.TryGetValue(UiProperty.Style, out var ls) ? ls as string : null);
             if (string.Equals(styleStr, "dim", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkGray;
             return @default;
@@ -710,7 +707,7 @@ public class Terminal : CUiBase
 
         private static TextAlign ResolveAlign(UiNode n)
         {
-            var a = n.Styles.Get<string>(UiStyleKey.Align) ?? (n.Props.TryGetValue(UiProperty.Align, out var la) ? la?.ToString() : null);
+            var a = n.Styles.Get<string>(UiStyleKey.Align);
             return string.Equals(a, "center", StringComparison.OrdinalIgnoreCase) ? TextAlign.Center : TextAlign.Left;
         }
 
@@ -718,7 +715,6 @@ public class Terminal : CUiBase
         {
             var sv = n.Styles.Get<object?>(UiStyleKey.Wrap);
             if (sv is bool b) return b;
-            if (n.Props.TryGetValue(UiProperty.Wrap, out var lv) && lv is bool lb) return lb;
             return false;
         }
         /// <summary>

@@ -562,9 +562,8 @@ public sealed class PhotinoUi : CUiBase
 	
 	protected override Task PostSetRootAsync(UiNode root, UiControlOptions options)
 	{
-		// Instead of sending MountControl (which has JSONWriter serialization issues),
-		// we'll convert the tree into a series of ReplaceOp patches
-		// JavaScript already has frame.root created in initializeRootContainer()
+		// Convert the tree into a series of ReplaceOp patches. JavaScript 
+		// already has frame.root created in initializeRootContainer()
 		
 		// Replace frame.root with the new root tree
 		var patch = new UiPatch(new ReplaceOp(UiFrameKeys.Root, root));
