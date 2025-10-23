@@ -8,13 +8,17 @@
 	html, body { height: 100%; margin: 0; overflow: hidden; }
 	body { display: grid; grid-template-rows: auto 1fr auto; }
 	#main { display:flex; flex-direction:column; min-height:0; }
-	#console { display:flex; flex-direction:column; align-items:flex-start; gap:10px; flex:1; min-height:0; overflow:auto; padding:12px; }
+	#console { display:flex; flex-direction:column; align-items:flex-stretch; gap:10px; flex:1; min-height:0; overflow:hidden; padding:12px; }
 	#composer { display:flex; gap:8px; padding:8px 12px; border-top:none; background:transparent; }
 	#t{ flex:1; font:inherit; padding:10px 14px; border:1px solid #d9d9d9; border-radius:9999px; outline:none; background:#fff; box-shadow: inset 0 1px 2px rgba(0,0,0,.06); }
 	#t:focus{ border-color:#b9cdfd; box-shadow:0 0 0 2px rgba(80,140,255,.15), inset 0 1px 2px rgba(0,0,0,.06); }
 	#send{ padding:8px 14px; border:1px solid #d9d9d9; border-radius:9999px; background:#f6f6f6; font:inherit; cursor:pointer;}
 	#send:hover{background:#f0f0f0;} #send:active{background:#eaeaea;}
 	pre{margin:0 0 8px 0; white-space:pre-wrap;}
+
+	/* dock-bottom layout hooks */
+	.dock-bottom { display:flex; flex-direction:column; height:100%; min-height:0; scrollbar-gutter: stable both-edges; }
+	.dock-bottom > .first { flex:1; min-height:0; overflow:auto; }
 	
 	/* message bubbles */
 	#console>.bubble{ white-space:normal; margin:0; padding:10px 12px; border-radius:10px; line-height:1.35; word-break:break-word; background:#1b1b1b; border:1px solid #333; color:var(--fg); max-width:min(90ch,85%); align-self:flex-start; font-family:system-ui,sans-serif; }
@@ -73,6 +77,13 @@
 	// --- UiNode Control Surface ---
 	let controlRoot = null;
 	const controlNodes = new Map(); // key -> DOM element mapping
+
+	function focusControl(key){
+		const el = controlNodes.get(key);
+		if(!el) return;
+		const inner = el.querySelector('input, textarea, button, [tabindex]');
+		(inner || el).focus();
+	}
 	
 	// Rest of the script first, then initialize at the very end after all functions are defined
 	
@@ -143,8 +154,6 @@
 
 		// Optional: keep-alive ping so we can see JS->host is alive while waiting for host->JS
 		setTimeout(() => debugLog('JS ready; awaiting host messages...'), 250);
-
-		t.focus();
 	}
 
 	// Open all links in the system browser instead of navigating inside Photino
@@ -512,23 +521,51 @@
 		let el;
 		if(!spec){ el = document.createElement('div'); el.textContent = `[Unknown: ${kind}]`; }
 		else if(spec.create){ el = spec.create(node); }
-		else { el = document.createElement(spec.tag); spec.init?.(el, props, node); }
+		else { el = document.createElement(spec.tag); spec.init?.call(spec, el, props, node); }
 		if(!el) return null;
 		el.dataset.nodeKey = node.key; el.dataset.kind = kind; controlNodes.set(node.key, el);
 		// Common property application (layout, modal, scroll, width/height/padding)
 		if(props.Width) el.style.width = props.Width;
 		if(props.Height && kind !== 'Spacer') el.style.height = props.Height;
 		if(props.Padding) el.style.padding = props.Padding;
-		if(props.Modal){ el.style.position='fixed'; el.style.top='50%'; el.style.left='50%'; el.style.transform='translate(-50%, -50%)'; el.style.background='white'; el.style.padding='24px'; el.style.borderRadius='8px'; el.style.boxShadow='0 4px 20px rgba(0,0,0,0.3)'; el.style.zIndex='1000'; }
+		if(props.Modal){ 
+			el.style.position='fixed'; 
+			el.style.top='50%'; 
+			el.style.left='50%'; 
+			el.style.transform='translate(-50%, -50%)'; 
+			el.style.background='white'; 
+			el.style.padding='24px'; 
+			el.style.borderRadius='8px'; 
+			el.style.boxShadow='0 4px 20px rgba(0,0,0,0.3)'; 
+			el.style.zIndex='1000'; 
+		}
 		if(props.Scrollable || props.AutoScroll){ el.style.overflowY='auto'; if(props.AutoScroll) el.dataset.autoScroll='true'; }
-		if(props.Layout === 'dock-bottom'){ el.style.display='flex'; el.style.flexDirection='column'; el.style.height='100%'; if(children.length>0){ const firstChildKey = children[0].key; setTimeout(()=>{ const firstChild=controlNodes.get(firstChildKey); if(firstChild){ firstChild.style.flex='1'; firstChild.style.overflowY='auto'; firstChild.style.minHeight='0'; } },0); } }
+		if(props.Layout === 'dock-bottom'){
+			el.classList.add('dock-bottom');
+			el.style.height = '100%';     // give the container a height context
+			el.style.minHeight = '0';     // allow the child to actually shrink/grow
+		}
+		if (props.Role === 'content') {
+			el.style.flex = '1';
+			el.style.minHeight = '0';
+		}		
 		// Apply styles bag (for Label etc.)
 		applyTextStyles(el, styles);
 		// Wire events based on props present
 		if(spec) wireEventsForNode(el, spec, node);
 		// Render children
 		const container = el._contentContainer || el;
-		children.forEach(c => { const childEl = renderNode(c); if(childEl) container.appendChild(childEl); });
+		children.forEach((c, i) => { 
+			const childEl = renderNode(c); 
+			if(childEl){ 
+				if(props.Layout === 'dock-bottom' && i === 0) {
+					childEl.classList.add('first');
+					childEl.style.minHeight = '0';       // avoid “auto” min-height clamping
+					childEl.style.overflowY = childEl.style.overflowY || 'auto';
+				}
+				container.appendChild(childEl); 
+			}
+		});
 		return el;
 	}
 	
@@ -602,7 +639,7 @@
 		const kind = el.dataset.kind; const spec = KINDS[kind];
 		Object.keys(props).forEach(k => {
 			const v = props[k];
-			if(spec && spec.props && spec.props[k]) { try { spec.props[k](el, v); } catch(e){ debugLog(`prop handler error ${kind}.${k}: ${e.message}`); } return; }
+			if(spec && spec.props && spec.props[k]) { try { spec.props[k].call(spec, el, v); } catch(e){ debugLog(`prop handler error ${kind}.${k}: ${e.message}`); } return; }
 			// Generic fallbacks
 			if(k==='Text'){ if(el.tagName==='INPUT' || el.tagName==='TEXTAREA'){ if(el.value !== (v||'')) el.value = v||''; } else el.textContent = v||''; }
 			else if(k==='Enabled' && el.tagName==='BUTTON'){ el.disabled = v===false; el.style.cursor = v===false? 'not-allowed':'pointer'; }
@@ -612,6 +649,19 @@
 			else if(k==='Padding'){ el.style.padding = v||''; }
 		});
 		if(el.dataset.autoScroll==='true'){ setTimeout(()=>{ el.scrollTop = el.scrollHeight; },0); }
+		if ('AutoScroll' in props) {
+			if (props.AutoScroll) el.dataset.autoScroll = 'true';
+			else delete el.dataset.autoScroll;
+		}
+		if ('Min' in props && typeof props.Min === 'number') {
+			// treat Min as “pixels from bottom”
+			const fromBottom = Math.max(0, props.Min|0);
+			el.scrollTop = Math.max(0, el.scrollHeight - fromBottom);
+		}
+
+		if (el.dataset.autoScroll === 'true') {
+			setTimeout(() => { el.scrollTop = el.scrollHeight; }, 0);
+		}		
 	}
 
 	function insertChild(parentKey, index, childNode) {
@@ -647,13 +697,6 @@
 		if (element && element.parentNode) {
 			element.parentNode.removeChild(element);
 			controlNodes.delete(key);
-		}
-	}
-
-	function focusControl(key) {
-		const element = controlNodes.get(key);
-		if (element && typeof element.focus === 'function') {
-			element.focus();
 		}
 	}
 

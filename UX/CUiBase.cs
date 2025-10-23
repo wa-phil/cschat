@@ -29,11 +29,13 @@ public abstract partial class CUiBase : IUi
         _controlOptions = options ?? new UiControlOptions();
 
         // Set initial focus if specified
+        string? initialFocus = null;
         if (!string.IsNullOrEmpty(_controlOptions.InitialFocusKey))
         {
             try
             {
                 _uiTree.SetFocus(_controlOptions.InitialFocusKey);
+                initialFocus = _controlOptions.InitialFocusKey; 
             }
             catch (Exception ex)
             {
@@ -41,8 +43,14 @@ public abstract partial class CUiBase : IUi
             }
         }
 
-        // Delegate to platform-specific mounting
-        return PostSetRootAsync(root, _controlOptions);
+        // Mount in the platform UI
+        var mountTask = PostSetRootAsync(root, _controlOptions);
+
+        // IMPORTANT: tell the platform to focus after the mount
+        if (!string.IsNullOrEmpty(initialFocus))
+            _ = mountTask.ContinueWith(_ => PostFocusAsync(initialFocus));
+
+        return mountTask;
     }
 
     /// <summary>
