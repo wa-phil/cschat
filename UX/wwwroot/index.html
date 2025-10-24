@@ -1,731 +1,409 @@
 <!doctype html>
 <html>
 <head>
-<meta charset='utf-8'/>
+<meta charset="utf-8" />
 <title>CSChat</title>
 <style>
-	:root { --bg:#111; --fg:#eee; }
-	html, body { height: 100%; margin: 0; overflow: hidden; }
-	body { display: grid; grid-template-rows: auto 1fr auto; }
-	#main { display:flex; flex-direction:column; min-height:0; }
-	#console { display:flex; flex-direction:column; align-items:flex-stretch; gap:10px; flex:1; min-height:0; overflow:hidden; padding:12px; }
-	#composer { display:flex; gap:8px; padding:8px 12px; border-top:none; background:transparent; }
-	#t{ flex:1; font:inherit; padding:10px 14px; border:1px solid #d9d9d9; border-radius:9999px; outline:none; background:#fff; box-shadow: inset 0 1px 2px rgba(0,0,0,.06); }
-	#t:focus{ border-color:#b9cdfd; box-shadow:0 0 0 2px rgba(80,140,255,.15), inset 0 1px 2px rgba(0,0,0,.06); }
-	#send{ padding:8px 14px; border:1px solid #d9d9d9; border-radius:9999px; background:#f6f6f6; font:inherit; cursor:pointer;}
-	#send:hover{background:#f0f0f0;} #send:active{background:#eaeaea;}
-	pre{margin:0 0 8px 0; white-space:pre-wrap;}
+:root { --bg:#111; --fg:#eee; }
 
-	/* dock-bottom layout hooks */
-	.dock-bottom { display:flex; flex-direction:column; height:100%; min-height:0; scrollbar-gutter: stable both-edges; }
-	.dock-bottom > .first { flex:1; min-height:0; overflow:auto; }
-	
-	/* message bubbles */
-	#console>.bubble{ white-space:normal; margin:0; padding:10px 12px; border-radius:10px; line-height:1.35; word-break:break-word; background:#1b1b1b; border:1px solid #333; color:var(--fg); max-width:min(90ch,85%); align-self:flex-start; font-family:system-ui,sans-serif; }
-	#console .bubble>:first-child{margin-top:0;} #console .bubble>:last-child{margin-bottom:0;}
-	#console>.bubble.user{ align-self:flex-end; background:#1d80ea; border-color:#1d80ea; color:#fafafa;}
-	#console>.bubble.assistant{ background:#eee; border-color:#eee; color:#000;}
-	#console>.bubble.system{ align-self:stretch; width: auto; text-align: left; max-width:100%; background:#ddd; border-style:dashed; color:#000;}
+/* full-bleed canvas for the UiNode control surface */
+html, body, #app { height: 100%; margin: 0; }
+body { overflow: hidden; background: var(--bg); color: var(--fg); }
+#app { display: block; }
 
-	/* tool bubbles scroll horizontally if they must, but prefer wrapping first */
-	#console>.bubble.tool { color: #000; --pad-top: 10px; padding:var(--pad-top) 12px 10px 12px; align-self: stretch; width: auto; max-width: 100%; box-sizing: border-box; text-align: left; background: #eee; border-color: #eee; font-weight: 500; overflow-wrap: anywhere; max-height: 65vh; min-height: 220px; overflow: auto; overflow-x: auto; }
-	#console .bubble.tool h1,
-	#console .bubble.tool h2,
-	#console .bubble.tool h3,
-	#console .bubble.tool h4,
-	#console .bubble.tool h5,
-	#console .bubble.tool h6 { color:#000; }
+/* generic bubbles & tool styling kept for Tool/Report markdown */
+.bubble.tool { 
+	color:#000; 
+	--pad-top:10px; 
+	padding:var(--pad-top) 12px 10px; 
+	background:#eee; 
+	border:1px solid #eee; 
+	border-radius:10px;
+	box-sizing:border-box; 
+	max-height:65vh; 
+	min-height:220px;
+	overflow:auto; 
+	overflow-x:auto; 
+}
 
-	/* tables: fixed layout + wrapping cells = stable widths */
-	#console .bubble.tool table { width: 100%; border-collapse: collapse; table-layout: fixed; font-weight: normal; }
+.bubble.tool table { width:100%; border-collapse:collapse; table-layout:fixed; }
+.bubble.tool th, .bubble.tool td {
+	border:1px solid #333; 
+	padding:6px 8px; 
+	text-align:left; 
+	vertical-align:top;
+	white-space:normal; 
+	overflow-wrap:anywhere; 
+	word-break:break-word; 
+	hyphens:auto; 
+	color:#000;
+}
 
-	/* cells: wrap, don't clip; let URLs break nicely */
-	#console .bubble.tool th,
-	#console .bubble.tool td { border: 1px solid #333; padding: 6px 8px; text-align: left; vertical-align: top; white-space: normal; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; color:#000;}
-	
-	/* lighter, clearer stripes and header */
-	#console .bubble.tool th { background: #ddd; }
-	#console .bubble.tool tr:nth-child(even) td { background: #f5f5f5; color:#000; }
+.bubble.tool th { background:#ddd; }
+.bubble.tool tr:nth-child(even) td { background:#f5f5f5; }
+.bubble.tool thead th { position:sticky; top:calc(-1 * var(--pad-top)); z-index:2; background:#ddd; box-shadow:0 1px 0 #333 inset; }
 
-	/* sticky header for tall tables */
-	#console .bubble.tool thead th { position: sticky; top: calc(-1 * var(--pad-top)); z-index: 2; background: #ddd; box-shadow: 0 1px 0 #333 inset; }
+/* dock-bottom layout used by ChatSurface.Create(...) */
+.dock-bottom { display:flex; flex-direction:column; height:100%; min-height:0; scrollbar-gutter:stable both-edges; }
+.dock-bottom > .first { flex:1; min-height:0; overflow:auto; }
+
+/* overlays container takes over the viewport and centers its children */
+[data-node-key="frame.overlays"]{
+	position: fixed;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	pointer-events: none;     /* let only panels take events */
+	z-index: 9999;
+}
+
+/* any child of frame.overlays becomes a panel */
+[data-node-key="frame.overlays"] > *{
+	pointer-events: auto;
+	box-sizing: border-box;
+	width: min(80vw, 960px);  /* fallback if Width prop isn’t specified */
+	max-height: 80vh;
+	overflow: hidden;         /* header/footer pinned; body can scroll */
+	background: #111;
+	border: 1px solid #444;
+	border-radius: 8px;
+	box-shadow: 0 10px 30px rgba(0,0,0,.6);
+	padding: 12px;
+}
+
+/* inside an overlay panel, treat the child marked Role=body as the scrollable area */
+[data-node-key="frame.overlays"] [data-role="body"]{overflow: auto; min-height: 0;}
+
+.listview .lv-item { color:#ddd; }
+.listview .lv-item:hover { background:#111; }
+
 </style>
 </head>
 <body>
-	<header></header>
-	<div id='main'>
-		<div id='console'></div>
-	</div>
-	<div id='composer' style='display:none;'>
-		<input id='t' type='text' placeholder='Type a message...'/>
-		<button id='send'>Send</button>
-	</div>
+  <!-- Single mount point for UiNode frame -->
+  <div id="app"></div>
+
 <script src="marked.min.js"></script>
 <script>
-	const consoleEl = document.getElementById('console');
-	const t = document.getElementById('t');
-	const send = document.getElementById('send');
+  // ----- host bridge helpers -----
+  function post(obj){ try { window.external.sendMessage(JSON.stringify(obj)); } catch(e){ console.error('post failed:', e); } }
+  function debugLog(msg){ post({ type:'Debug', message: (typeof msg==='string') ? msg : JSON.stringify(msg) }); }
 
-	// this is known to work all the time, everywhere -- do not modify/replace this implementation
-	function post(obj) { try { window.external.sendMessage(JSON.stringify(obj)); } catch (e) { console.error('post failed:', e); } }
+  // Mount target for UiNode control surface
+  const rootEl = document.getElementById('app');
 
-	function debugLog(msg) {
-		const content = { type: 'Debug', message: (typeof msg === 'string') ? msg : JSON.stringify(msg) }
-		post(content);
-	}
+  // Open all links externally
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a');
+    if (a && a.href) { e.preventDefault(); post({ type:'OpenExternal', url:a.href }); }
+  });
+  document.addEventListener('auxclick', (e) => {
+    const a = e.target.closest('a');
+    if (a && a.href) { e.preventDefault(); post({ type:'OpenExternal', url:a.href }); }
+  });
+
+  // Key relay for the input router
+  document.addEventListener('keydown', (e) => {
+    post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
+  });
+
+  // ===== UiNode renderer =====
+  const controlNodes = new Map(); // key -> HTMLElement
+
+  function focusControl(key){
+    const el = controlNodes.get(key);
+    if(!el) return;
+    const inner = el.querySelector('input, textarea, button, [tabindex]');
+    (inner || el).focus();
+  }
+
+  // KINDS registry (same behavior as before; trimmed to essentials you use)
+  const KINDS = {
+    Column:{ tag:'div', init(el){ el.style.display='flex'; el.style.flexDirection='column'; el.style.gap='8px'; } },
+    Row:{    tag:'div', init(el){ el.style.display='flex'; el.style.flexDirection='row'; el.style.gap='8px'; el.style.alignItems='center'; } },
+    Label:{  tag:'div', init(el,p){ el.textContent=p.Text||''; }, props:{ Text(el,v){ el.textContent=v||''; } } },
+    Button:{ tag:'button',
+      init(el,p){ el.textContent=p.Text||''; el.disabled=p.Enabled===false;
+        el.style.padding='8px 16px'; el.style.border='1px solid #ccc'; el.style.borderRadius='4px';
+        el.style.cursor=p.Enabled===false?'not-allowed':'pointer'; el.style.background='#f0f0f0'; },
+      props:{ Text(el,v){ el.textContent=v||''; }, Enabled(el,v){ el.disabled=v===false; el.style.cursor=v===false?'not-allowed':'pointer'; } },
+      events:{ OnClick(el,key){ el.addEventListener('click',()=>post({ type:'ControlEvent', key, name:'click', value:null })); } }
+    },
+    TextBox:{ tag:'input',
+      init(el,p){ el.type='text'; el.value=p.Text||''; el.placeholder=p.Placeholder||''; el.style.padding='8px'; el.style.border='1px solid #ccc'; el.style.borderRadius='4px'; el.style.flex='1'; },
+      props:{ Text(el,v){ if(el.value!==(v||'')) el.value=v||''; }, Placeholder(el,v){ el.placeholder=v||''; } },
+      events:{
+        OnChange(el,key){ el.addEventListener('input',e=>post({ type:'ControlEvent', key, name:'change', value:e.target.value })); },
+        OnEnter(el,key){ el.addEventListener('keydown',e=>{ if(e.key==='Enter') post({ type:'ControlEvent', key, name:'enter', value:el.value }); }); }
+      },
+      _extraWire(el,key){
+        el.addEventListener('input',e=>post({ type:'ControlEvent', key, name:'change', value:e.target.value }));
+        el.addEventListener('keydown',e=>{ if(e.key==='Enter') post({ type:'ControlEvent', key, name:'enter', value:el.value }); });
+      }
+    },
+    Html:{ tag:'div',
+      init(el,p){ const c=p.Content||''; el.innerHTML=(typeof marked!=='undefined' && !c.trim().startsWith('<')) ? marked.parse(c) : c; el.classList.add('bubble','tool'); },
+      props:{ Content(el,v){ if(typeof v==='string'){ el.innerHTML=(typeof marked!=='undefined' && !v.trim().startsWith('<')) ? marked.parse(v) : v; } } }
+    },
+    Spacer:{ tag:'div', init(el,p){ el.style.height = ((p.Height||1)*8)+'px'; } },
+	ListView: { tag: 'div',
+      init(el, p){
+        el.classList.add('listview');
+        el.tabIndex = 0;
+        el.style.display = 'flex';
+        el.style.flexDirection = 'column';
+        el.style.gap = '4px';
+        el.style.padding = '4px';
+        el.style.border = '1px solid #444';
+        el.style.borderRadius = '6px';
+        el.style.background = '#000';
+        el.style.minHeight = '0';
+        // Height prop: interpret as visible rows – fall back to 10
+        const rows = Number(p.Height ?? 10);
+        const rowH = 24; // px per row
+        el.style.maxHeight = Math.max(1, rows) * rowH + 8 + 'px';
+        el.style.overflow = 'auto';
+  
+        // Build items
+        renderListItems(el, p);
+        // Track selection
+        const si = Number.isInteger(p.SelectedIndex) ? p.SelectedIndex : -1;
+        setSelected(el, si);
+      },
+      props: {
+        Items(el, v){ renderListItems(el, { ...readProps(el), Items: v }); },
+        SelectedIndex(el, v){ setSelected(el, Number(v)); },
+        Height(el, v){
+          const rows = Number(v ?? 10); const rowH = 24;
+          el.style.maxHeight = Math.max(1, rows) * rowH + 8 + 'px';
+        },
+        Role(el, v){ el.dataset.role = String(v ?? '').toLowerCase(); },
+        Placeholder(el, v){ el.dataset.placeholder = v ?? ''; } // optional, used for dropdown
+      },
+      events: {
+        OnItemActivated(el, key){
+          el._onActivate = (idx, text) => post({ type:'ControlEvent', key, name:'itemActivated', value:String(idx) });
+        }
+      }
+    }	
+  };
+
+  // helpers for ListView
+  function readProps(el){
+    return {
+      Items: el._items || [],
+      SelectedIndex: el._selectedIndex ?? -1,
+      Height: el._height ?? 10,
+    };
+  }
+  function renderListItems(el, p){
+    const items = Array.isArray(p.Items) ? p.Items : [];
+    el._items = items;
+    el.innerHTML = '';
+    items.forEach((raw, idx) => {
+      const li = document.createElement('div');
+      li.className = 'lv-item';
+      li.style.padding = '4px 8px';
+      li.style.whiteSpace = 'nowrap';
+      li.style.overflow = 'hidden';
+      li.style.textOverflow = 'ellipsis';
+      li.style.cursor = 'pointer';
+      li.textContent = (raw ?? '').toString();  
+
+      li.addEventListener('mouseenter', () => li.style.background = '#111');
+      li.addEventListener('mouseleave', () => {
+        if (idx !== el._selectedIndex) li.style.background = 'transparent';
+      });
+      li.addEventListener('click', () => {
+        setSelected(el, idx);
+      });
+      li.addEventListener('dblclick', () => {
+        setSelected(el, idx);
+        if (typeof el._onActivate === 'function') el._onActivate(idx, li.textContent || '');
+      });  
+
+      el.appendChild(li);
+    });
+    // re-apply selection decoration after rebuild
+    setSelected(el, (Number.isInteger(p.SelectedIndex) ? p.SelectedIndex : -1));
+  }
+  function setSelected(el, idx){
+    el._selectedIndex = (Number.isInteger(idx) ? idx : -1);
+    [...el.children].forEach((c, i) => {
+      c.style.background = (i === el._selectedIndex) ? '#333' : 'transparent';
+      c.style.color = (i === el._selectedIndex) ? '#fff' : '#ddd';
+    });
+  }  
+
+  function applyTextStyles(el, styles){
+    if(styles?.ForegroundColor) el.style.color = mapConsoleColor(styles.ForegroundColor);
+    if(styles?.BackgroundColor) el.style.background = mapConsoleColor(styles.BackgroundColor);
+    if(styles?.Bold) el.style.fontWeight = 'bold';
+    if(styles?.Align) el.style.textAlign = styles.Align;
+    if(styles?.Wrap === false){ el.style.whiteSpace='nowrap'; el.style.overflow='hidden'; el.style.textOverflow='ellipsis'; }
+  }
+
+  function renderNode(node){
+    if(!node) return null;
+    const { key, kind, props={}, styles={}, children=[] } = node;
+    const spec = KINDS[kind] || {};
+    let el = spec.create ? spec.create(node) : document.createElement(spec.tag || 'div');
+    spec.init && spec.init(el, props, node);
+    el.dataset.nodeKey = key; el.dataset.kind = kind; controlNodes.set(key, el);
+
+    // generic props/layout
+    if(props.Width) el.style.width = props.Width;
+    if(props.Height && kind!=='Spacer') el.style.height = props.Height;
+    if(props.Padding) el.style.padding = props.Padding;
+    if(props.Scrollable || props.AutoScroll){ el.style.overflowY='auto'; if(props.AutoScroll) el.dataset.autoScroll='true'; }
+    if(props.Layout === 'dock-bottom'){ el.classList.add('dock-bottom'); el.style.height='100%'; el.style.minHeight='0'; }
+	if(props.Role) el.dataset.role = props.Role.toString().toLowerCase();
+	if(props.Width) el.style.width = props.Width;   // already present; overlay CSS keeps a sensible max
+
+    if(props.Role === 'content'){ el.style.flex='1'; el.style.minHeight='0'; }
 	
-	// --- UiNode Control Surface ---
-	let controlRoot = null;
-	const controlNodes = new Map(); // key -> DOM element mapping
-
-	function focusControl(key){
-		const el = controlNodes.get(key);
-		if(!el) return;
-		const inner = el.querySelector('input, textarea, button, [tabindex]');
-		(inner || el).focus();
-	}
-	
-	// Rest of the script first, then initialize at the very end after all functions are defined
-	
-	function initializeApp() {
-		// Inspect bridge objects so we know what the host exposed
-		try {
-			const ext = window.external;
-			debugLog(`external: ${ext ? 'present' : 'missing'}`);
-			if (ext) {
-				debugLog(`external.sendMessage: ${typeof ext.sendMessage}`);
-				debugLog(`external.receiveMessage (before bind): ${typeof ext.receiveMessage}`);
-			}
-			if (window.chrome && window.chrome.webview) {
-				debugLog('chrome.webview: present');
-			}
-		} catch (e) { debugLog('inspect external failed: ' + e.message); }
-		// CRITICAL: Photino.NET on Windows uses WebView2, which means we should use
-		// window.chrome.webview.addEventListener instead of window.external.receiveMessage
-		if (window.chrome && window.chrome.webview) {
-			window.chrome.webview.addEventListener('message', (event) => {
-				handle(event.data);
-			});
-		} else {
-			// Fallback for non-WebView2 platforms
-			function registerReceive() {
-				try {
-					if (window.external && typeof window.external.receiveMessage === 'function') {
-						// Photino API: call receiveMessage(callback) to register
-						window.external.receiveMessage((message) => {
-							handle(message);
-						});
-						debugLog('registered external.receiveMessage callback');
-					}
-				} catch (e) { debugLog('register receive failed: ' + e.message); }
-			}
-			registerReceive();
-
-			// Also listen for Photino's custom and generic channels just in case
-			try {
-				window.addEventListener('webMessageReceived', (e) => {
-					handle(e.detail ?? e.data ?? e);
-				});
-				window.addEventListener('WebMessageReceived', (e) => {
-					handle(e.detail ?? e.data ?? e);
-				});
-				window.addEventListener('webMessage', (e) => {
-					handle(e.detail ?? e.data ?? e);
-				});
-				window.addEventListener('message', (e) => {
-					// Avoid echoing our own post() which goes to host; this is for host->JS
-					handle(e.data ?? e.detail ?? e);
-				});
-				document.addEventListener('message', (e) => {
-					handle(e.data ?? e.detail ?? e);
-				});
-			} catch (e) { debugLog('bind extra listeners failed: ' + e.message); }
-		}
-		
-		// Initialize root container
-		initializeRootContainer();
-		
-		// Initial ping → enables .NET flush
-		const ping = () => {
-			post({ type:'Resize', width: Math.floor(window.innerWidth/8), height: Math.floor(window.innerHeight/18) });
-		};
-		new ResizeObserver(ping).observe(document.body);
-		ping();
-
-		// Optional: keep-alive ping so we can see JS->host is alive while waiting for host->JS
-		setTimeout(() => debugLog('JS ready; awaiting host messages...'), 250);
+	if (props.Role === 'body' || (kind==='ListView' && el.closest('[data-node-key="frame.overlays"]'))) {
+		el.dataset.role = 'body';
+		el.style.overflow = 'auto';
 	}
 
-	// Open all links in the system browser instead of navigating inside Photino
-	document.addEventListener('click', (e) => {
-		if (e.target.tagName === 'A' && e.target.href) {
-			e.preventDefault();
-			post({ type: 'OpenExternal', url: e.target.href });
-		}
-	});
+    applyTextStyles(el, styles);
 
-	// also catch middle-clicks (auxclick) so they don't navigate inside
-	document.addEventListener('auxclick', (e) => {
-		if (e.target.tagName === 'A' && e.target.href) {
-			e.preventDefault();
-			post({ type: 'OpenExternal', url: e.target.href });
-		}
-	});
+    // wire events
+    if(spec.events){
+      for(const evProp of Object.keys(spec.events)){
+        if(props[evProp] !== undefined) spec.events[evProp](el, key);
+      }
+    }
+    if(spec._extraWire) spec._extraWire(el, key);
 
-	// Unified handler
-	function handle(raw) {
-		try {
-			const kind = typeof raw;
-			const msg = (kind === 'string') ? JSON.parse(raw) : (raw && raw.detail ? raw.detail : raw);
-			const type = msg.type;
-			
-			switch (type) {
-				case 'ConsoleWrite':
-					consoleEl.textContent += (msg.text || '');
-					consoleEl.scrollTop = consoleEl.scrollHeight;
-					break;
-					
-				case 'ConsoleWriteLine':
-					consoleEl.textContent += (msg.text || '') + '\n';
-					consoleEl.scrollTop = consoleEl.scrollHeight;
-					break;
-					
-				case 'Clear':
-					consoleEl.innerHTML = '';
-					break;
-					
-				case 'AddBubble':
-					add(msg.kind, msg.text);
-					break;				
-					
-				case 'PatchControl':
-					patchControl(msg.patch);
-					break;
-					
-				case 'FocusControl':
-					focusControl(msg.key);
-					break;
-			}
-		} catch (e) {
-			debugLog('Message handling error: ' + e.message);
-		}
-	}
-	
-	function add(kind, text) {
-		const bubble = document.createElement('div');
-		bubble.className = 'bubble ' + kind;
-		if (typeof marked !== 'undefined') {
-			bubble.innerHTML = marked.parse(text || '');
-		} else {
-			bubble.textContent = text || '';
-		}
-		consoleEl.appendChild(bubble);
-		consoleEl.scrollTop = consoleEl.scrollHeight;
-	}
+    // children
+    const container = el._contentContainer || el;
+    children.forEach((c,i)=>{
+      const childEl = renderNode(c);
+      if(!childEl) return;
+      if(props.Layout==='dock-bottom' && i===0){
+        childEl.classList.add('first');
+        childEl.style.minHeight='0';
+        if(!childEl.style.overflowY) childEl.style.overflowY='auto';
+      }
+      container.appendChild(childEl);
+    });
+    return el;
+  }
 
-	function submit() {
-		const text = t.value.trim();
-		if (text) {
-			post({ type: 'Input', text });
-			t.value = '';
-		}
-	}
+  function replaceNode(key, newNode){
+    const oldEl = controlNodes.get(key);
+    if(!oldEl) { debugLog(`replaceNode: ${key} not found`); return; }
+    const newEl = renderNode(newNode);
+    if(newEl && oldEl.parentNode){
+      oldEl.parentNode.replaceChild(newEl, oldEl);
+      controlNodes.set(key, newEl);
+    }
+  }
 
-	send.onclick = submit;
+  function updateNodeProps(key, props){
+    const el = controlNodes.get(key); if(!el) return;
+    const kind = el.dataset.kind; const spec = KINDS[kind] || {};
+    for(const k of Object.keys(props)){
+      const v = props[k];
+      if(spec.props && spec.props[k]) { try { spec.props[k].call(spec, el, v); } catch{} continue; }
+      if(k==='Text'){ if(el.tagName==='INPUT' || el.tagName==='TEXTAREA'){ if(el.value!==(v||'')) el.value=v||''; } else el.textContent=v||''; }
+      else if(k==='Enabled' && el.tagName==='BUTTON'){ el.disabled=v===false; el.style.cursor=v===false?'not-allowed':'pointer'; }
+      else if(k==='Placeholder' && (el.tagName==='INPUT'||el.tagName==='TEXTAREA')){ el.placeholder=v||''; }
+      else if(k==='Width'){ el.style.width=v||''; }
+      else if(k==='Height' && kind!=='Spacer'){ el.style.height=v||''; }
+      else if(k==='Padding'){ el.style.padding=v||''; }
+      else if(k==='AutoScroll'){ if(v) el.dataset.autoScroll='true'; else delete el.dataset.autoScroll; }
+      else if(k==='Min' && typeof v==='number'){ const fromBottom = Math.max(0, v|0); el.scrollTop = Math.max(0, el.scrollHeight - fromBottom); }
+    }
+    if(el.dataset.autoScroll==='true'){ setTimeout(()=>{ el.scrollTop = el.scrollHeight; }, 0); }
+  }
+  function insertChild(parentKey, index, childNode){
+    const parent = controlNodes.get(parentKey);
+    if(!parent) { debugLog(`insertChild: parent not found ${parentKey}`); return; }
+    const container = parent._contentContainer || parent;
+    const childEl = renderNode(childNode);
+    if(!childEl) return;
+    if(index >= container.children.length) container.appendChild(childEl);
+    else container.insertBefore(childEl, container.children[index]);
+    if(parent.dataset.autoScroll==='true'){ setTimeout(()=>{ parent.scrollTop = parent.scrollHeight; }, 0); }
+  }
 
-	t.addEventListener('keydown', (e) => {
-		if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
-		else post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
-	});
+  function removeNode(key){
+    const el = controlNodes.get(key);
+    if(el && el.parentNode){ el.parentNode.removeChild(el); controlNodes.delete(key); }
+  }
 
-	document.addEventListener('keydown', (e) => {
-		if (document.activeElement !== t)
-			post({ type:'Key', key:e.key, char:e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey });
-	});
+  function patchControl(patch){
+    if(!patch || !patch.ops) return;
+    for(const op of patch.ops){
+      try{
+        if(op.type==='replace') replaceNode(op.key, op.node);
+        else if(op.type==='updateProps') updateNodeProps(op.key, op.props);
+        else if(op.type==='insertChild') insertChild(op.parentKey, op.index, op.node);
+        else if(op.type==='remove') removeNode(op.key);
+      }catch(e){ debugLog(`[PatchControl] error: ${e.message}`); }
+    }
+  }
 
-	// Initialize root container for patch-based rendering
-	// Creates a minimal frame.root that will be replaced by the first ReplaceOp from PostSetRootAsync
-	function initializeRootContainer() {
-		debugLog('initializeRootContainer()');
-		// Clear existing content
-		consoleEl.innerHTML = '';
-		controlNodes.clear();
+  function mapConsoleColor(c){
+    const m = { Black:'#000', DarkBlue:'#000080', DarkGreen:'#008000', DarkCyan:'#008080',
+      DarkRed:'#800000', DarkMagenta:'#800080', DarkYellow:'#808000', Gray:'#c0c0c0',
+      DarkGray:'#808080', Blue:'#00f', Green:'#0f0', Cyan:'#0ff', Red:'#f00', Magenta:'#f0f', Yellow:'#ff0', White:'#fff' };
+    return m[c] || c;
+  }
 
-		// Create minimal frame.root container (will be replaced by first patch)
-		const frameRoot = document.createElement('div');
-		frameRoot.setAttribute('data-key', 'frame.root');
-		frameRoot.id = 'frame.root';
-		frameRoot.className = 'frame-root';
-		frameRoot.style.display = 'flex';
-		frameRoot.style.flexDirection = 'column';
-		frameRoot.style.height = '100%';
-		frameRoot.style.width = '100%';
+  // Initialize minimal frame container and wire host→JS messages
+  function initializeRootContainer(){
+    controlNodes.clear();
+    rootEl.innerHTML = '';
+    const frameRoot = document.createElement('div');
+    frameRoot.setAttribute('data-key','frame.root');
+    frameRoot.id = 'frame.root';
+    frameRoot.style.display='flex';
+    frameRoot.style.flexDirection='column';
+    frameRoot.style.height='100%';
+    frameRoot.style.width='100%';
+    rootEl.appendChild(frameRoot);
+    controlNodes.set('frame.root', frameRoot);
+    post({ type:'Ready', message:'UI initialized' });
+  }
 
-		consoleEl.appendChild(frameRoot);
-		controlNodes.set('frame.root', frameRoot);
+  // Host → JS message dispatch
+  function handle(raw){
+    try{
+      const msg = (typeof raw === 'string') ? JSON.parse(raw) : (raw && raw.detail ? raw.detail : raw);
+      switch(msg.type){
+        case 'PatchControl': patchControl(msg.patch); break;
+        case 'FocusControl': focusControl(msg.key); break;
+        case 'Clear': rootEl.innerHTML=''; initializeRootContainer(); break;
+      }
+    }catch(e){ debugLog('handle error: ' + e.message); }
+  }
 
-		// Send a message to C# to trigger _ready=true
-		post({ type: 'Ready', message: 'UI initialized' });
-		debugLog('Sent Ready -> host');
-	}
+  // Bind WebView2 (Windows) or Photino fallback
+  (function wireHostChannel(){
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.addEventListener('message', (event) => handle(event.data));
+    } else {
+      try{
+        if (window.external && typeof window.external.receiveMessage === 'function') {
+          window.external.receiveMessage((message) => handle(message));
+        }
+        window.addEventListener('webMessageReceived', (e)=>handle(e.detail ?? e.data ?? e));
+        window.addEventListener('message', (e)=>handle(e.data ?? e.detail ?? e));
+        document.addEventListener('message', (e)=>handle(e.data ?? e.detail ?? e));
+      }catch(e){ debugLog('bind listeners failed: ' + e.message); }
+    }
+  })();
 
-	// ================= Data-driven UiKind registry (rebuilt to avoid TDZ self-references) =================
-	const KINDS = {};
-
-	// Simple kinds
-	KINDS.Column = { 
-		tag:'div', 
-		init(el,p){
-			el.style.display='flex';
-			el.style.flexDirection='column';
-			el.style.gap='8px'; 
-		} 
-	};
-
-	KINDS.Row    = { 
-		tag:'div', 
-		init(el,p){ 
-			el.style.display='flex';
-			el.style.flexDirection='row';
-			el.style.gap='8px';
-			el.style.alignItems='center'; 
-		} 
-	};
-
-	KINDS.Label  = { 
-		tag:'div', 
-		init(el,p){ 
-			el.textContent = p.Text || ''; 
-		}, 
-		props:{ 
-			Text(el,v){ el.textContent = v||''; } 
-		} 
-	};
-
-	KINDS.Button = { 
-		tag:'button', 
-		init(el,p){ 
-			el.textContent=p.Text||'';
-			el.disabled=p.Enabled===false;
-			el.style.padding='8px 16px';
-			el.style.border='1px solid #ccc';
-			el.style.borderRadius='4px';
-			el.style.cursor=p.Enabled===false?'not-allowed':'pointer';
-			el.style.background='#f0f0f0';
-		}, props:{ 
-			Text(el,v){ el.textContent=v||''; }, 
-			Enabled(el,v){ 
-				el.disabled=v===false;
-				el.style.cursor=v===false?'not-allowed':'pointer';
-			}
-		}, events:{ 
-			OnClick(el,key){ 
-				el.addEventListener('click',()=> post({ type:'ControlEvent', key, name:'click', value:null })); 
-			} 
-		} 
-	};
-
-	KINDS.TextBox = { 
-		tag:'input', 
-		init(el,p){ 
-			el.type='text'; 
-			el.value=p.Text||''; 
-			el.placeholder=p.Placeholder||''; 
-			el.style.padding='8px'; 
-			el.style.border='1px solid #ccc'; 
-			el.style.borderRadius='4px'; 
-			el.style.flex='1'; 
-		}, props:{ 
-			Text(el,v){ 
-				if(el.value!==(v||'')) el.value=v||''; 
-			}, Placeholder(el,v){ 
-				el.placeholder=v||''; 
-			} 
-		}, events:{ 
-			OnChange(el,key){ 
-				el.addEventListener('input',e=> post({ type:'ControlEvent', key, name:'change', value:e.target.value })); 
-			}, OnEnter(el,key){ 
-				el.addEventListener('keydown',e=>{ if(e.key==='Enter') post({ type:'ControlEvent', key, name:'enter', value:el.value }); }); 
-			} 
-		}, _extraWire(el,key){ 
-			el.addEventListener('input',e=> post({ type:'ControlEvent', key, name:'change', value:e.target.value }));
-		 	el.addEventListener('keydown',e=>{ if(e.key==='Enter') post({ type:'ControlEvent', key, name:'enter', value:el.value }); }); 
-		} 
-	};
-	
-	KINDS.TextArea = { 
-		tag:'textarea', 
-		init(el,p){ 
-			el.value=p.Text||''; 
-			el.placeholder=p.Placeholder||''; 
-			el.style.padding='8px'; 
-			el.style.border='1px solid #ccc'; 
-			el.style.borderRadius='4px'; 
-			el.style.minHeight='100px'; 
-			el.style.resize='vertical'; 
-			el.style.flex='1'; 
-		}, props:{ 
-			Text(el,v){ 
-				if(el.value!==(v||'')) el.value=v||''; 
-			}, Placeholder(el,v){ el.placeholder=v||''; } 
-		}, events:{ 
-			OnChange(el,key){ el.addEventListener('input',e=> post({ type:'ControlEvent', key, name:'change', value:e.target.value })); } 
-		}, _extraWire(el,key){ el.addEventListener('input',e=> post({ type:'ControlEvent', key, name:'change', value:e.target.value })); } 
-	};
-
-	// CheckBox + Toggle
-	KINDS.CheckBox = { 
-		create(node){ 
-			const p=node.props||{}; 
-			const label=document.createElement('label'); 
-			label.style.display='flex'; 
-			label.style.alignItems='center'; 
-			label.style.gap='8px'; 
-			label.style.cursor='pointer'; 
-			const cb=document.createElement('input'); 
-			cb.type='checkbox'; 
-			cb.checked=p.Checked||false; 
-			cb.addEventListener('change',e=> post({ type:'ControlEvent', key: node.key, name:'toggle', value:e.target.checked })); 
-			const span=document.createElement('span'); 
-			span.textContent=p.Label||''; 
-			label.appendChild(cb); 
-			label.appendChild(span); 
-			return label; 
-		}, props:{ 
-			Checked(el,v){ 
-				const cb=el.querySelector('input[type=checkbox]'); 
-				if(cb) cb.checked=!!v; 
-			}, Label(el,v){ 
-				const s=el.querySelector('span'); 
-				if(s) s.textContent=v||''; 
-			} 
-		}, events:{ 
-			OnToggle(){ /* already wired */ } 
-		} 
-	};
-
-	KINDS.Toggle = { 
-		create(node){ 
-			return KINDS.CheckBox.create(node); 
-		}, props: KINDS.CheckBox.props, events: KINDS.CheckBox.events 
-	};
-
-	KINDS.ListView = {
-		tag:'div',
-		init(el,p){ 
-			el.style.border='1px solid #ccc'; 
-			el.style.borderRadius='4px'; 
-			el.style.maxHeight='300px'; 
-			el.style.overflowY='auto'; 
-			el._items = p.Items || []; 
-			this.renderItems(el, p.SelectedIndex||0); 
-		}, renderItems(el, selectedIndex){ 
-			el.innerHTML=''; 
-			const items = el._items || []; 
-			items.forEach((item,idx)=>{ 
-				const div=document.createElement('div'); 
-				div.textContent=item; 
-				div.style.padding='8px 12px'; 
-				div.style.cursor='pointer'; 
-				div.style.borderBottom='1px solid #eee'; 
-				if(idx===selectedIndex){ 
-					div.style.background='#e3f2fd'; 
-					div.style.fontWeight='bold'; 
-				} 
-				div.addEventListener('click',()=> post({ type:'ControlEvent', key: el.dataset.nodeKey, name:'itemActivated', value:item })); 
-				div.addEventListener('mouseenter',()=>{ if(idx!==selectedIndex) div.style.background='#f5f5f5'; }); 
-				div.addEventListener('mouseleave',()=>{ if(idx!==selectedIndex) div.style.background=''; });
-				el.appendChild(div); }
-			); 
-		},
-		props:{ 
-			Items(el,v){ 
-				el._items = v||[]; 
-				this.renderItems(el,0); 
-			}, 
-			SelectedIndex(el,v){ this.renderItems(el, v||0); } },
-		events:{ OnItemActivated(){ /* per-item */ } }
-	};
-
-	// Html
-	KINDS.Html = { 
-		tag:'div', 
-		init(el,p){ 
-			const content=p.Content||''; 
-			if(typeof marked!=='undefined' && !content.trim().startsWith('<')) 
-				el.innerHTML=marked.parse(content);
-			else 
-				el.innerHTML=content; 
-			el.classList.add('bubble','tool'); 
-		}, props:{ 
-			Content(el,v){ 
-				if(typeof v==='string'){ 
-					if(typeof marked!=='undefined' && !v.trim().startsWith('<')) 
-						el.innerHTML=marked.parse(v); 
-					else 
-						el.innerHTML=v; 
-				} 
-			} 
-		} 
-	};
-
-	KINDS.Spacer = { 
-		tag:'div', 
-		init(el,p){ 
-			const h=p.Height||1; 
-			el.style.height=(h*8)+'px'; 
-		} 
-	};
-
-	KINDS.Accordion = { 
-		create(node){ 
-			const p=node.props||{}; 
-			const details=document.createElement('details'); 
-			details.open = p.Expanded || false; 
-			const summary=document.createElement('summary'); 
-			summary.textContent=p.Title||'Accordion'; 
-			summary.style.cursor='pointer'; 
-			summary.style.padding='8px'; 
-			summary.style.fontWeight='bold'; 
-			details.appendChild(summary); 
-			const contentDiv=document.createElement('div'); 
-			contentDiv.style.padding='8px'; 
-			details._contentContainer=contentDiv; 
-			details.appendChild(contentDiv); 
-			return details; 
-		}, props:{ 
-			Expanded(el,v){ el.open=!!v; }, 
-			Title(el,v){ 
-				const s=el.querySelector('summary'); 
-				if(s) s.textContent=v||'Accordion'; 
-			} 
-		} 
-	};
-
-	// Progress is composed in backend as generic nodes; no special frontend renderer needed
-
-	function wireEventsForNode(el, spec, node){
-		const props = node.props || {};
-		if(spec.events){
-			Object.keys(spec.events).forEach(evProp => {
-				if(props[evProp] !== undefined){ spec.events[evProp](el, node.key); }
-			});
-		}
-		if(spec._extraWire){ spec._extraWire(el, node.key); }
-	}
-
-	function renderNode(node){
-		if(!node){ debugLog('[renderNode] NULL node'); return null; }
-		const kind = node.kind; const props = node.props||{}; const styles = node.styles||{}; const children = node.children||[];
-		const spec = KINDS[kind];
-		let el;
-		if(!spec){ el = document.createElement('div'); el.textContent = `[Unknown: ${kind}]`; }
-		else if(spec.create){ el = spec.create(node); }
-		else { el = document.createElement(spec.tag); spec.init?.call(spec, el, props, node); }
-		if(!el) return null;
-		el.dataset.nodeKey = node.key; el.dataset.kind = kind; controlNodes.set(node.key, el);
-		// Common property application (layout, modal, scroll, width/height/padding)
-		if(props.Width) el.style.width = props.Width;
-		if(props.Height && kind !== 'Spacer') el.style.height = props.Height;
-		if(props.Padding) el.style.padding = props.Padding;
-		if(props.Modal){ 
-			el.style.position='fixed'; 
-			el.style.top='50%'; 
-			el.style.left='50%'; 
-			el.style.transform='translate(-50%, -50%)'; 
-			el.style.background='white'; 
-			el.style.padding='24px'; 
-			el.style.borderRadius='8px'; 
-			el.style.boxShadow='0 4px 20px rgba(0,0,0,0.3)'; 
-			el.style.zIndex='1000'; 
-		}
-		if(props.Scrollable || props.AutoScroll){ el.style.overflowY='auto'; if(props.AutoScroll) el.dataset.autoScroll='true'; }
-		if(props.Layout === 'dock-bottom'){
-			el.classList.add('dock-bottom');
-			el.style.height = '100%';     // give the container a height context
-			el.style.minHeight = '0';     // allow the child to actually shrink/grow
-		}
-		if (props.Role === 'content') {
-			el.style.flex = '1';
-			el.style.minHeight = '0';
-		}		
-		// Apply styles bag (for Label etc.)
-		applyTextStyles(el, styles);
-		// Wire events based on props present
-		if(spec) wireEventsForNode(el, spec, node);
-		// Render children
-		const container = el._contentContainer || el;
-		children.forEach((c, i) => { 
-			const childEl = renderNode(c); 
-			if(childEl){ 
-				if(props.Layout === 'dock-bottom' && i === 0) {
-					childEl.classList.add('first');
-					childEl.style.minHeight = '0';       // avoid “auto” min-height clamping
-					childEl.style.overflowY = childEl.style.overflowY || 'auto';
-				}
-				container.appendChild(childEl); 
-			}
-		});
-		return el;
-	}
-	
-	// (renderProgressNode removed)
-		
-	function applyTextStyles(element, styles) {
-		if (styles.ForegroundColor) {
-			element.style.color = getConsoleColor(styles.ForegroundColor);
-		}
-		if (styles.BackgroundColor) {
-			element.style.background = getConsoleColor(styles.BackgroundColor);
-		}
-		if (styles.Bold) {
-			element.style.fontWeight = 'bold';
-		}
-		if (styles.Align) {
-			element.style.textAlign = styles.Align;
-		}
-		if (styles.Wrap === false) {
-			element.style.whiteSpace = 'nowrap';
-			element.style.overflow = 'hidden';
-			element.style.textOverflow = 'ellipsis';
-		}
-	}
-
-	function patchControl(patch) {
-		if (!patch || !patch.ops) 
-		{
-			debugLog(`[PatchControl] patch or patch.ops is null`);
-			return;
-		}
-		
-		patch.ops.forEach(op => {
-			try {
-				switch (op.type) {
-					case 'replace':
-						replaceNode(op.key, op.node);
-						break;
-					case 'updateProps':
-						updateNodeProps(op.key, op.props);
-						break;
-					case 'insertChild':
-						insertChild(op.parentKey, op.index, op.node);
-						break;
-					case 'remove':
-						removeNode(op.key);
-						break;
-				}
-			} catch (e) {
-				debugLog(`[PatchControl] Error applying op: ${JSON.stringify(op)} - ${e.message}`);
-			}
-		});
-	}
-
-	function replaceNode(key, newNode) {
-		const oldEl = controlNodes.get(key);
-		if (!oldEl) {
-			debugLog(`replaceNode: ${key} not found`);
-			return;
-		}
-		const newEl = renderNode(newNode);
-		if (newEl && oldEl.parentNode) {
-			oldEl.parentNode.replaceChild(newEl, oldEl);
-			// BUG: controlNodes.delete(key)
-			controlNodes.set(key, newEl); // ✅ keep mapping
-		}
-	}
-
-	function updateNodeProps(key, props){
-		const el = controlNodes.get(key); if(!el){ debugLog(`updateNodeProps: ${key} not found`); return; }
-		const kind = el.dataset.kind; const spec = KINDS[kind];
-		Object.keys(props).forEach(k => {
-			const v = props[k];
-			if(spec && spec.props && spec.props[k]) { try { spec.props[k].call(spec, el, v); } catch(e){ debugLog(`prop handler error ${kind}.${k}: ${e.message}`); } return; }
-			// Generic fallbacks
-			if(k==='Text'){ if(el.tagName==='INPUT' || el.tagName==='TEXTAREA'){ if(el.value !== (v||'')) el.value = v||''; } else el.textContent = v||''; }
-			else if(k==='Enabled' && el.tagName==='BUTTON'){ el.disabled = v===false; el.style.cursor = v===false? 'not-allowed':'pointer'; }
-			else if(k==='Placeholder' && (el.tagName==='INPUT' || el.tagName==='TEXTAREA')){ el.placeholder = v||''; }
-			else if(k==='Width'){ el.style.width = v||''; }
-			else if(k==='Height' && kind!=='Spacer'){ el.style.height = v||''; }
-			else if(k==='Padding'){ el.style.padding = v||''; }
-		});
-		if(el.dataset.autoScroll==='true'){ setTimeout(()=>{ el.scrollTop = el.scrollHeight; },0); }
-		if ('AutoScroll' in props) {
-			if (props.AutoScroll) el.dataset.autoScroll = 'true';
-			else delete el.dataset.autoScroll;
-		}
-		if ('Min' in props && typeof props.Min === 'number') {
-			// treat Min as “pixels from bottom”
-			const fromBottom = Math.max(0, props.Min|0);
-			el.scrollTop = Math.max(0, el.scrollHeight - fromBottom);
-		}
-
-		if (el.dataset.autoScroll === 'true') {
-			setTimeout(() => { el.scrollTop = el.scrollHeight; }, 0);
-		}		
-	}
-
-	function insertChild(parentKey, index, childNode) {
-		const parent = controlNodes.get(parentKey);
-		if (!parent) {
-			debugLog(`insertChild: parent not found ${parentKey}`);
-			return;
-		}
-		
-		const container = parent._contentContainer || parent;
-		const childElement = renderNode(childNode);
-		if (!childElement) {
-			debugLog(`[insertChild] renderNode returned null for childNode: ${childNode}`);
-			return;
-		}
-		
-		if (index >= container.children.length) {
-			container.appendChild(childElement);
-		} else {
-			container.insertBefore(childElement, container.children[index]);
-		}
-		
-		// Auto-scroll if parent has autoScroll
-		if (parent.dataset.autoScroll === 'true') {
-			setTimeout(() => {
-				parent.scrollTop = parent.scrollHeight;
-			}, 0);
-		}
-	}
-
-	function removeNode(key) {
-		const element = controlNodes.get(key);
-		if (element && element.parentNode) {
-			element.parentNode.removeChild(element);
-			controlNodes.delete(key);
-		}
-	}
-
-	function getConsoleColor(color) {
-		// Map ConsoleColor enum values to CSS colors
-		const colorMap = {
-			'Black': '#000000',
-			'DarkBlue': '#000080',
-			'DarkGreen': '#008000',
-			'DarkCyan': '#008080',
-			'DarkRed': '#800000',
-			'DarkMagenta': '#800080',
-			'DarkYellow': '#808000',
-			'Gray': '#c0c0c0',
-			'DarkGray': '#808080',
-			'Blue': '#0000ff',
-			'Green': '#00ff00',
-			'Cyan': '#00ffff',
-			'Red': '#ff0000',
-			'Magenta': '#ff00ff',
-			'Yellow': '#ffff00',
-			'White': '#ffffff'
-		};
-		return colorMap[color] || color;
-	}
-	
-	// Initialize after all functions are defined
-	// WebView2 APIs are immediately available in Photino
-	initializeApp();
+  // initial size ping and mount
+  new ResizeObserver(()=> post({ type:'Resize', width: Math.floor(window.innerWidth/8), height: Math.floor(window.innerHeight/18) }))
+    .observe(document.body);
+  initializeRootContainer();
+  debugLog('JS ready; awaiting host messages...');
 </script>
 </body>
 </html>
