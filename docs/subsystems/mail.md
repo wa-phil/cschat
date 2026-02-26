@@ -28,8 +28,14 @@ The `IMailProvider` interface is defined in `Subsytems/MailInterfaces.cs` and pr
 | `GetMessageAsync(id, ct)` | Retrieve a single message by ID |
 | `GetFolderByIdOrNameAsync(idOrName, ct)` | Get a folder by ID or name |
 | `ListFoldersAsync(folderIdOrName?, top, ct)` | List folders (default: top 50) |
-| `ListMessagesAsync(folderId?, top, lookback, ct)` | List messages from a folder |
-| `SearchMessagesAsync(query, top, ct)` | Full-text search across the mailbox |
+| `ListMessagesSinceAsync(folder?, window, top, ct)` | List up to `top` messages received within `window` from `folder` |
+| `DraftMessage(folderIdOrName, subject, body, to, cc, bcc)` | Create a draft message in the specified folder |
+| `DraftReplyAsync(message, body, ct)` | Create a draft reply to a message |
+| `DraftReplyAllAsync(message, body, ct)` | Create a draft reply-all to a message |
+| `DraftForwardAsync(message, to, cc, bcc, body, ct)` | Create a draft forward of a message |
+| `SendAsync(message, ct)` | Send a drafted message |
+| `MoveAsync(message, folder, ct)` | Move a message to another folder |
+| `DeleteAsync(message, ct)` | Delete a message |
 
 All methods run on a background thread (`Task.Run`) to avoid blocking the STA UI thread.
 
@@ -46,7 +52,16 @@ All methods run on a background thread (`Task.Run`) to avoid blocking the STA UI
 
 **File:** `Subsytems/MAPI/MailUserData.cs`
 
-Defines `MailTopic` as a `[UserManaged]` type for saving named email search queries or topics of interest.
+Defines two `[UserManaged]` types:
+
+**`FavoriteMailFolder`** — `[UserManaged("Favorite Mail Folders", ...)]`
+- `IdOrName` (key) — folder ID or display name
+- `DisplayName` — friendly label
+
+**`MailTopic`** — `[UserManaged("Mail Topics", ...)]`
+- `Name` (key) — topic name
+- `Description` — free-text description
+- `Keywords` — comma-separated search keywords
 
 ## Commands
 

@@ -29,7 +29,7 @@ Servers are managed via **data > McpServers** or the **mcp** command group.
 
 **File:** `Subsytems/Mcp/McpManager.cs`
 
-`[IsConfigurable("Mcp")]` — singleton (`private` constructor, `static Instance` property used by DI). Implements `ISubsystem`.
+`[IsConfigurable("Mcp")]` — uses a static `Instance` property (`_instance ??= new McpManager()`) to act as a singleton. Implements `ISubsystem`.
 
 On enable:
 1. Loads all `McpServerDefinition` entries from `UserManagedData`.
