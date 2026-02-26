@@ -22,10 +22,22 @@ Implements `ISubsystem`. On enable: calls `Register()` to add the `PRs` command 
 
 **File:** `Subsytems/PRs/PRsProfile.cs`
 
-`[UserManaged]` type for configuring a PR analytics profile:
-- `ClusterUri` — Kusto cluster hosting the ADO mirror data
-- `AdoDatabase` — database name
-- `TimeoutSeconds` — query timeout
+`[UserManaged("Pull Request Profiles", ...)]` type for configuring a PR analytics profile:
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `Name` | yes (key) | — | Profile name |
+| `ManagerAlias` | yes | — | Manager alias used to scope the team hierarchy |
+| `ExcludedRepos` | no | `[]` | Repository names to exclude (case-insensitive) |
+| `VendorPrefixes` | no | `["v-"]` | MailNickname prefixes used to exclude vendor accounts |
+| `StaleMinAgeDays` | no | 14 | Minimum PR age (days) for "stale" category |
+| `StaleMaxAgeDays` | no | 60 | Maximum PR age (days) for "stale" category |
+| `NewWindowDays` | no | 14 | Window (days) for "new" category |
+| `ClosedWindowDays` | no | 30 | Window (days) for "closed" category |
+| `ClusterUri` | no | — | Kusto cluster hosting the ADO mirror data |
+| `AdoDatabase` | no | — | Azure DevOps database name |
+| `AadDatabase` | no | — | AAD database name |
+| `TimeoutSeconds` | no | 30 | Query timeout |
 
 PRsClient builds a `KustoConfig` on-the-fly from the profile when executing queries (it does not require a separately registered Kusto connection entry).
 
@@ -35,7 +47,7 @@ PRsClient builds a `KustoConfig` on-the-fly from the profile when executing quer
 
 ### PRRow
 
-Internal record for a single PR result with fields: `Category`, `CreatedByDisplayName`, `CreatedByUniqueName`, `Title`, `Description`, `RepositoryName`, `RepositoryProjectName`, `OrganizationName`, `Link`, `CreationDate`, `ClosedDate`.
+Internal record for a single PR result with fields: `Category`, `CreatedByDisplayName`, `CreatedByUniqueName`, `Title`, `Description`, `RepositoryName`, `RepositoryProjectName`, `OrganizationName`, `Link`, `CreationDate`, `ClosedDate`, `Status`, `PullRequestId`, `AgeDays`.
 
 ## PRsTools
 
