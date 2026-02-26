@@ -51,10 +51,10 @@ Registers under the `PRs` command group:
 
 | Command | Description |
 |---------|-------------|
-| `PRs > my PRs` | List open PRs for the current user |
-| `PRs > team PRs` | List open PRs for a team |
-| `PRs > stale PRs` | List PRs that have been open longer than a threshold |
-| `PRs > profile` | Edit the PRsProfile configuration |
+| `PRs > fetch` | Fetch PRs for a profile (stale/new/closed) |
+| `PRs > report` | Manager report — counts and linkable bullets for a configurable window (1–60 days, default 14) |
+| `PRs > slice` | Filter PRs by stale/new/closed; prompts for slice type and item limit (1–500, default 25) |
+| `PRs > coach` | Analyze PR comment threads and suggest coaching points; prompts for max PRs per IC (1–10, default 2) |
 
 ## Dependencies
 

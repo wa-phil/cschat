@@ -74,10 +74,9 @@ Registers under the `mcp` command group:
 
 | Command | Description |
 |---------|-------------|
-| `mcp > servers` | List connected MCP servers and their tools |
-| `mcp > add server` | Add a new `McpServerDefinition` and connect |
-| `mcp > remove server` | Remove a server definition and disconnect |
-| `mcp > reconnect` | Reload all servers from UserManagedData |
+| `MCP > reload` | Reload and reconnect to all configured MCP servers |
+| `MCP > create documentation` | Write `mcp_documentation.md` with schemas and example inputs for all connected server tools |
+| `MCP > list tools` | List tools from connected MCP servers with usage, description, and example input |
 
 ## Dependencies
 

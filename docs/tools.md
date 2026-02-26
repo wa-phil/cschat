@@ -47,7 +47,7 @@ After invocation, the tool result is also added to the `ContextManager` under th
 |------|-------|-------------|
 | `file_list` | `PathInput` | Lists files in a directory recursively, filtered by `RagFileType` |
 | `file_metadata` | `PathInput` | Returns size, line count, word count, char count, last modified |
-| `summarize_file` | `PathInput` | Reads file content (up to 16 000 chars), adds to vector store, returns content |
+| `summarize_file` | `PathInput` | Reads file content (up to 16,000 chars), adds to vector store, returns content |
 | `grep_files` | `PathAndRegexInput` | Searches for a .NET regex pattern across all supported files; returns matching lines with context |
 | `find_file` | `PathAndRegexInput` | Lists files whose relative path matches a .NET regex |
 

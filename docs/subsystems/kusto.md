@@ -64,9 +64,14 @@ Registers under the `kusto` command group:
 
 | Command | Description |
 |---------|-------------|
-| `kusto > connections` | Manage KustoConfig entries (via UserManagedData CRUD) |
-| `kusto > query` | Run a saved query or ad-hoc KQL |
-| `kusto > results to rag` | Ingest the last query result into the vector store |
+| `Kusto > refresh` | Connect/reconnect to all User-Managed Kusto configs |
+| `Kusto > status` | Show currently connected config names |
+| `Kusto > schema` | Fetch and cache schema for a config; seed it into chat context |
+| `Kusto > list queries` | List saved queries for a selected config |
+| `Kusto > run saved` | Run a saved query; optionally export results as CSV or JSON |
+| `Kusto > save query` | Create or update a saved KQL query under a config |
+| `Kusto > run adhoc` | Run an ad-hoc KQL against a config; optionally save as a named query |
+| `Kusto > delete query` | Delete a saved query from a config |
 
 ## Dependencies
 
