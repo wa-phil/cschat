@@ -36,7 +36,7 @@ dotnet test --filter "DisplayName~JSONParser"
 | `Engine.cs` | Chat orchestration, RAG store management, file ingestion |
 | `Context.cs` | Chat message history and system prompt management |
 | `Config.cs` | Configuration model, `config.json` persistence |
-| `Commands.cs` | `ICommand` interface, `CommandManager`, menu navigation |
+| `Commands.cs` | `Command` class, `CommandManager`, menu navigation |
 | `Interfaces.cs` | Core interfaces: `IChatProvider`, `ITool`, `ISubsystem`, `IVectorStore`, `ITextChunker`, `IUi` |
 | `Log.cs` | Context-aware structured logging with retry support |
 | `Graph.cs` | Knowledge graph for advanced RAG |
@@ -58,11 +58,11 @@ dotnet test --filter "DisplayName~JSONParser"
 
 **Dependency Injection:** `Microsoft.Extensions.DependencyInjection` wires providers, tools, chunkers, and subsystems at startup.
 
-**Command Pattern:** All interactive commands implement `ICommand`. Commands are registered in `CommandManager` and navigate via the menu system (press Escape in terminal mode).
+**Command Pattern:** All interactive commands are instances of the `Command` class. Commands are registered in `CommandManager` and navigate via the menu system (press Escape in terminal mode).
 
 **Subsystem Plugin Architecture:** `ISubsystem` implementations are discovered via reflection on `[IsConfigurable]` attributes. `SubsystemManager` handles lifecycle (connect/disconnect) and config persistence. Adding a new subsystem means implementing `ISubsystem` in `/Subsytems/`.
 
-**User-Managed Data:** Classes marked `[UserManagedAttribute]` with `[UserField]`/`[UserKey]` properties automatically get CRUD commands and persist in `config.json`. Used for chat threads, saved queries, etc.
+**User-Managed Data:** Classes marked `[UserManaged]` with `[UserField]`/`[UserKey]` properties automatically get CRUD commands and persist in `config.json`. Used for chat threads, saved queries, etc.
 
 **Tool System:** `ITool` provides name/description/schema. Tools are registered in `ToolRegistry` and can be invoked by the model or by the `Planner` for autonomous execution (max 25 steps default).
 
