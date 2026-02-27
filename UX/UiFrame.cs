@@ -163,11 +163,12 @@ public sealed class UiFrameController
 
             if (action == ChatSurface.ChatInputAction.Submit)
             {
-                if (!string.IsNullOrWhiteSpace(_chatState.Text))
+                var submittedText = _chatState.Text;
+                if (!string.IsNullOrWhiteSpace(submittedText))
                 {
                     await ChatSurface.ProcessChatInputAsync(
                         _ui,
-                        _chatState.Text,
+                        submittedText,
                         _context,
                         async (ctx) =>
                         {
@@ -178,8 +179,12 @@ public sealed class UiFrameController
                         });
                 }
 
-                // reset input state after sending
-                _chatState = new ChatSurface.ChatInputState();
+                // Append submitted text to history (oldest-first), then reset input state
+                var newHistory = string.IsNullOrWhiteSpace(submittedText)
+                    ? _chatState.History
+                    : (IReadOnlyList<string>)_chatState.History.Append(submittedText).ToList();
+
+                _chatState = new ChatSurface.ChatInputState { History = newHistory };
                 await _ui.FocusAsync("input");
                 continue;
             }

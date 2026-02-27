@@ -118,4 +118,10 @@ public interface IUi
     /// <exception cref="KeyNotFoundException">Thrown when no such node exists</exception>
     /// <exception cref="InvalidOperationException">Thrown when node is not focusable</exception>
     Task FocusAsync(string key);
+
+    /// <summary>
+    /// Dispatches a named event to the handler prop of a UiNode (OnChange, OnEnter, OnClick, etc.).
+    /// Returns true if a handler was found and invoked without throwing; false otherwise.
+    /// </summary>
+    Task<bool> DispatchEventAsync(string nodeKey, string eventName, string? value = null);
 }

@@ -110,6 +110,49 @@ public abstract partial class CUiBase : IUi
         return PostFocusAsync(key);
     }
 
+    /// <summary>
+    /// Dispatches a named event to the UiHandler stored in the named node's props.
+    /// Looks up the node by key, maps eventName to a UiProperty (case-insensitive),
+    /// builds a UiEvent, and awaits the handler with try/catch+logging.
+    /// Returns true if a handler was found and invoked without throwing; false otherwise.
+    /// </summary>
+    public async Task<bool> DispatchEventAsync(string nodeKey, string eventName, string? value = null)
+    {
+        if (string.IsNullOrEmpty(nodeKey)) throw new ArgumentNullException(nameof(nodeKey));
+        if (string.IsNullOrEmpty(eventName)) throw new ArgumentNullException(nameof(eventName));
+
+        var node = _uiTree.FindNode(nodeKey);
+        if (node == null) return false;
+
+        if (!Enum.TryParse<UiProperty>(eventName, ignoreCase: true, out var prop)) return false;
+
+        if (!node.Props.TryGetValue(prop, out var handlerObj)) return false;
+        if (handlerObj is not UiHandler handler) return false;
+
+        try
+        {
+            var evt = new UiEvent(nodeKey, eventName, value, null);
+            await handler(evt);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Method(ctx => ctx.Failed($"DispatchEventAsync({nodeKey}, {eventName})", ex));
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Forces a full re-render of the current tree, recovering from any raw console output
+    /// that bypassed TermDom (e.g. ConfirmAsync, PickFilesAsync fallback paths).
+    /// No-op if no root is mounted.
+    /// </summary>
+    protected async Task ForceRefreshAsync()
+    {
+        if (_uiTree.Root != null)
+            await PostSetRootAsync(_uiTree.Root, _controlOptions ?? new UiControlOptions());
+    }
+
     // ========== Template Methods for Platform-Specific Implementation ==========
 
     /// <summary>
@@ -134,7 +177,12 @@ public abstract partial class CUiBase : IUi
         return await FormOverlay.ShowAsync(this, form);
     }
 
-    public abstract Task<bool> ConfirmAsync(string question, bool defaultAnswer = false);
+    /// <summary>
+    /// Displays a modal yes/no confirmation overlay using ConfirmOverlay.
+    /// Platform implementations may override (e.g. Photino uses a form-based confirm).
+    /// </summary>
+    public virtual Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
+        => ConfirmOverlay.ShowAsync(this, question, defaultAnswer);
     public abstract Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt);
     public abstract void RenderTable(Table table, string? title = null);
     public abstract void RenderReport(Report report);

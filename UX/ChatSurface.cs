@@ -21,8 +21,14 @@ public static class ChatSurface
     {
         public string Text { get; init; } = "";
         public int Caret { get; init; } = 0;
-    public string FocusKey { get; set; } = "input"; // "input" or UiFrameKeys.SendButton
+        public string FocusKey { get; set; } = "input"; // "input" or UiFrameKeys.SendButton
         public int Scroll { get; init; } = 0;
+
+        // Input history: list of previously submitted messages (oldest first).
+        // HistoryIndex = -1 means not in history-browsing mode.
+        // When browsing, index counts from the end: 0 = most recent.
+        public IReadOnlyList<string> History { get; init; } = Array.Empty<string>();
+        public int HistoryIndex { get; init; } = -1;
     }
 
     public enum ChatInputAction
@@ -138,9 +144,21 @@ public static class ChatSurface
             return (current, ChatInputAction.None);
         }
 
-        // If focus is on send button, Enter/Space triggers submit
+        // If focus is on send button, Enter/Space triggers submit (dispatches OnClick if wired)
         if (current.FocusKey == UiFrameKeys.SendButton && (key.Key == ConsoleKey.Enter || key.Key == ConsoleKey.Spacebar))
         {
+            var textToSubmit = current.Text;
+            bool clicked = await ui.DispatchEventAsync(UiFrameKeys.SendButton, "OnClick", textToSubmit);
+            if (clicked)
+            {
+                // Handler owns submission; manage history and clear input here
+                var newHistory = string.IsNullOrWhiteSpace(textToSubmit)
+                    ? current.History
+                    : (IReadOnlyList<string>)current.History.Append(textToSubmit).ToList();
+                current = current with { Text = "", Caret = 0, HistoryIndex = -1, History = newHistory };
+                await ui.PatchAsync(UpdateInput(""));
+                return (current, ChatInputAction.None);
+            }
             return (current, ChatInputAction.Submit);
         }
 
@@ -148,9 +166,21 @@ public static class ChatSurface
         if (current.FocusKey != "input")
             return (current, ChatInputAction.None);
 
-        // Submit (Enter without Shift)
+        // Submit (Enter without Shift); dispatches OnEnter if wired, else returns Submit for RunLoopAsync
         if (key.Key == ConsoleKey.Enter && (key.Modifiers & ConsoleModifiers.Shift) == 0)
         {
+            var textToSubmit = current.Text;
+            bool entered = await ui.DispatchEventAsync("input", "OnEnter", textToSubmit);
+            if (entered)
+            {
+                // Handler owns submission; manage history and clear input here
+                var newHistory = string.IsNullOrWhiteSpace(textToSubmit)
+                    ? current.History
+                    : (IReadOnlyList<string>)current.History.Append(textToSubmit).ToList();
+                current = current with { Text = "", Caret = 0, HistoryIndex = -1, History = newHistory };
+                await ui.PatchAsync(UpdateInput(""));
+                return (current, ChatInputAction.None);
+            }
             return (current, ChatInputAction.Submit);
         }
 
@@ -160,6 +190,7 @@ public static class ChatSurface
             var text = current.Text.Insert(current.Caret, "\n");
             current = current with { Text = text, Caret = current.Caret + 1 };
             await ui.PatchAsync(UpdateInput(current.Text));
+            await ui.DispatchEventAsync("input", "OnChange", current.Text);
             return (current, ChatInputAction.None);
         }
 
@@ -201,6 +232,7 @@ public static class ChatSurface
                 var text = current.Text.Remove(current.Caret - 1, 1);
                 current = current with { Text = text, Caret = current.Caret - 1 };
                 await ui.PatchAsync(UpdateInput(current.Text));
+                await ui.DispatchEventAsync("input", "OnChange", current.Text);
             }
             return (current, ChatInputAction.None);
         }
@@ -211,30 +243,73 @@ public static class ChatSurface
                 var text = current.Text.Remove(current.Caret, 1);
                 current = current with { Text = text };
                 await ui.PatchAsync(UpdateInput(current.Text));
+                await ui.DispatchEventAsync("input", "OnChange", current.Text);
             }
             return (current, ChatInputAction.None);
         }
 
-        // Printable character input
+        // Printable character input — also exits history-browsing mode
         if (!char.IsControl(key.KeyChar))
         {
             var text = current.Text.Insert(current.Caret, key.KeyChar.ToString());
-            current = current with { Text = text, Caret = current.Caret + 1 };
+            current = current with { Text = text, Caret = current.Caret + 1, HistoryIndex = -1 };
+            await ui.PatchAsync(UpdateInput(current.Text));
+            await ui.DispatchEventAsync("input", "OnChange", current.Text);
+            return (current, ChatInputAction.None);
+        }
+
+        // ---------------------------------------------------------------
+        // Input history: Up Arrow when input is empty recalls the last
+        // sent message.  While browsing, Up/Down move through entries.
+        // Ctrl+Up / Ctrl+Down always scroll the messages panel.
+        // ---------------------------------------------------------------
+
+        bool isCtrl = (key.Modifiers & ConsoleModifiers.Control) != 0;
+
+        // History navigation: Up Arrow (no Ctrl) while input is empty OR already browsing
+        if (key.Key == ConsoleKey.UpArrow && !isCtrl &&
+            (string.IsNullOrEmpty(current.Text) || current.HistoryIndex >= 0) &&
+            current.History.Count > 0)
+        {
+            int nextIdx = current.HistoryIndex < 0
+                ? 0                                              // start browsing from most recent
+                : Math.Min(current.HistoryIndex + 1, current.History.Count - 1);
+
+            // History is stored oldest-first; browsing from end
+            int histPos = current.History.Count - 1 - nextIdx;
+            var recalled = current.History[histPos];
+            current = current with { Text = recalled, Caret = recalled.Length, HistoryIndex = nextIdx };
             await ui.PatchAsync(UpdateInput(current.Text));
             return (current, ChatInputAction.None);
         }
 
-        // Scroll the messages panel with Up/Down/PageUp/PageDown/Home/End
-        // We model scroll as an offset from the bottom (0 = bottom, larger = scrolled up)
+        if (key.Key == ConsoleKey.DownArrow && !isCtrl && current.HistoryIndex >= 0)
+        {
+            if (current.HistoryIndex == 0)
+            {
+                // Return to empty input
+                current = current with { Text = "", Caret = 0, HistoryIndex = -1 };
+            }
+            else
+            {
+                int nextIdx = current.HistoryIndex - 1;
+                int histPos = current.History.Count - 1 - nextIdx;
+                var recalled = current.History[histPos];
+                current = current with { Text = recalled, Caret = recalled.Length, HistoryIndex = nextIdx };
+            }
+            await ui.PatchAsync(UpdateInput(current.Text));
+            return (current, ChatInputAction.None);
+        }
+
+        // Scroll the messages panel with Ctrl+Up/Ctrl+Down or PageUp/PageDown
+        // Plain Up/Down only scroll when NOT in history-browsing mode and input is non-empty
         int page = Math.Max(3, (int)Math.Round(ui.Height * 0.7));
         bool scrolled = false;
 
-        if (key.Key == ConsoleKey.UpArrow) { current = current with { Scroll = Math.Max(0, current.Scroll + 1) }; scrolled = true; }
-        else if (key.Key == ConsoleKey.DownArrow) { current = current with { Scroll = Math.Max(0, current.Scroll - 1) }; scrolled = true; }
-        else if (key.Key == ConsoleKey.PageUp) { current = current with { Scroll = Math.Max(0, current.Scroll + page) }; scrolled = true; }
+        if      (key.Key == ConsoleKey.UpArrow   && (isCtrl || current.HistoryIndex < 0)) { current = current with { Scroll = Math.Max(0, current.Scroll + 1) };    scrolled = true; }
+        else if (key.Key == ConsoleKey.DownArrow && (isCtrl || current.HistoryIndex < 0)) { current = current with { Scroll = Math.Max(0, current.Scroll - 1) };    scrolled = true; }
+        else if (key.Key == ConsoleKey.PageUp)   { current = current with { Scroll = Math.Max(0, current.Scroll + page) }; scrolled = true; }
         else if (key.Key == ConsoleKey.PageDown) { current = current with { Scroll = Math.Max(0, current.Scroll - page) }; scrolled = true; }
-        else if (key.Key == ConsoleKey.Home) { current = current with { Scroll = int.MaxValue }; scrolled = true; }
-        else if (key.Key == ConsoleKey.End) { current = current with { Scroll = 0 }; scrolled = true; }
 
         if (scrolled)
         {

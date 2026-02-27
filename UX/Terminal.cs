@@ -150,23 +150,11 @@ public class Terminal : CUiBase
         }
     }
 
-    public override Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
-    {
-        Write($"{question} {(defaultAnswer ? "[Y/n]" : "[y/N]")} ");
-        while (true)
-        {
-            var input = Console.ReadLine() ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(input)) return Task.FromResult(defaultAnswer);
-            input = input.Trim().ToLowerInvariant();
-            if (input == "y" || input == "yes") return Task.FromResult(true);
-            if (input == "n" || input == "no") return Task.FromResult(false);
-            Write("Please enter y or n: ");
-        }
-    }
-
     public override async Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt)
     {
         var path = await ReadPathWithAutocompleteAsync(false);
+        // Restore the TermDom frame after raw console I/O
+        await ForceRefreshAsync();
 
         if (string.IsNullOrWhiteSpace(path) || (opt.Mode != PathPickerMode.SaveFile && !System.IO.File.Exists(path)))
             return Array.Empty<string>();
@@ -379,11 +367,60 @@ public class Terminal : CUiBase
 
     public override void Clear() => Console.Clear();
 
-    public override Task RunAsync(Func<Task> appMain) => appMain();
+    public override async Task RunAsync(Func<Task> appMain)
+    {
+        using var cts = new System.Threading.CancellationTokenSource();
+        var resizeTask = WatchResizeAsync(cts.Token);
+        try
+        {
+            await appMain();
+        }
+        finally
+        {
+            cts.Cancel();
+            try { await resizeTask; } catch (OperationCanceledException) { }
+        }
+    }
+
+    /// <summary>
+    /// Background task that polls for terminal window size changes every 250ms.
+    /// On resize: invalidates _lastSnapshot and forces a full re-render so that
+    /// line positions stored in the snapshot remain consistent with the new dimensions.
+    /// </summary>
+    private async Task WatchResizeAsync(System.Threading.CancellationToken ct)
+    {
+        int lastW = Console.WindowWidth;
+        int lastH = Console.WindowHeight;
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(250, ct);
+                int w = Console.WindowWidth;
+                int h = Console.WindowHeight;
+                if (w != lastW || h != lastH)
+                {
+                    lastW = w;
+                    lastH = h;
+                    // Null the snapshot first so PostSetRootAsync does a full repaint
+                    _lastSnapshot = null;
+                    if (_uiTree.Root != null)
+                        await PostSetRootAsync(_uiTree.Root, _controlOptions ?? new UiControlOptions());
+                }
+            }
+            catch (OperationCanceledException) { break; }
+            catch { /* ignore transient errors */ }
+        }
+    }
 
     // Declarative control layer - override base implementations for Terminal-specific rendering
     private readonly TermDom _termDom = new();
     private TermSnapshot? _lastSnapshot;
+
+    // Pending-render counter for streaming patch debounce (~60fps coalescing).
+    // Incremented by each PostPatchAsync entry; decremented after the 16ms wait.
+    // Only the last decrementer (counter reaches 0) performs the actual render.
+    private int _pendingRender = 0;
 
     protected override Task PostSetRootAsync(UiNode root, UiControlOptions options) => Log.Method(ctx =>
     {
@@ -398,9 +435,18 @@ public class Terminal : CUiBase
         return Task.CompletedTask;
     });
 
-    protected override Task PostPatchAsync(UiPatch patch)
+    protected override async Task PostPatchAsync(UiPatch patch)
     {
-        // Use incremental rendering if enabled, otherwise fall back to full re-render
+        // Debounce: coalesce rapid patches (e.g. streaming tokens) at ~60fps.
+        // Tree mutations were already applied in CUiBase.PatchAsync before this call.
+        // We only gate the expensive TermDom render pass.
+        System.Threading.Interlocked.Increment(ref _pendingRender);
+        await Task.Delay(16);
+        int remaining = System.Threading.Interlocked.Decrement(ref _pendingRender);
+
+        // If more patches arrived during the wait, skip this render — last waiter wins.
+        if (remaining > 0) return;
+
         if (_uiTree.Root != null)
         {
             var newSnapshot = _termDom.Layout(_uiTree.Root, Width, Height, _uiTree.FocusedKey);
@@ -420,8 +466,6 @@ public class Terminal : CUiBase
 
             _lastSnapshot = newSnapshot;
         }
-
-        return Task.CompletedTask;
     }
 
     protected override Task PostFocusAsync(string key)

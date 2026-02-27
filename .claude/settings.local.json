@@ -4,7 +4,8 @@
       "Bash(dotnet:*)",
       "Bash(dir C:Codecschat:*)",
       "WebFetch(domain:github.com)",
-      "Bash(gh pr:*)"
+      "Bash(gh pr:*)",
+      "Bash(grep:*)"
     ]
   }
 }
