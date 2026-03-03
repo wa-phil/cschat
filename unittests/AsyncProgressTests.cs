@@ -18,10 +18,10 @@ namespace CSChat.Tests
         {
             public override Task<bool> ConfirmAsync(string question, bool defaultAnswer = false) => Task.FromResult(defaultAnswer);
             public override Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt) => Task.FromResult((IReadOnlyList<string>)Array.Empty<string>());
-            public override void RenderTable(Table table, string? title = null) { }
-            public override void RenderReport(Report report) { }
+            public override Task RenderTableAsync(Table table, string? title = null) => Task.CompletedTask;
+            public override Task RenderReportAsync(Report report) => Task.CompletedTask;
             public override IInputRouter GetInputRouter() => new TestInputRouter();
-            public override ConsoleKeyInfo ReadKey(bool intercept) => new ConsoleKeyInfo();
+            public override Task<ConsoleKeyInfo> ReadKeyAsync(bool intercept) => Task.FromResult(new ConsoleKeyInfo());
             public override int CursorTop => 0; public override int Width => 80; public override int Height => 25; public override bool KeyAvailable => false; public override bool IsOutputRedirected => true;
             public override void SetCursorPosition(int left, int top) { }
             private ConsoleColor _fg = ConsoleColor.Gray; private ConsoleColor _bg = ConsoleColor.Black;

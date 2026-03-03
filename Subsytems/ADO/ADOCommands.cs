@@ -178,7 +178,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                 if (ranked.Count == 0)
                                 {
                                     report.Paragraph("No items produced a ranking score.");
-                                    Program.ui.RenderReport(report);
+                                    await Program.ui.RenderReportAsync(report);
                                     return Command.Result.Success;
                                 }
 
@@ -209,7 +209,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                     sec.Paragraph("Signals legend per item is available in the action-plan view; this list is score-only.");
                                 });
 
-                                Program.ui.RenderReport(report);
+                                await Program.ui.RenderReportAsync(report);
                                 return Command.Result.Success;
                             }
                         },
@@ -285,7 +285,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                     });
                                 }
 
-                                Program.ui.RenderReport(report);
+                                await Program.ui.RenderReportAsync(report);
                                 return Command.Result.Success;
                             }
                         },
@@ -390,7 +390,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                     });
                                 }
 
-                                Program.ui.RenderReport(report);
+                                await Program.ui.RenderReportAsync(report);
                                 return Command.Result.Success;
                             }
                         }

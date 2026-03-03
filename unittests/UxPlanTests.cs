@@ -29,10 +29,10 @@ public class UxPlanTests
 
         public override Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt) =>
             Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
-        public override void RenderTable(Table table, string? title = null) { }
-        public override void RenderReport(Report report) { }
+        public override Task RenderTableAsync(Table table, string? title = null) => Task.CompletedTask;
+        public override Task RenderReportAsync(Report report) => Task.CompletedTask;
         public override IInputRouter GetInputRouter() => NullInputRouter.Instance;
-        public override ConsoleKeyInfo ReadKey(bool intercept) => default;
+        public override Task<ConsoleKeyInfo> ReadKeyAsync(bool intercept) => Task.FromResult(default(ConsoleKeyInfo));
         public override int CursorTop => 0;
         public override int Width => 80;
         public override int Height => 24;

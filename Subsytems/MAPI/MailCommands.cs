@@ -446,7 +446,7 @@ If none of the above fits, assign 'Other'.";
             Program.ui.WriteLine("[↑/↓/PgUp/PgDn/Home/End to scroll]  [ESC: menu]");
             Program.ui.ForegroundColor = ConsoleColor.Gray;
 
-            var key = Program.ui.ReadKey(true);
+            var key = await Program.ui.ReadKeyAsync(true);
             if (key.Key == ConsoleKey.Escape)
             {
                 var choices = new List<string> { "reply", "reply-all", "delete", "move" };

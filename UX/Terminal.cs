@@ -26,7 +26,7 @@ public class Terminal : CUiBase
         var buffer = new List<char>();
         while (true)
         {
-            var key = ReadKey(intercept: true);
+            var key = Console.ReadKey(intercept: true);
 
             if (key.Key == ConsoleKey.Enter)
             {
@@ -84,7 +84,7 @@ public class Terminal : CUiBase
         return _inputRouter;
     }
 
-    public override void RenderTable(Table table, string? title = null)
+    public override async Task RenderTableAsync(Table table, string? title = null)
     {
         int maxWidth = Width - 1;
         var hs = table.Headers.ToList();
@@ -179,19 +179,20 @@ public class Terminal : CUiBase
         var text = sb.ToString().TrimEnd();
         var message = new ChatMessage { Role = Roles.Tool, Content = text };
         Program.Context.AddToolMessage(text);
-        _ = RenderChatMessageAsync(message);
+        await RenderChatMessageAsync(message);
     }
 
-    public override void RenderReport(Report report)
+    public override async Task RenderReportAsync(Report report)
     {
         var width = Math.Max(20, Width - 1);
         var text = report?.ToPlainText(width) ?? "";
         var msg = new ChatMessage { Role = Roles.Tool, Content = text };
         Program.Context.AddToolMessage(text);
-        _ = RenderChatMessageAsync(msg);
+        await RenderChatMessageAsync(msg);
     }
 
-    public override ConsoleKeyInfo ReadKey(bool intercept) => Console.ReadKey(intercept);
+    public override Task<ConsoleKeyInfo> ReadKeyAsync(bool intercept)
+        => Task.FromResult(Console.ReadKey(intercept));
 
     public override int CursorTop { get => Console.CursorTop; }
 

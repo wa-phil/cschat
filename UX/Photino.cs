@@ -429,7 +429,7 @@ public sealed class PhotinoUi : CUiBase
 		return _inputRouter;
 	}
 
-	public override void RenderTable(Table table, string? title = null)
+	public override async Task RenderTableAsync(Table table, string? title = null)
 	{
 		var sb = new StringBuilder();
 
@@ -455,23 +455,23 @@ public sealed class PhotinoUi : CUiBase
 		if (!string.IsNullOrWhiteSpace(title)) md = $"### {Escape(title)}\n\n" + md;
 		var message = new ChatMessage { Role = Roles.Tool, Content = md };
 		Program.Context.AddToolMessage(md);
-		_ = RenderChatMessageAsync(message);
+		await RenderChatMessageAsync(message);
 		return;
 
 		string Escape(string s) => s?.Replace("\n", " ").Replace("\r", " ").Replace("|", "\\|") ?? string.Empty;
 	}
 
-	public override void RenderReport(Report report)
+	public override async Task RenderReportAsync(Report report)
 	{
 		// Photino renders as markdown tool bubble
 		var md = report?.ToMarkdown() ?? "";
 		var message = new ChatMessage { Role = Roles.Tool, Content = md };
 		Program.Context.AddToolMessage(md);
-		_ = RenderChatMessageAsync(message);
+		await RenderChatMessageAsync(message);
 	}
 
-	public override ConsoleKeyInfo ReadKey(bool intercept)
-			=> ReadKeyInternalAsync(intercept).GetAwaiter().GetResult();
+	public override Task<ConsoleKeyInfo> ReadKeyAsync(bool intercept)
+		=> ReadKeyInternalAsync(intercept);
 
 	internal Task<ConsoleKeyInfo> ReadKeyInternalAsync(bool intercept)
 	{

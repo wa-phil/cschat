@@ -126,23 +126,24 @@ public interface IUi
     Task<bool> ConfirmAsync(string question, bool defaultAnswer = false);
     Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt);
 
-    void RenderTable(Table table, string? title = null);
-    void RenderReport(Report report);
+    Task RenderTableAsync(Table table, string? title = null);
+    Task RenderReportAsync(Report report);
     IRealtimeWriter BeginRealtime(string title);
 
     // Progress
-    string StartProgress(string title, CancellationTokenSource cts);
-    void UpdateProgress(string id, ProgressSnapshot snapshot);
-    void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown);
+    Task<string> StartProgressAsync(string title, CancellationTokenSource cts);
+    Task UpdateProgressAsync(string id, ProgressSnapshot snapshot);
+    Task CompleteProgressAsync(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown);
 
     // Input
     IInputRouter GetInputRouter();
-    string? RenderMenu(string header, List<string> choices, int selected = 0);
-    ConsoleKeyInfo ReadKey(bool intercept);
+    bool TryCancelActiveProgress();
+    Task<string?> RenderMenuAsync(string header, List<string> choices, int selected = 0);
+    Task<ConsoleKeyInfo> ReadKeyAsync(bool intercept);
 
     // Chat output
-    void RenderChatMessage(ChatMessage message);
-    void RenderChatHistory(IEnumerable<ChatMessage> messages);
+    Task RenderChatMessageAsync(ChatMessage message);
+    Task RenderChatHistoryAsync(IEnumerable<ChatMessage> messages);
 
     // Declarative control layer
     Task SetRootAsync(UiNode root, UiControlOptions? options = null);
@@ -187,7 +188,7 @@ Returned by `BeginRealtime(title)`. Each call to `Write`/`WriteLine` inserts or 
 
 - **Declarative control** — `SetRootAsync`, `PatchAsync`, `ReconcileAsync`, `FocusAsync`, `DispatchEventAsync` all operate on `_uiTree` then delegate to platform template methods.
 - **Overlay helpers** — `ShowFormAsync` → `FormOverlay.ShowAsync`, `ConfirmAsync` → `ConfirmOverlay.ShowAsync`.
-- **Progress management** — `StartProgress`/`UpdateProgress`/`CompleteProgress` insert, reconcile, and remove ephemeral progress nodes in the messages panel.
+- **Progress management** — `StartProgressAsync`/`UpdateProgressAsync`/`CompleteProgressAsync` insert, reconcile, and remove ephemeral progress nodes in the messages panel.
 - **Realtime output** — `BeginRealtime` returns a `RealtimeWriterImpl` that patches ephemeral message nodes on each write.
 
 **Template methods** platforms must override:
@@ -213,7 +214,7 @@ User keystroke
            → ExecuteCommand → Engine / Context
   → [other] ChatSurface.HandleKeyAsync → ChatInputState update
   → [Enter] ProcessChatInputAsync → Engine.PostChatAsync → LLM stream
-  → Response tokens → Context → RenderChatMessage
+  → Response tokens → Context → RenderChatMessageAsync
   → PatchAsync → TermDom.Layout → Diff → Apply (ANSI)
 ```
 
@@ -221,7 +222,7 @@ User keystroke
 
 ```
 Engine.PostChatAsync yields ChatMessage
-  → CUiBase.RenderChatMessage
+  → CUiBase.RenderChatMessageAsync
   → ChatSurface.AppendMessage → UiPatch
   → CUiBase.PatchAsync (atomically updates UiNodeTree)
   → Terminal.PostPatchAsync (debounces ≤16 ms)
@@ -413,7 +414,7 @@ var (results, failures, canceled) =
             });
 ```
 
-A background task pumps `UpdateProgress` snapshots to the UI at ~100 ms intervals. On completion, a Markdown summary is persisted to the chat context via `Context.AddToolMessage()` and emitted via `CompleteProgress`.
+A background task pumps `UpdateProgressAsync` snapshots to the UI at ~100 ms intervals. On completion, a Markdown summary is persisted to the chat context via `Context.AddToolMessage()` and emitted via `CompleteProgressAsync`.
 
 `ProgressSnapshot` captures: running/queued/completed/failed/canceled counts, per-item state and percentages, optional ETA hint.
 
@@ -444,5 +445,5 @@ Platform-native file picker:
 
 ## Known Issues
 
-### Overlay stack fragility
-`UiFrameBuilder.PopOverlay(key)` requires callers to know the overlay's string key. Each overlay component hard-codes its key (e.g., `"overlay-menu"`), creating implicit coupling. Stacked overlays (two menus open simultaneously) would collide on key.
+### Overlay stack fragility *(accepted risk)*
+`UiFrameBuilder.PopOverlay(key)` requires callers to know the overlay's string key. Each overlay component hard-codes its key (e.g., `"overlay-menu"`), creating implicit coupling. In theory, two concurrent overlays of the same kind would collide on key — but this scenario is not currently possible: all overlay entry points are sequential command actions, so at most one overlay of each kind can be open at a time.

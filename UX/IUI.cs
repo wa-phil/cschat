@@ -36,8 +36,8 @@ public interface IUi
     // launches current platform file picker with given options, returns empty list if cancelled
     Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt);
 
-    void RenderTable(Table table, string? title = null);
-    void RenderReport(Report report);
+    Task RenderTableAsync(Table table, string? title = null);
+    Task RenderReportAsync(Report report);
 
     IRealtimeWriter BeginRealtime(string title);
 
@@ -54,7 +54,7 @@ public interface IUi
     bool TryCancelActiveProgress();
 
     Task<string?> RenderMenuAsync(string header, List<string> choices, int selected = 0);
-    ConsoleKeyInfo ReadKey(bool intercept);
+    Task<ConsoleKeyInfo> ReadKeyAsync(bool intercept);
 
     // output
     Task RenderChatMessageAsync(ChatMessage message);

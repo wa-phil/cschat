@@ -263,7 +263,7 @@ public static class Log
         [Log.Level.Error]       = "ERRO"
     };
 
-    public static void GenerateTable()
+    public static async Task GenerateTableAsync()
     {
         // Build a table view of the log instead of colorized streaming output.
         // Columns: Timestamp, Verbosity, Succeeded, ThreadId, Source, Method, Error, Data
@@ -333,7 +333,7 @@ public static class Log
                              .FirstOrDefault(h => !string.IsNullOrEmpty(h)) ?? BuildInfo.GitCommitHash;
 
         Program.ui.ForegroundColor = ConsoleColor.Blue;
-        Program.ui.RenderTable(table, $"GitHash: {gitHash} Log Entries [{rows.Count}]");
+        await Program.ui.RenderTableAsync(table, $"GitHash: {gitHash} Log Entries [{rows.Count}]");
     }
 
     public static void Initialize()

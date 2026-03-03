@@ -22,10 +22,10 @@ public partial class CommandManager
                     new Command
                     {
                         Name = "show", Description = () => "Show the contents of the log",
-                        Action = () =>
+                        Action = async () =>
                         {
-                            Log.GenerateTable();
-                            return Task.FromResult(Command.Result.Success);
+                            await Log.GenerateTableAsync();
+                            return Command.Result.Success;
                         }
                     },
                     new Command

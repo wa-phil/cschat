@@ -92,7 +92,7 @@ public static class S360Commands
 
                         // Persist and render
                         await ContextManager.AddContent(report.ToMarkdown(), $"s360/{prof.Name}/triage");
-                        Program.ui.RenderReport(report);
+                        await Program.ui.RenderReportAsync(report);
 
                         realtime.WriteLine("Triage complete.");
                         return Command.Result.Success;

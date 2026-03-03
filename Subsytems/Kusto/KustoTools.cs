@@ -181,7 +181,7 @@ public sealed class RunSavedKustoQueryTool : ITool
         var table = await kusto.QueryAsync(cfg, q.Kql);
 
         // Render table for console/chat
-        Program.ui.RenderTable(table, $"Results: {cfg.Name} / {q.Name}");
+        await Program.ui.RenderTableAsync(table, $"Results: {cfg.Name} / {q.Name}");
 
         // Optional export
         if (!string.IsNullOrWhiteSpace(p.Export))
@@ -198,7 +198,7 @@ public sealed class RunSavedKustoQueryTool : ITool
 
         // Seed a snippet of the results into context for follow-on prompts ("summarize", "triage", etc.)
         await ContextManager.AddContent(table.ToCsv(), $"kusto/{cfg.Name}/results/{q.Name}");
-        Program.ui.RenderTable(table, $"Results: {cfg.Name} / {q.Name}");
+        await Program.ui.RenderTableAsync(table, $"Results: {cfg.Name} / {q.Name}");
         return ToolResult.Success($"{q.Name}: returned {table.Rows.Count} rows", ctx);
     }
 }

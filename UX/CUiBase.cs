@@ -184,8 +184,8 @@ public abstract partial class CUiBase : IUi
     public virtual Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
         => ConfirmOverlay.ShowAsync(this, question, defaultAnswer);
     public abstract Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt);
-    public abstract void RenderTable(Table table, string? title = null);
-    public abstract void RenderReport(Report report);
+    public abstract Task RenderTableAsync(Table table, string? title = null);
+    public abstract Task RenderReportAsync(Report report);
     public virtual IRealtimeWriter BeginRealtime(string title) => Log.Method(ctx =>
     {
         ctx.OnlyEmitOnFailure();
@@ -307,7 +307,7 @@ public abstract partial class CUiBase : IUi
     public Task<string?> RenderMenuAsync(string header, List<string> choices, int selected = 0)
         => MenuOverlay.ShowAsync(this, header, choices, selected);
     
-    public abstract ConsoleKeyInfo ReadKey(bool intercept);
+    public abstract Task<ConsoleKeyInfo> ReadKeyAsync(bool intercept);
     public async Task RenderChatMessageAsync(ChatMessage message)
     {
         var currentMessages = Program.Context?.Messages(InluceSystemMessage: false).ToList() ?? new List<ChatMessage>();

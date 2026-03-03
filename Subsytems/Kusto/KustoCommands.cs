@@ -111,7 +111,7 @@ public static class KustoCommands
                         if (q is null) return Command.Result.Failed;
 
                         var table = await kusto.QueryAsync(cfg, q.Kql);
-                        Program.ui.RenderTable(table, $"Results: {cfg.Name} / {q.Name}");
+                        await Program.ui.RenderTableAsync(table, $"Results: {cfg.Name} / {q.Name}");
 
                         var exportForm = UiForm.Create("Export results", new ExportModel { Format = "none", Path = "results.txt" });
                         exportForm.AddChoice<ExportModel>("Format", new[]{"none","csv","json"}, m => m.Format, (m,v)=> m.Format = v);
@@ -139,7 +139,7 @@ public static class KustoCommands
                         }
 
                         Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-                        Program.ui.RenderTable(table, $"Results: {cfg.Name} / {q.Name}");
+                        await Program.ui.RenderTableAsync(table, $"Results: {cfg.Name} / {q.Name}");
                         await ContextManager.AddContent(table.ToCsv(), $"kusto/{cfg.Name}/results/{q.Name}");
                         ctx.Succeeded(exportSucceed);
                         return Command.Result.Success;
@@ -199,7 +199,7 @@ public static class KustoCommands
                         var kql = ((KqlInputModel)adhocForm.Model!).Kql;
 
                         var table = await kusto.QueryAsync(cfg, kql);
-                        Program.ui.RenderTable(table, $"Results: {cfg.Name} / __adhoc__");
+                        await Program.ui.RenderTableAsync(table, $"Results: {cfg.Name} / __adhoc__");
                         await ContextManager.AddContent(table.ToCsv(), $"kusto/{cfg.Name}/results/__adhoc__");
 
                         if (await Program.ui.ConfirmAsync("Save this as a named query?", false))
