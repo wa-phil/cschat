@@ -9,147 +9,6 @@ public class Terminal : CUiBase
 {
     private TerminalInputRouter? _inputRouter;
 
-    public sealed class Progress
-    {
-        public enum ProgressState { Queued, Running, Failed, Canceled, Completed }
-
-        private static void WriteFullWidth(string s, ConsoleColor fg)
-        {
-            int width = Math.Max(10, Program.ui.Width - 1);
-            Program.ui.ForegroundColor = fg;
-            if (s.Length > width) s = s.Substring(0, width);
-            if (s.Length < width) s = s.PadRight(width);
-            Program.ui.WriteLine(s);
-            Program.ui.ResetColor();
-        }
-
-        private static string CenterOrTrim(string s, int innerWidth)
-        {
-            if (innerWidth <= 0) return string.Empty;
-            if (s.Length > innerWidth) s = s.Substring(0, Math.Max(0, innerWidth - 3)) + "...";
-            int pad = innerWidth - s.Length;
-            int left = pad / 2;
-            int right = pad - left;
-            return new string(' ', left) + s + new string(' ', right);
-        }
-
-        private static string ComposeLeftRight(string left, string right, int width)
-        {
-            // Ensure the right label fits; truncate left with ellipsis if needed
-            int rightLen = right.Length;
-            int availLeft = Math.Max(0, width - rightLen - 1); // at least one space gap
-            if (left.Length > availLeft)
-            {
-                // leave room for ellipsis
-                int keep = Math.Max(0, availLeft - 3);
-                left = (keep > 0 ? left.Substring(0, keep) : "") + (availLeft > 0 ? "..." : "");
-            }
-            int pad = Math.Max(1, width - left.Length - rightLen);
-            return left + new string(' ', pad) + right;
-        }
-
-        public static void DrawBoxedHeader(string text)
-        {
-            int width = Math.Max(10, Program.ui.Width - 1);
-            Program.ui.SetCursorPosition(0, 0);
-
-            // Top border
-            var top = "┌" + new string('─', Math.Max(0, width - 2)) + "┐";
-            WriteFullWidth(top, ConsoleColor.DarkGray);
-
-            // Middle line: │  title  │  (borders dark gray, title green)
-            int inner = Math.Max(0, width - 2);
-            var centered = CenterOrTrim(text, inner);
-
-            // left border
-            Program.ui.ForegroundColor = ConsoleColor.DarkGray;
-            Program.ui.Write("│");
-            // title area
-            Program.ui.ForegroundColor = ConsoleColor.Green;
-            if (centered.Length < inner) centered = centered.PadRight(inner);
-            if (centered.Length > inner) centered = centered.Substring(0, inner);
-            Program.ui.Write(centered);
-            // right border
-            Program.ui.ForegroundColor = ConsoleColor.DarkGray;
-            Program.ui.WriteLine("│");
-            Program.ui.ResetColor();
-
-            // Separator
-            var sep = "├" + new string('─', Math.Max(0, width - 2)) + "┤";
-            WriteFullWidth(sep, ConsoleColor.DarkGray);
-        }
-
-        public static void DrawProgressRow(string name, double percent, ProgressState state, string? note, int done, int total)
-        {
-            int width = Math.Max(10, Program.ui.Width - 1);
-            int row = Program.ui.CursorTop;
-
-            var glyph = state switch
-            {
-                ProgressState.Running => "▶",
-                ProgressState.Completed => "✓",
-                ProgressState.Failed => "✖",
-                ProgressState.Canceled => "■",
-                _ => "•"
-            };
-
-            string left = $"{glyph} {name}";
-            string right = total > 0
-                ? $"{percent,6:0.0}% ({done}/{total})"
-                : $"{percent,6:0.0}%";
-
-            string line = ComposeLeftRight(left, right, width);
-
-            var barBack = state switch
-            {
-                ProgressState.Failed => ConsoleColor.DarkRed,
-                ProgressState.Canceled => ConsoleColor.DarkGray,
-                ProgressState.Completed => ConsoleColor.DarkGray,
-                ProgressState.Running => ConsoleColor.DarkGray,
-                _ => ConsoleColor.DarkBlue,
-            };
-
-            var fore = state switch
-            {
-                ProgressState.Failed => ConsoleColor.Yellow,
-                ProgressState.Canceled => ConsoleColor.Gray,
-                _ => ConsoleColor.Gray
-            };
-
-            int fill = (int)Math.Round(Math.Clamp(percent, 0, 100) / 100.0 * width);
-
-            // Draw the two segments so the background fill remains visible "behind" the text.
-            Program.ui.SetCursorPosition(0, row);
-
-            // segment 1 (within fill)
-            var seg1 = line.Substring(0, Math.Min(fill, line.Length));
-            Program.ui.BackgroundColor = barBack;
-            Program.ui.ForegroundColor = fore;
-            Program.ui.Write(seg1);
-
-            // segment 2 (rest of line)
-            var seg2Len = Math.Max(0, width - seg1.Length);
-            var seg2 = seg1.Length < line.Length ? line.Substring(seg1.Length) : new string(' ', seg2Len);
-            Program.ui.BackgroundColor = ConsoleColor.Black;
-            Program.ui.ForegroundColor = fore;
-            Program.ui.Write(seg2.PadRight(seg2Len));
-
-            Program.ui.ResetColor();
-
-            // Move to next line for the caller
-            Program.ui.SetCursorPosition(0, row + 1);
-        }
-
-        public static void DrawFooterStats(int running, int queued, int completed, int failed, int canceled, string hint)
-        {
-            int width = Math.Max(10, Program.ui.Width - 1);
-
-            string stats = $"in-flight: {running}   queued: {queued}   completed: {completed}   failed: {failed}   canceled: {canceled}";
-            WriteFullWidth(stats, ConsoleColor.DarkGray);
-            WriteFullWidth(hint, ConsoleColor.DarkGray);
-        }
-    }
-
     public override async Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt)
     {
         var path = await ReadPathWithAutocompleteAsync(false);
@@ -162,11 +21,8 @@ public class Terminal : CUiBase
         return new List<string> { path };
     }
 
-    // Progress is now implemented in CUiBase using UiNodes
-
-    private async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
+    private Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory)
     {
-        await Task.CompletedTask; // Simulate asynchronous behavior
         var buffer = new List<char>();
         while (true)
         {
@@ -216,7 +72,7 @@ public class Terminal : CUiBase
         }
 
         var result = new string(buffer.ToArray());
-        return string.IsNullOrWhiteSpace(result) ? null : Path.GetFullPath(result);
+        return Task.FromResult<string?>(string.IsNullOrWhiteSpace(result) ? null : Path.GetFullPath(result));
     }
 
     public override IInputRouter GetInputRouter()
@@ -501,7 +357,12 @@ public class Terminal : CUiBase
         // Lightweight drawing context provided to per-kind renderers
         private readonly struct TermCtx
         {
-            public TermCtx(int indent, int width, int screenHeight, string? focusedKey, List<TermLine> lines, Dictionary<string, TermRegion> keyMap)
+            // Full layout delegate: writes child into caller-supplied buffers (used by dock-bottom/grid).
+            private readonly Action<UiNode, int, int, List<TermLine>, Dictionary<string, TermRegion>> _layoutInto;
+
+            public TermCtx(int indent, int width, int screenHeight, string? focusedKey,
+                List<TermLine> lines, Dictionary<string, TermRegion> keyMap,
+                Action<UiNode, int, int, List<TermLine>, Dictionary<string, TermRegion>> layoutInto)
             {
                 Indent = indent;
                 Width = width;
@@ -509,6 +370,7 @@ public class Terminal : CUiBase
                 FocusedKey = focusedKey;
                 Lines = lines;
                 KeyMap = keyMap;
+                _layoutInto = layoutInto;
             }
             public int Indent { get; }
             public int Width { get; }
@@ -516,16 +378,26 @@ public class Terminal : CUiBase
             public string? FocusedKey { get; }
             public List<TermLine> Lines { get; }
             public Dictionary<string, TermRegion> KeyMap { get; }
+            /// <summary>Recurse into a child, writing to this context's shared buffers.</summary>
+            public void LayoutChild(UiNode child, int childIndent, int childWidth)
+                => _layoutInto(child, childIndent, childWidth, Lines, KeyMap);
+            /// <summary>Recurse into a child, writing to caller-supplied buffers.</summary>
+            public void LayoutInto(UiNode child, int childIndent, int childWidth,
+                List<TermLine> ls, Dictionary<string, TermRegion> km)
+                => _layoutInto(child, childIndent, childWidth, ls, km);
             public string IndentStr => new string(' ', Indent * 2);
             public bool IsFocused(UiNode n) => n.Key == FocusedKey;
+            /// <summary>Returns a copy of this context with different indent and width (same buffers).</summary>
+            public TermCtx WithBounds(int newIndent, int newWidth) =>
+                new TermCtx(newIndent, newWidth, ScreenHeight, FocusedKey, Lines, KeyMap, _layoutInto);
         }
 
-        // UiKind -> draw function registry (terminal-side KINDS)
-        private readonly Dictionary<UiKind, Action<TermCtx, UiNode>> _draw;
+        // UiKind -> render function registry (all kinds, leaf and container)
+        private readonly Dictionary<UiKind, Action<TermCtx, UiNode>> _render;
 
         public TermDom()
         {
-            _draw = new()
+            _render = new()
             {
                 // Label
                 [UiKind.Label] = (ctx, node) =>
@@ -570,12 +442,12 @@ public class Terminal : CUiBase
                 },
 
                 // TextBox/TextArea
-                [UiKind.TextBox] = (ctx, node) => DrawTextInput(ctx, node),
-                [UiKind.TextArea] = (ctx, node) => DrawTextInput(ctx, node),
+                [UiKind.TextBox]  = DrawTextInput,
+                [UiKind.TextArea] = DrawTextInput,
 
                 // CheckBox/Toggle
-                [UiKind.CheckBox] = (ctx, node) => DrawCheckLike(ctx, node),
-                [UiKind.Toggle] = (ctx, node) => DrawCheckLike(ctx, node),
+                [UiKind.CheckBox] = DrawCheckLike,
+                [UiKind.Toggle]   = DrawCheckLike,
 
                 // ListView (includes dropdown role)
                 [UiKind.ListView] = (ctx, node) =>
@@ -625,19 +497,7 @@ public class Terminal : CUiBase
                     bool showScrollbar = count > visibleCount;
                     int contentRight = showScrollbar ? (ctx.Width - 1) : ctx.Width;
 
-                    // Scrollbar metrics
-                    int trackHeight = visibleCount;
-                    int thumbHeight = 1;
-                    int thumbTop = 0;
-                    if (showScrollbar)
-                    {
-                        thumbHeight = Math.Max(1, (int)Math.Round((double)trackHeight * visibleCount / Math.Max(1, count)));
-                        thumbHeight = Math.Min(thumbHeight, trackHeight);
-                        int maxThumbTop = Math.Max(0, trackHeight - thumbHeight);
-                        int scrollRange = Math.Max(1, count - visibleCount);
-                        thumbTop = (int)Math.Round(offset / (double)scrollRange * maxThumbTop);
-                        thumbTop = Math.Clamp(thumbTop, 0, maxThumbTop);
-                    }
+                    var scroll = ComputeScrollMetrics(count, visibleCount, offset);
 
                     for (int j = 0; j < visibleCount; j++)
                     {
@@ -658,8 +518,7 @@ public class Terminal : CUiBase
 
                         if (showScrollbar)
                         {
-                            char sb = (j >= thumbTop && j < thumbTop + thumbHeight) ? '█' : '│';
-                            rowText += sb;
+                            rowText += ScrollbarGlyph(j, scroll);
                         }
 
                         rowText = EnsureWidth(rowText, ctx.Width);
@@ -682,52 +541,41 @@ public class Terminal : CUiBase
                         ctx.Lines.Add(new TermLine(string.Empty, ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
                 },
 
-                // Accordion
-                [UiKind.Accordion] = (ctx, node) =>
-                {
-                    var title = node.Props.TryGetValue(UiProperty.Title, out var t2) ? t2?.ToString() : "Accordion";
-                    var isExpanded = node.Props.TryGetValue(UiProperty.Expanded, out var exp) && exp is bool e && e;
-                    var accFg = ctx.IsFocused(node) ? ConsoleColor.Yellow : ConsoleColor.Cyan;
-                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{(isExpanded ? "▼" : "▶")} {title}", accFg, ConsoleColor.Black, TextAlign.Left));
-                    if (isExpanded)
-                    {
-                        foreach (var child in node.Children)
-                        {
-                            LayoutNode(child, ctx.Indent + 1, ctx.Width, ctx.ScreenHeight, ctx.FocusedKey, ctx.Lines, ctx.KeyMap);
-                        }
-                    }
-                },
+                // Accordion / containers
+                [UiKind.Accordion] = RenderAccordion,
+                [UiKind.Column]    = RenderColumn,
+                [UiKind.Row]       = RenderRow,
             };
 
-            // Local helpers used by registry entries
-            static void DrawTextInput(TermCtx ctx, UiNode node)
-            {
-                var isFocused = ctx.IsFocused(node);
-                var value = node.Props.TryGetValue(UiProperty.Text, out var v) ? v?.ToString() : (node.Props.TryGetValue(UiProperty.Value, out var v2) ? v2?.ToString() : "");
-                var placeholder = node.Props.TryGetValue(UiProperty.Placeholder, out var p) ? p?.ToString() : "";
-                var displayText = string.IsNullOrEmpty(value) ? placeholder : value;
-                var textFg = isFocused ? ConsoleColor.Black : (string.IsNullOrEmpty(value) ? ConsoleColor.DarkGray : ResolveFg(node, ConsoleColor.White));
-                var textBg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
-                int avail = Math.Max(1, ctx.Width - ctx.Indent * 2);
-                if (string.IsNullOrEmpty(displayText)) displayText = "";
-                var wrapped = WrapText(displayText, avail);
-                foreach (var wline in wrapped)
-                    ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{wline}", textFg, textBg, TextAlign.Left));
-            }
-
-            static void DrawCheckLike(TermCtx ctx, UiNode node)
-            {
-                var isFocused = ctx.IsFocused(node);
-                var isChecked = node.Props.TryGetValue(UiProperty.Checked, out var chk) && chk is bool c && c;
-                var checkbox = isChecked ? "[✓]" : "[ ]";
-                var cbLabel = node.Props.TryGetValue(UiProperty.Text, out var cbt) ? cbt?.ToString() : "";
-                var cbFg = isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.Gray);
-                var cbBg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
-                ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{checkbox} {cbLabel}", cbFg, cbBg, TextAlign.Left));
-            }
         }
 
-        // Shared helpers (moved to class scope so draw registry can use them)
+        private static void DrawTextInput(TermCtx ctx, UiNode node)
+        {
+            var isFocused = ctx.IsFocused(node);
+            var value = node.Props.TryGetValue(UiProperty.Text, out var v) ? v?.ToString() : (node.Props.TryGetValue(UiProperty.Value, out var v2) ? v2?.ToString() : "");
+            var placeholder = node.Props.TryGetValue(UiProperty.Placeholder, out var p) ? p?.ToString() : "";
+            var displayText = string.IsNullOrEmpty(value) ? placeholder : value;
+            var textFg = isFocused ? ConsoleColor.Black : (string.IsNullOrEmpty(value) ? ConsoleColor.DarkGray : ResolveFg(node, ConsoleColor.White));
+            var textBg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
+            int avail = Math.Max(1, ctx.Width - ctx.Indent * 2);
+            if (string.IsNullOrEmpty(displayText)) displayText = "";
+            var wrapped = WrapText(displayText, avail);
+            foreach (var wline in wrapped)
+                ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{wline}", textFg, textBg, TextAlign.Left));
+        }
+
+        private static void DrawCheckLike(TermCtx ctx, UiNode node)
+        {
+            var isFocused = ctx.IsFocused(node);
+            var isChecked = node.Props.TryGetValue(UiProperty.Checked, out var chk) && chk is bool c && c;
+            var checkbox = isChecked ? "[✓]" : "[ ]";
+            var cbLabel = node.Props.TryGetValue(UiProperty.Text, out var cbt) ? cbt?.ToString() : "";
+            var cbFg = isFocused ? ConsoleColor.Black : ResolveFg(node, ConsoleColor.Gray);
+            var cbBg = isFocused ? ConsoleColor.White : ResolveBg(node, ConsoleColor.Black);
+            ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{checkbox} {cbLabel}", cbFg, cbBg, TextAlign.Left));
+        }
+
+        // Shared helpers
         private static bool TryParseColor(object? val, out ConsoleColor color)
         {
             if (val is ConsoleColor cc) { color = cc; return true; }
@@ -959,336 +807,12 @@ public class Terminal : CUiBase
         private void LayoutNode(UiNode node, int indent, int width, int screenHeight, string? focusedKey, List<TermLine> lines, Dictionary<string, TermRegion> keyMap)
         {
             var startLine = lines.Count;
-            var indentStr = new string(' ', indent * 2);
-            var isFocused = node.Key == focusedKey;
 
-            // Early dispatch to registry for leaf/simple controls; otherwise fall back to container/layout handling
-            var ctx = new TermCtx(indent, width, screenHeight, focusedKey, lines, keyMap);
-            if (_draw.TryGetValue(node.Kind, out var renderer))
+            var ctx = new TermCtx(indent, width, screenHeight, focusedKey, lines, keyMap,
+                (child, ci, cw, ls, km) => LayoutNode(child, ci, cw, screenHeight, focusedKey, ls, km));
+            if (_render.TryGetValue(node.Kind, out var renderer))
             {
                 renderer(ctx, node);
-            }
-            else
-            {
-                switch (node.Kind)
-                {
-                case UiKind.Column:
-                case UiKind.Row:
-                    // Support special row layout that composes two children inline with right child right-aligned.
-                    if (node.Kind == UiKind.Row &&
-                        node.Children.Count == 2 &&
-                        node.Props.TryGetValue(UiProperty.Layout, out var layoutRow) &&
-                        string.Equals(layoutRow?.ToString(), "row-justify", StringComparison.OrdinalIgnoreCase))
-                    {
-                        int contentWidth = Math.Max(10, width - indent * 2);
-
-                        // Helper to render a compact, single-line representation of a child control
-                        static string RenderInline(UiNode c)
-                        {
-                            switch (c.Kind)
-                            {
-                                case UiKind.Button:
-                                    var btnText = c.Props.TryGetValue(UiProperty.Text, out var bt) ? bt?.ToString() : "";
-                                    return $"[ {btnText} ]";
-                                case UiKind.TextBox:
-                                case UiKind.TextArea:
-                                    var value = c.Props.TryGetValue(UiProperty.Text, out var v) ? v?.ToString() : (c.Props.TryGetValue(UiProperty.Value, out var v2) ? v2?.ToString() : "");
-                                    var placeholder = c.Props.TryGetValue(UiProperty.Placeholder, out var p) ? p?.ToString() : "";
-                                    return string.IsNullOrEmpty(value) ? (placeholder ?? string.Empty) : value!;
-                                case UiKind.ListView:
-                                    // Compact dropdown summary: current selection + chevron
-                                    var itemsObj = c.Props.TryGetValue(UiProperty.Items, out var io) ? io : null;
-                                    var items = (itemsObj as IEnumerable<object>)?.Select(o => o?.ToString() ?? string.Empty).ToList() ?? new List<string>();
-                                    var selIdx = c.Props.TryGetValue(UiProperty.SelectedIndex, out var si) && si is int idx2 ? idx2 : -1;
-                                    string current = (selIdx >= 0 && selIdx < items.Count) ? items[selIdx] : (items.Count > 0 ? items[0] : "");
-                                    if (string.IsNullOrWhiteSpace(current)) current = c.Props.TryGetValue(UiProperty.Placeholder, out var pl) ? (pl?.ToString() ?? "Select…") : "Select…";
-                                    return $"⭥[ {current} ]";
-                                case UiKind.Label:
-                                    return c.Props.TryGetValue(UiProperty.Text, out var lt) ? lt?.ToString() ?? string.Empty : string.Empty;
-                                default:
-                                    return string.Empty;
-                            }
-                        }
-
-                        var leftStr = RenderInline(node.Children[0]) ?? string.Empty;
-                        var rightStr = RenderInline(node.Children[1]) ?? string.Empty;
-
-                        // Determine focus coloring: if any child focused, invert like other controls
-                        bool leftFocused = node.Children[0].Key == focusedKey;
-                        bool rightFocused = node.Children[1].Key == focusedKey;
-                        var lineFg = (leftFocused || rightFocused) ? ConsoleColor.Black : ConsoleColor.Gray;
-                        var lineBg = (leftFocused || rightFocused) ? ConsoleColor.White : ConsoleColor.Black;
-
-                        // Fit right segment first, then allocate remainder to left
-                        rightStr = FitToWidth(TrimLeadingSpaces(rightStr), Math.Max(0, contentWidth / 3)); // clamp to a reasonable width
-                        int availForLeft = Math.Max(0, contentWidth - rightStr.Length - 1); // 1 space gap
-                        leftStr = FitToWidth(TrimLeadingSpaces(leftStr), availForLeft);
-                        int gap = Math.Max(1, contentWidth - leftStr.Length - rightStr.Length);
-
-                        var composed = indentStr + leftStr + new string(' ', gap) + rightStr;
-                        lines.Add(new TermLine(composed, lineFg, lineBg, TextAlign.Left));
-
-                        // Record mapping for row and its children to this single composed line
-                        keyMap[node.Key] = new TermRegion(startLine, 1);
-                        keyMap[node.Children[0].Key] = new TermRegion(startLine, 1);
-                        keyMap[node.Children[1].Key] = new TermRegion(startLine, 1);
-                    }
-                    // Support bottom-dock layout for column containers: last child pinned to bottom
-                    else if (node.Kind == UiKind.Column &&
-                             node.Children.Count >= 1 &&
-                             node.Props.TryGetValue(UiProperty.Layout, out var layoutCol) &&
-                             string.Equals(layoutCol?.ToString(), "dock-bottom", StringComparison.OrdinalIgnoreCase))
-                    {
-                        int availableHeight = Math.Max(1, screenHeight - startLine);
-
-                        // Render top children (all except last) into temp buffer
-                        var topLines = new List<TermLine>();
-                        var topMap = new Dictionary<string, TermRegion>();
-                        for (int i = 0; i < node.Children.Count - 1; i++)
-                        {
-                            LayoutNode(node.Children[i], indent, width, screenHeight, focusedKey, topLines, topMap);
-                        }
-
-                        // Render bottom child into temp buffer
-                        var bottomLines = new List<TermLine>();
-                        var bottomMap = new Dictionary<string, TermRegion>();
-                        LayoutNode(node.Children[^1], indent, width, screenHeight, focusedKey, bottomLines, bottomMap);
-
-                        // Determine visible space for top section
-                        int maxTopVisible = Math.Max(0, availableHeight - bottomLines.Count);
-
-                        // Honor AutoScroll/Min (used as scroll offset) when provided on the messages child
-                        UiNode? messagesChild = null;
-                        for (int i = 0; i < node.Children.Count - 1; i++)
-                        {
-                            if (node.Children[i].Key == UiFrameKeys.Messages) { messagesChild = node.Children[i]; break; }
-                        }
-                        bool autoScroll = messagesChild != null && messagesChild.Props.TryGetValue(UiProperty.AutoScroll, out var asv) && asv is bool ab && ab;
-                        int requestedScroll = (messagesChild != null) ? (TryGetIntProp(messagesChild.Props, UiProperty.Min) ?? 0) : 0; // 0=bottom, higher=scroll up
-                        requestedScroll = Math.Max(0, requestedScroll);
-
-                        int totalTop = topLines.Count;
-                        int dropFromTop;
-                        if (!autoScroll && maxTopVisible > 0)
-                        {
-                            // Choose a window so that 'requestedScroll' lines remain above the bottom of top
-                            dropFromTop = Math.Clamp(totalTop - maxTopVisible - requestedScroll, 0, Math.Max(0, totalTop - maxTopVisible));
-                        }
-                        else
-                        {
-                            // Auto-scroll to bottom
-                            int overflow = Math.Max(0, (topLines.Count + bottomLines.Count) - availableHeight);
-                            dropFromTop = Math.Min(overflow, topLines.Count);
-                        }
-
-                        // Build visible subset of top
-                        var visibleTopLines = (dropFromTop > 0)
-                            ? topLines.Skip(dropFromTop).Take(maxTopVisible).ToList()
-                            : topLines.Take(maxTopVisible).ToList();
-
-                        // Append top
-                        int topStart = lines.Count;
-                        lines.AddRange(visibleTopLines);
-
-                        // Remap child key regions within visible window
-                        foreach (var kv in topMap)
-                        {
-                            int relStart = kv.Value.StartLine;
-                            int relEnd = kv.Value.StartLine + kv.Value.LineCount;
-                            int newStart = Math.Max(0, relStart - dropFromTop);
-                            int newEnd = Math.Max(0, relEnd - dropFromTop);
-                            newStart = Math.Min(newStart, maxTopVisible);
-                            newEnd = Math.Min(newEnd, maxTopVisible);
-                            int len = Math.Max(0, newEnd - newStart);
-                            if (len > 0)
-                                keyMap[kv.Key] = new TermRegion(topStart + newStart, len);
-                        }
-
-                        // Add filler to pin bottom child to the bottom when there's spare space
-                        int usedTop = visibleTopLines.Count;
-                        int usedTotal = usedTop + bottomLines.Count;
-                        int filler = Math.Max(0, availableHeight - usedTotal);
-                        for (int i = 0; i < filler; i++)
-                        {
-                            lines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
-                        }
-
-                        // Simple right-edge scrollbar when top overflowed
-                        bool overflowed = totalTop > maxTopVisible;
-                        if (overflowed && maxTopVisible > 0)
-                        {
-                            int trackH = maxTopVisible;
-                            int thumbH = Math.Max(1, (int)Math.Round(trackH * (maxTopVisible / (double)Math.Max(1, totalTop))));
-                            int maxThumbTop = Math.Max(0, trackH - thumbH);
-                            int scrolled = Math.Clamp(totalTop - maxTopVisible - dropFromTop, 0, Math.Max(0, totalTop - maxTopVisible));
-                            int scrollRange = Math.Max(1, totalTop - maxTopVisible);
-                            int thumbTop = (int)Math.Round(scrolled / (double)scrollRange * maxThumbTop);
-
-                            for (int j = 0; j < maxTopVisible; j++)
-                            {
-                                int idx = topStart + j;
-                                var l = lines[idx];
-                                var baseText = l.Text ?? string.Empty;
-                                var ensured = baseText.Length < width ? baseText.PadRight(width) : (baseText.Length > width ? baseText.Substring(0, width) : baseText);
-                                char sb = (j >= thumbTop && j < thumbTop + thumbH) ? '█' : '│';
-                                if (ensured.Length > 0)
-                                    ensured = ensured.Substring(0, Math.Max(0, width - 1)) + sb;
-                                lines[idx] = new TermLine(ensured, l.Foreground, l.Background, l.Align);
-                            }
-                        }
-
-                        // Append bottom (composer)
-                        int bottomStart = lines.Count;
-                        lines.AddRange(bottomLines);
-                        foreach (var kv in bottomMap)
-                        {
-                            keyMap[kv.Key] = new TermRegion(bottomStart + kv.Value.StartLine, kv.Value.LineCount);
-                        }
-
-                        // Region for this node
-                        keyMap[node.Key] = new TermRegion(startLine, Math.Max(1, lines.Count - startLine));
-                    }
-                    // CSS-like grid layout with Columns property: structured GridColumns only
-                    else if (node.Props.TryGetValue(UiProperty.Layout, out var gl) && string.Equals(gl?.ToString(), "grid", StringComparison.OrdinalIgnoreCase) &&
-                             node.Props.TryGetValue(UiProperty.Columns, out var colsObj) && node.Children.Count > 0)
-                    {
-                        var specs = new List<(double val, bool isPercent, bool isFr)>();
-                        if (colsObj is GridColumns gc)
-                        {
-                            foreach (var col in gc.Columns)
-                            {
-                                if (col.Kind == GridUnitKind.Percent) specs.Add((col.Value, true, false));
-                                else specs.Add((col.Value, false, true));
-                            }
-                        }
-                        else
-                        {
-                            // default 50/50
-                            specs.Add((50, true, false));
-                            specs.Add((50, true, false));
-                        }
-                        if (specs.Count == 0)
-                        {
-                            specs.Add((50, true, false));
-                            specs.Add((50, true, false));
-                        }
-
-                        int contentWidth = Math.Max(10, width - indent * 2);
-                        // Compute pixel widths
-                        int fixedPxFromPercent = 0;
-                        double frTotal = 0;
-                        foreach (var (val, isPercent, isFr) in specs)
-                        {
-                            if (isPercent) fixedPxFromPercent += (int)Math.Round(contentWidth * (val / 100.0));
-                            else if (isFr) frTotal += Math.Max(0.0001, val);
-                        }
-                        int remaining = Math.Max(0, contentWidth - fixedPxFromPercent);
-                        var widths = new List<int>(specs.Count);
-                        foreach (var (val, isPercent, isFr) in specs)
-                        {
-                            if (isPercent) widths.Add((int)Math.Round(contentWidth * (val / 100.0)));
-                            else if (isFr) widths.Add(frTotal > 0 ? (int)Math.Round(remaining * (val / frTotal)) : 0);
-                            else widths.Add((int)Math.Round(val));
-                        }
-
-                        // Render each child into its column box
-                        var childLines = new List<List<TermLine>>();
-                        var childMaps = new List<Dictionary<string, TermRegion>>();
-                        for (int i = 0; i < Math.Min(node.Children.Count, widths.Count); i++)
-                        {
-                            var list = new List<TermLine>();
-                            var map = new Dictionary<string, TermRegion>();
-                            LayoutNode(node.Children[i], 0, widths[i], screenHeight, focusedKey, list, map);
-                            childLines.Add(list);
-                            childMaps.Add(map);
-                        }
-
-                        // Compose rows line-by-line using per-column colors
-                        int maxRows = childLines.Max(l => l.Count);
-                        for (int r = 0; r < maxRows; r++)
-                        {
-                            var runs = new List<TermRun>();
-                            // left indentation keeps base colors
-                            if (indent > 0)
-                                runs.Add(new TermRun(new string(' ', indent * 2), ConsoleColor.Gray, ConsoleColor.Black));
-                            for (int colIdx = 0; colIdx < childLines.Count; colIdx++)
-                            {
-                                var childLine = r < childLines[colIdx].Count ? childLines[colIdx][r] : new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left);
-                                bool isButtonCell = node.Children[colIdx].Kind == UiKind.Button;
-                                var marker = "  ";
-                                int inner = Math.Max(1, widths[colIdx] - marker.Length);
-
-                                if (isButtonCell)
-                                {
-                                    // Center the child's rendered runs within the inner width
-                                    var childRuns = RunsFromLine(childLine);
-                                    TrimLeadingSpaces(childRuns);
-                                    // Compute total length of child content
-                                    int total = 0; foreach (var rr in childRuns) total += rr.Text?.Length ?? 0;
-                                    total = Math.Min(total, Math.Max(1, inner));
-                                    int leftPad = Math.Max(0, (inner - total) / 2);
-                                    int rightPad = Math.Max(0, inner - leftPad - total);
-
-                                    // marker spaces (neutral)
-                                    if (marker.Length > 0) runs.Add(new TermRun(marker, ConsoleColor.Gray, ConsoleColor.Black));
-                                    // left padding (neutral)
-                                    if (leftPad > 0) runs.Add(new TermRun(new string(' ', leftPad), ConsoleColor.Gray, ConsoleColor.Black));
-                                    // child runs, clipped to remaining inner space
-                                    var clippedButton = ClipOrPadRuns(childRuns, total, TextAlign.Left);
-                                    runs.AddRange(clippedButton);
-                                    // right padding (neutral)
-                                    if (rightPad > 0) runs.Add(new TermRun(new string(' ', rightPad), ConsoleColor.Gray, ConsoleColor.Black));
-                                }
-                                else
-                                {
-                                    // Respect nested runs when present (e.g., inner grid rows for array items)
-                                    var childRuns = RunsFromLine(childLine);
-                                    TrimLeadingSpaces(childRuns);
-                                    var clipped = ClipOrPadRuns(childRuns, inner, childLine.Align);
-
-                                    // marker area (retain child's colors for consistency with previous behavior)
-                                    runs.Add(new TermRun(marker, childLine.Foreground, childLine.Background));
-                                    // append clipped/padded child runs
-                                    runs.AddRange(clipped);
-                                }
-                            }
-                            lines.Add(new TermLine(string.Empty, ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left) { Runs = runs });
-                        }
-
-                        // Map this row region
-                        int rowLen = Math.Max(1, maxRows);
-                        keyMap[node.Key] = new TermRegion(startLine, rowLen);
-                        // Also map child controls to the same vertical region so focus-based overlay scrolling can anchor to them
-                        for (int i = 0; i < Math.Min(node.Children.Count, widths.Count); i++)
-                        {
-                            keyMap[node.Children[i].Key] = new TermRegion(startLine, rowLen);
-                        }
-                        // Propagate nested child maps into composed coordinates so focused grandchildren (e.g., edit/delete buttons)
-                        // resolve to their actual row lines instead of forcing a top-of-body reset.
-                        for (int i = 0; i < childMaps.Count; i++)
-                        {
-                            foreach (var kv in childMaps[i])
-                            {
-                                int newStart = startLine + Math.Max(0, Math.Min(maxRows, kv.Value.StartLine));
-                                int newLen = Math.Max(0, Math.Min(kv.Value.LineCount, Math.Max(0, startLine + maxRows - newStart)));
-                                if (newLen > 0)
-                                {
-                                    keyMap[kv.Key] = new TermRegion(newStart, newLen);
-                                }
-                            }
-                        }
-                    }
-                    else
-                    {
-                        foreach (var child in node.Children)
-                        {
-                            LayoutNode(child, node.Kind == UiKind.Column ? indent : indent + 1, width, screenHeight, focusedKey, lines, keyMap);
-                        }
-                    }
-                    break;
-
-                // no default leaf cases here; those are handled by registry above
-                }
             }
 
             // Record region for this node
@@ -1319,10 +843,6 @@ public class Terminal : CUiBase
                 LayoutNode(child, 0, contentWidth, screenHeight, focusedKey, innerLines, tmpMap);
             }
 
-            // Build box lines as colored runs with vertical scrolling support
-            // We support a scrollable "body" region inside the overlay; header/footer lines are pinned.
-            // contentWidth already computed above
-            var boxRunLines = new List<List<TermRun>>();
             var borderFg = ConsoleColor.Gray;
             var borderBg = ConsoleColor.Black;
 
@@ -1384,7 +904,6 @@ public class Terminal : CUiBase
             int? requestedOffset = null;
             if (bodyChild != null)
             {
-                bool hasAuto = bodyChild.Props.TryGetValue(UiProperty.AutoScroll, out var asv) && asv is bool;
                 int? minProp = TryGetIntProp(bodyChild.Props, UiProperty.Min);
                 // If AutoScroll is explicitly false or Min is present, treat it as body-driven scroll
                 if ((bodyChild.Props.TryGetValue(UiProperty.AutoScroll, out var asv2) && asv2 is bool ab && !ab) || minProp.HasValue)
@@ -1394,112 +913,18 @@ public class Terminal : CUiBase
             }
 
             // Compute effective offset inside body region
-            int maxBodyOffset = Math.Max(0, bodyLen - bodyVisible);
-            int offset = 0;
-            if (maxBodyOffset > 0)
-            {
-                if (requestedOffset.HasValue)
-                {
-                    offset = Math.Clamp(requestedOffset.Value, 0, maxBodyOffset);
-                }
-
-                // If we have a focused row within the body and it's not visible with the current offset, center it
-                if (targetRel >= 0)
-                {
-                    int visStart = offset;
-                    int visEnd = offset + bodyVisible - 1;
-                    if (targetRel < visStart || targetRel > visEnd)
-                    {
-                        int centered = targetRel - (bodyVisible / 2);
-                        offset = Math.Clamp(centered, 0, maxBodyOffset);
-                    }
-                }
-                else if (!requestedOffset.HasValue)
-                {
-                    // No explicit request and no target inside body -> default to top
-                    offset = 0;
-                }
-            }
+            int offset = ResolveScrollOffset(bodyLen, bodyVisible, false, requestedOffset, targetRel);
 
             // Scrollbar metrics based on body region
-            bool overflow = bodyLen > bodyVisible;
-            int trackH = bodyVisible;
-            int thumbH = 1;
-            int thumbTop = 0;
-            if (overflow)
-            {
-                thumbH = Math.Max(1, (int)Math.Round(trackH * (bodyVisible / (double)Math.Max(1, bodyLen))));
-                thumbH = Math.Min(thumbH, trackH);
-                int maxThumbTop = Math.Max(0, trackH - thumbH);
-                int scrollRange = Math.Max(1, bodyLen - bodyVisible);
-                thumbTop = (int)Math.Round(offset / (double)scrollRange * maxThumbTop);
-                thumbTop = Math.Clamp(thumbTop, 0, maxThumbTop);
-            }
+            var overlayScroll = ComputeScrollMetrics(bodyLen, bodyVisible, offset);
 
             // Compute how many header/footer lines can be shown within the content budget
             int headerVisible = Math.Min(headerCount, Math.Max(0, maxVisibleContent - bodyVisible));
             int footerVisible = Math.Min(footerCount, Math.Max(0, maxVisibleContent - bodyVisible - headerVisible));
-            int visibleContent = Math.Min(maxVisibleContent, headerVisible + bodyVisible + footerVisible);
 
-            // Top border
-            boxRunLines.Add(new List<TermRun> { new TermRun("┌" + new string('─', contentWidth) + "┐", borderFg, borderBg) });
-
-            // Header rows (pinned)
-            for (int i = 0; i < headerVisible; i++)
-            {
-                var il = innerLines[i];
-                var ilRuns = RunsFromLine(il);
-                TrimLeadingSpaces(ilRuns);
-                var clipped = ClipOrPadRuns(ilRuns, contentWidth, il.Align);
-
-                var rowRuns = new List<TermRun>();
-                rowRuns.Add(new TermRun("│", borderFg, borderBg));
-                rowRuns.AddRange(clipped);
-                rowRuns.Add(new TermRun("│", borderFg, borderBg));
-                boxRunLines.Add(rowRuns);
-            }
-
-            // Body rows (scrollable)
-            for (int j = 0; j < bodyVisible; j++)
-            {
-                int contentIndex = Math.Min(totalContent - 1, bodyStart + Math.Min(bodyLen - 1, offset + j));
-                var il = innerLines[contentIndex];
-                var ilRuns = RunsFromLine(il);
-                TrimLeadingSpaces(ilRuns);
-                var clipped = ClipOrPadRuns(ilRuns, contentWidth, il.Align);
-
-                var rowRuns = new List<TermRun>();
-                rowRuns.Add(new TermRun("│", borderFg, borderBg));
-                rowRuns.AddRange(clipped);
-                // Right border doubles as scrollbar track only for body rows
-                char rightGlyph = '│';
-                if (overflow)
-                {
-                    rightGlyph = (j >= thumbTop && j < thumbTop + thumbH) ? '█' : '│';
-                }
-                rowRuns.Add(new TermRun(rightGlyph.ToString(), borderFg, borderBg));
-                boxRunLines.Add(rowRuns);
-            }
-
-            // Footer rows (pinned)
-            for (int k = 0; k < footerVisible; k++)
-            {
-                int idx = bodyStart + bodyLen + k;
-                if (idx < 0 || idx >= totalContent) break;
-                var il = innerLines[idx];
-                var ilRuns = RunsFromLine(il);
-                TrimLeadingSpaces(ilRuns);
-                var clipped = ClipOrPadRuns(ilRuns, contentWidth, il.Align);
-
-                var rowRuns = new List<TermRun>();
-                rowRuns.Add(new TermRun("│", borderFg, borderBg));
-                rowRuns.AddRange(clipped);
-                rowRuns.Add(new TermRun("│", borderFg, borderBg));
-                boxRunLines.Add(rowRuns);
-            }
-
-            // Bottom border
-            boxRunLines.Add(new List<TermRun> { new TermRun("└" + new string('─', contentWidth) + "┘", borderFg, borderBg) });
+            var boxRunLines = BuildBoxRunLines(innerLines, contentWidth,
+                headerVisible, bodyStart, bodyLen, bodyVisible, footerVisible,
+                offset, overlayScroll, borderFg, borderBg);
 
             // Compute vertical placement: center in current visible area approximation
             int viewportHeight = Math.Max(10, screenHeight);
@@ -1737,6 +1162,426 @@ public class Terminal : CUiBase
 
             return result;
         }
+
+        // ─── Static container renderers ──────────────────────────────────────────
+
+        private static void RenderAccordion(TermCtx ctx, UiNode node)
+        {
+            var title = node.Props.TryGetValue(UiProperty.Title, out var t2) ? t2?.ToString() : "Accordion";
+            var isExpanded = node.Props.TryGetValue(UiProperty.Expanded, out var exp) && exp is bool e && e;
+            var accFg = ctx.IsFocused(node) ? ConsoleColor.Yellow : ConsoleColor.Cyan;
+            ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{(isExpanded ? "▼" : "▶")} {title}", accFg, ConsoleColor.Black, TextAlign.Left));
+            if (isExpanded)
+            {
+                foreach (var child in node.Children)
+                    ctx.LayoutChild(child, ctx.Indent + 1, ctx.Width);
+            }
+        }
+
+        private static void RenderRowJustify(TermCtx ctx, UiNode node)
+        {
+            int startLine = ctx.Lines.Count;
+            int contentWidth = Math.Max(10, ctx.Width - ctx.Indent * 2);
+
+            static string RenderInline(UiNode c)
+            {
+                switch (c.Kind)
+                {
+                    case UiKind.Button:
+                        var btnText = c.Props.TryGetValue(UiProperty.Text, out var bt) ? bt?.ToString() : "";
+                        return $"[ {btnText} ]";
+                    case UiKind.TextBox:
+                    case UiKind.TextArea:
+                        var value = c.Props.TryGetValue(UiProperty.Text, out var v) ? v?.ToString() : (c.Props.TryGetValue(UiProperty.Value, out var v2) ? v2?.ToString() : "");
+                        var placeholder = c.Props.TryGetValue(UiProperty.Placeholder, out var p) ? p?.ToString() : "";
+                        return string.IsNullOrEmpty(value) ? (placeholder ?? string.Empty) : value!;
+                    case UiKind.ListView:
+                        var itemsObj = c.Props.TryGetValue(UiProperty.Items, out var io) ? io : null;
+                        var items = (itemsObj as IEnumerable<object>)?.Select(o => o?.ToString() ?? string.Empty).ToList() ?? new List<string>();
+                        var selIdx = c.Props.TryGetValue(UiProperty.SelectedIndex, out var si) && si is int idx2 ? idx2 : -1;
+                        string current = (selIdx >= 0 && selIdx < items.Count) ? items[selIdx] : (items.Count > 0 ? items[0] : "");
+                        if (string.IsNullOrWhiteSpace(current)) current = c.Props.TryGetValue(UiProperty.Placeholder, out var pl) ? (pl?.ToString() ?? "Select…") : "Select…";
+                        return $"⭥[ {current} ]";
+                    case UiKind.Label:
+                        return c.Props.TryGetValue(UiProperty.Text, out var lt) ? lt?.ToString() ?? string.Empty : string.Empty;
+                    default:
+                        return string.Empty;
+                }
+            }
+
+            var leftStr  = RenderInline(node.Children[0]) ?? string.Empty;
+            var rightStr = RenderInline(node.Children[1]) ?? string.Empty;
+
+            bool leftFocused  = node.Children[0].Key == ctx.FocusedKey;
+            bool rightFocused = node.Children[1].Key == ctx.FocusedKey;
+            var lineFg = (leftFocused || rightFocused) ? ConsoleColor.Black : ConsoleColor.Gray;
+            var lineBg = (leftFocused || rightFocused) ? ConsoleColor.White : ConsoleColor.Black;
+
+            rightStr = FitToWidth(TrimLeadingSpaces(rightStr), Math.Max(0, contentWidth / 3));
+            int availForLeft = Math.Max(0, contentWidth - rightStr.Length - 1);
+            leftStr = FitToWidth(TrimLeadingSpaces(leftStr), availForLeft);
+            int gap = Math.Max(1, contentWidth - leftStr.Length - rightStr.Length);
+
+            var composed = ctx.IndentStr + leftStr + new string(' ', gap) + rightStr;
+            ctx.Lines.Add(new TermLine(composed, lineFg, lineBg, TextAlign.Left));
+
+            ctx.KeyMap[node.Key]              = new TermRegion(startLine, 1);
+            ctx.KeyMap[node.Children[0].Key]  = new TermRegion(startLine, 1);
+            ctx.KeyMap[node.Children[1].Key]  = new TermRegion(startLine, 1);
+        }
+
+        private static void RenderDockBottom(TermCtx ctx, UiNode node)
+        {
+            int startLine       = ctx.Lines.Count;
+            int availableHeight = Math.Max(1, ctx.ScreenHeight - startLine);
+
+            var topLines = new List<TermLine>();
+            var topMap   = new Dictionary<string, TermRegion>();
+            for (int i = 0; i < node.Children.Count - 1; i++)
+                ctx.LayoutInto(node.Children[i], ctx.Indent, ctx.Width, topLines, topMap);
+
+            var bottomLines = new List<TermLine>();
+            var bottomMap   = new Dictionary<string, TermRegion>();
+            ctx.LayoutInto(node.Children[^1], ctx.Indent, ctx.Width, bottomLines, bottomMap);
+
+            int maxTopVisible = Math.Max(0, availableHeight - bottomLines.Count);
+
+            UiNode? messagesChild = null;
+            for (int i = 0; i < node.Children.Count - 1; i++)
+            {
+                if (node.Children[i].Key == UiFrameKeys.Messages) { messagesChild = node.Children[i]; break; }
+            }
+            bool autoScroll     = messagesChild != null && messagesChild.Props.TryGetValue(UiProperty.AutoScroll, out var asv) && asv is bool ab && ab;
+            int requestedScroll = (messagesChild != null) ? (TryGetIntProp(messagesChild.Props, UiProperty.Min) ?? 0) : 0;
+            requestedScroll     = Math.Max(0, requestedScroll);
+
+            int totalTop  = topLines.Count;
+            int maxOffset = Math.Max(0, totalTop - maxTopVisible);
+            int? reqFromTop = (!autoScroll && maxTopVisible > 0)
+                ? (int?)Math.Clamp(maxOffset - requestedScroll, 0, maxOffset)
+                : null;
+            int dropFromTop = ResolveScrollOffset(totalTop, maxTopVisible,
+                autoScroll || maxTopVisible <= 0, reqFromTop, -1);
+
+            var visibleTopLines = (dropFromTop > 0)
+                ? topLines.Skip(dropFromTop).Take(maxTopVisible).ToList()
+                : topLines.Take(maxTopVisible).ToList();
+
+            int topStart = ctx.Lines.Count;
+            ctx.Lines.AddRange(visibleTopLines);
+
+            foreach (var kv in topMap)
+            {
+                int relStart = kv.Value.StartLine;
+                int relEnd   = kv.Value.StartLine + kv.Value.LineCount;
+                int newStart = Math.Min(Math.Max(0, relStart - dropFromTop), maxTopVisible);
+                int newEnd   = Math.Min(Math.Max(0, relEnd   - dropFromTop), maxTopVisible);
+                int len = Math.Max(0, newEnd - newStart);
+                if (len > 0)
+                    ctx.KeyMap[kv.Key] = new TermRegion(topStart + newStart, len);
+            }
+
+            int usedTotal = visibleTopLines.Count + bottomLines.Count;
+            int filler    = Math.Max(0, availableHeight - usedTotal);
+            for (int i = 0; i < filler; i++)
+                ctx.Lines.Add(new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
+
+            var dockScroll = ComputeScrollMetrics(totalTop, maxTopVisible, maxOffset - dropFromTop);
+            if (dockScroll.Overflow && maxTopVisible > 0)
+            {
+                for (int j = 0; j < maxTopVisible; j++)
+                {
+                    int idx      = topStart + j;
+                    var l        = ctx.Lines[idx];
+                    var baseText = l.Text ?? string.Empty;
+                    var ensured  = baseText.Length < ctx.Width ? baseText.PadRight(ctx.Width)
+                                 : baseText.Length > ctx.Width ? baseText.Substring(0, ctx.Width) : baseText;
+                    char sb = ScrollbarGlyph(j, dockScroll);
+                    if (ensured.Length > 0)
+                        ensured = ensured.Substring(0, Math.Max(0, ctx.Width - 1)) + sb;
+                    ctx.Lines[idx] = new TermLine(ensured, l.Foreground, l.Background, l.Align);
+                }
+            }
+
+            int bottomStart = ctx.Lines.Count;
+            ctx.Lines.AddRange(bottomLines);
+            foreach (var kv in bottomMap)
+                ctx.KeyMap[kv.Key] = new TermRegion(bottomStart + kv.Value.StartLine, kv.Value.LineCount);
+
+            ctx.KeyMap[node.Key] = new TermRegion(startLine, Math.Max(1, ctx.Lines.Count - startLine));
+        }
+
+        private static void RenderGrid(TermCtx ctx, UiNode node)
+        {
+            int startLine    = ctx.Lines.Count;
+            int contentWidth = Math.Max(10, ctx.Width - ctx.Indent * 2);
+
+            var colsObj = node.Props.TryGetValue(UiProperty.Columns, out var co) ? co : null;
+            var specs   = new List<(double val, bool isPercent, bool isFr)>();
+            if (colsObj is GridColumns gc)
+            {
+                foreach (var col in gc.Columns)
+                {
+                    if (col.Kind == GridUnitKind.Percent) specs.Add((col.Value, true, false));
+                    else specs.Add((col.Value, false, true));
+                }
+            }
+            if (specs.Count == 0) { specs.Add((50, true, false)); specs.Add((50, true, false)); }
+
+            int fixedPx = 0; double frTotal = 0;
+            foreach (var (val, isPercent, isFr) in specs)
+            {
+                if (isPercent) fixedPx += (int)Math.Round(contentWidth * (val / 100.0));
+                else if (isFr) frTotal += Math.Max(0.0001, val);
+            }
+            int rem = Math.Max(0, contentWidth - fixedPx);
+            var widths = new List<int>(specs.Count);
+            foreach (var (val, isPercent, isFr) in specs)
+            {
+                if (isPercent) widths.Add((int)Math.Round(contentWidth * (val / 100.0)));
+                else if (isFr)  widths.Add(frTotal > 0 ? (int)Math.Round(rem * (val / frTotal)) : 0);
+                else            widths.Add((int)Math.Round(val));
+            }
+
+            var childLines = new List<List<TermLine>>();
+            var childMaps  = new List<Dictionary<string, TermRegion>>();
+            for (int i = 0; i < Math.Min(node.Children.Count, widths.Count); i++)
+            {
+                var list = new List<TermLine>();
+                var map  = new Dictionary<string, TermRegion>();
+                ctx.LayoutInto(node.Children[i], 0, widths[i], list, map);
+                childLines.Add(list);
+                childMaps.Add(map);
+            }
+
+            int maxRows = childLines.Max(l => l.Count);
+            for (int r = 0; r < maxRows; r++)
+            {
+                var runs = new List<TermRun>();
+                if (ctx.Indent > 0)
+                    runs.Add(new TermRun(new string(' ', ctx.Indent * 2), ConsoleColor.Gray, ConsoleColor.Black));
+
+                for (int colIdx = 0; colIdx < childLines.Count; colIdx++)
+                {
+                    var childLine    = r < childLines[colIdx].Count ? childLines[colIdx][r] : new TermLine("", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left);
+                    bool isButtonCell = node.Children[colIdx].Kind == UiKind.Button;
+                    var marker       = "  ";
+                    int inner        = Math.Max(1, widths[colIdx] - marker.Length);
+
+                    if (isButtonCell)
+                    {
+                        var childRuns = RunsFromLine(childLine);
+                        TrimLeadingSpaces(childRuns);
+                        int total   = 0; foreach (var rr in childRuns) total += rr.Text?.Length ?? 0;
+                        total       = Math.Min(total, Math.Max(1, inner));
+                        int leftPad  = Math.Max(0, (inner - total) / 2);
+                        int rightPad = Math.Max(0, inner - leftPad - total);
+                        if (marker.Length > 0) runs.Add(new TermRun(marker, ConsoleColor.Gray, ConsoleColor.Black));
+                        if (leftPad  > 0) runs.Add(new TermRun(new string(' ', leftPad),  ConsoleColor.Gray, ConsoleColor.Black));
+                        runs.AddRange(ClipOrPadRuns(childRuns, total, TextAlign.Left));
+                        if (rightPad > 0) runs.Add(new TermRun(new string(' ', rightPad), ConsoleColor.Gray, ConsoleColor.Black));
+                    }
+                    else
+                    {
+                        var childRuns = RunsFromLine(childLine);
+                        TrimLeadingSpaces(childRuns);
+                        var clipped = ClipOrPadRuns(childRuns, inner, childLine.Align);
+                        runs.Add(new TermRun(marker, childLine.Foreground, childLine.Background));
+                        runs.AddRange(clipped);
+                    }
+                }
+                ctx.Lines.Add(new TermLine(string.Empty, ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left) { Runs = runs });
+            }
+
+            int rowLen = Math.Max(1, maxRows);
+            ctx.KeyMap[node.Key] = new TermRegion(startLine, rowLen);
+            for (int i = 0; i < Math.Min(node.Children.Count, widths.Count); i++)
+                ctx.KeyMap[node.Children[i].Key] = new TermRegion(startLine, rowLen);
+            for (int i = 0; i < childMaps.Count; i++)
+            {
+                foreach (var kv in childMaps[i])
+                {
+                    int newStart = startLine + Math.Max(0, Math.Min(maxRows, kv.Value.StartLine));
+                    int newLen   = Math.Max(0, Math.Min(kv.Value.LineCount, Math.Max(0, startLine + maxRows - newStart)));
+                    if (newLen > 0)
+                        ctx.KeyMap[kv.Key] = new TermRegion(newStart, newLen);
+                }
+            }
+        }
+
+        private static void RenderColumn(TermCtx ctx, UiNode node)
+        {
+            if (node.Children.Count >= 1 &&
+                node.Props.TryGetValue(UiProperty.Layout, out var layoutCol) &&
+                string.Equals(layoutCol?.ToString(), "dock-bottom", StringComparison.OrdinalIgnoreCase))
+            {
+                RenderDockBottom(ctx, node);
+            }
+            else if (node.Props.TryGetValue(UiProperty.Layout, out var gl) &&
+                     string.Equals(gl?.ToString(), "grid", StringComparison.OrdinalIgnoreCase) &&
+                     node.Props.TryGetValue(UiProperty.Columns, out _) && node.Children.Count > 0)
+            {
+                RenderGrid(ctx, node);
+            }
+            else
+            {
+                foreach (var child in node.Children)
+                    ctx.LayoutChild(child, ctx.Indent, ctx.Width);
+            }
+        }
+
+        private static void RenderRow(TermCtx ctx, UiNode node)
+        {
+            if (node.Children.Count == 2 &&
+                node.Props.TryGetValue(UiProperty.Layout, out var layoutRow) &&
+                string.Equals(layoutRow?.ToString(), "row-justify", StringComparison.OrdinalIgnoreCase))
+            {
+                RenderRowJustify(ctx, node);
+            }
+            else if (node.Props.TryGetValue(UiProperty.Layout, out var gl) &&
+                     string.Equals(gl?.ToString(), "grid", StringComparison.OrdinalIgnoreCase) &&
+                     node.Props.TryGetValue(UiProperty.Columns, out _) && node.Children.Count > 0)
+            {
+                RenderGrid(ctx, node);
+            }
+            else
+            {
+                foreach (var child in node.Children)
+                    ctx.LayoutChild(child, ctx.Indent + 1, ctx.Width);
+            }
+        }
+
+        // ─── Box assembly helper ─────────────────────────────────────────────────
+
+        /// <summary>
+        /// Assembles the run-lines for a bordered overlay box: top border, pinned header rows,
+        /// scrollable body rows (with optional scrollbar on the right border), pinned footer rows,
+        /// and bottom border.
+        /// </summary>
+        private static List<List<TermRun>> BuildBoxRunLines(
+            IReadOnlyList<TermLine> innerLines, int contentWidth,
+            int headerVisible, int bodyStart, int bodyLen, int bodyVisible, int footerVisible,
+            int offset, ScrollMetrics scroll,
+            ConsoleColor borderFg, ConsoleColor borderBg)
+        {
+            int totalContent = innerLines.Count;
+            var result = new List<List<TermRun>>();
+
+            // Top border
+            result.Add(new List<TermRun> { new TermRun("┌" + new string('─', contentWidth) + "┐", borderFg, borderBg) });
+
+            // Header rows (pinned, from start of innerLines)
+            for (int i = 0; i < headerVisible; i++)
+            {
+                var il = innerLines[i];
+                var ilRuns = RunsFromLine(il);
+                TrimLeadingSpaces(ilRuns);
+                var clipped = ClipOrPadRuns(ilRuns, contentWidth, il.Align);
+                var rowRuns = new List<TermRun>();
+                rowRuns.Add(new TermRun("│", borderFg, borderBg));
+                rowRuns.AddRange(clipped);
+                rowRuns.Add(new TermRun("│", borderFg, borderBg));
+                result.Add(rowRuns);
+            }
+
+            // Body rows (scrollable)
+            for (int j = 0; j < bodyVisible; j++)
+            {
+                int contentIndex = Math.Min(totalContent - 1, bodyStart + Math.Min(Math.Max(0, bodyLen - 1), offset + j));
+                var il = innerLines[contentIndex];
+                var ilRuns = RunsFromLine(il);
+                TrimLeadingSpaces(ilRuns);
+                var clipped = ClipOrPadRuns(ilRuns, contentWidth, il.Align);
+                var rowRuns = new List<TermRun>();
+                rowRuns.Add(new TermRun("│", borderFg, borderBg));
+                rowRuns.AddRange(clipped);
+                // Right border doubles as scrollbar track for body rows when overflowing
+                char rightGlyph = scroll.Overflow ? ScrollbarGlyph(j, scroll) : '│';
+                rowRuns.Add(new TermRun(rightGlyph.ToString(), borderFg, borderBg));
+                result.Add(rowRuns);
+            }
+
+            // Footer rows (pinned, after body in innerLines)
+            int footerStart = bodyStart + bodyLen;
+            for (int k = 0; k < footerVisible; k++)
+            {
+                int idx = footerStart + k;
+                if (idx < 0 || idx >= totalContent) break;
+                var il = innerLines[idx];
+                var ilRuns = RunsFromLine(il);
+                TrimLeadingSpaces(ilRuns);
+                var clipped = ClipOrPadRuns(ilRuns, contentWidth, il.Align);
+                var rowRuns = new List<TermRun>();
+                rowRuns.Add(new TermRun("│", borderFg, borderBg));
+                rowRuns.AddRange(clipped);
+                rowRuns.Add(new TermRun("│", borderFg, borderBg));
+                result.Add(rowRuns);
+            }
+
+            // Bottom border
+            result.Add(new List<TermRun> { new TermRun("└" + new string('─', contentWidth) + "┘", borderFg, borderBg) });
+
+            return result;
+        }
+
+        // ─── Shared scroll primitives ─────────────────────────────────────────────
+
+        private readonly struct ScrollMetrics
+        {
+            public bool Overflow { get; init; }
+            public int  ThumbTop { get; init; }
+            public int  ThumbH   { get; init; }
+        }
+
+        /// <summary>Computes scrollbar thumb position and size given total/visible item counts and the current offset (from top).</summary>
+        private static ScrollMetrics ComputeScrollMetrics(int totalItems, int visibleItems, int offset)
+        {
+            if (totalItems <= visibleItems)
+                return new ScrollMetrics { Overflow = false, ThumbTop = 0, ThumbH = 1 };
+
+            int trackH      = visibleItems;
+            int thumbH      = Math.Max(1, (int)Math.Round(trackH * (visibleItems / (double)Math.Max(1, totalItems))));
+            thumbH          = Math.Min(thumbH, trackH);
+            int maxThumbTop = Math.Max(0, trackH - thumbH);
+            int scrollRange = Math.Max(1, totalItems - visibleItems);
+            int thumbTop    = (int)Math.Round(offset / (double)scrollRange * maxThumbTop);
+            thumbTop        = Math.Clamp(thumbTop, 0, maxThumbTop);
+            return new ScrollMetrics { Overflow = true, ThumbTop = thumbTop, ThumbH = thumbH };
+        }
+
+        /// <summary>Returns '█' for thumb rows and '│' for track rows.</summary>
+        private static char ScrollbarGlyph(int rowIndex, ScrollMetrics m)
+            => (rowIndex >= m.ThumbTop && rowIndex < m.ThumbTop + m.ThumbH) ? '█' : '│';
+
+        /// <summary>
+        /// Returns the scroll offset (from-top, 0 = top) given the scroll state.
+        /// autoScroll=true → pin to bottom.
+        /// requestedOffset provided → use it, then center focus if outside visible window.
+        /// requestedOffset null → default to top (0), then center focus if applicable.
+        /// focusedRelativeRow &lt; 0 disables focus-centering.
+        /// </summary>
+        private static int ResolveScrollOffset(int totalRows, int visibleRows,
+            bool autoScroll, int? requestedOffset, int focusedRelativeRow)
+        {
+            int maxOffset = Math.Max(0, totalRows - visibleRows);
+
+            if (autoScroll)
+                return maxOffset;   // pin to bottom; ignore focus when streaming
+
+            int offset = requestedOffset.HasValue ? Math.Clamp(requestedOffset.Value, 0, maxOffset) : 0;
+
+            if (focusedRelativeRow >= 0 && maxOffset > 0)
+            {
+                int visEnd = offset + visibleRows - 1;
+                if (focusedRelativeRow < offset || focusedRelativeRow > visEnd)
+                {
+                    int centered = focusedRelativeRow - visibleRows / 2;
+                    offset = Math.Clamp(centered, 0, maxOffset);
+                }
+            }
+
+            return offset;
+        }
     }
 
     /// <summary>
@@ -1792,18 +1637,13 @@ public class Terminal : CUiBase
 /// </summary>
 public sealed class TerminalInputRouter : IInputRouter
 {
-    private ConsoleKeyInfo _lastKey;
-
     /// <summary>
     /// Non-blocking poll for key input. Returns ConsoleKeyInfo if a key is available, otherwise null.
     /// </summary>
     public ConsoleKeyInfo? TryReadKey()
     {
         if (Console.KeyAvailable)
-        {
-            _lastKey = Console.ReadKey(intercept: true);
-            return _lastKey;
-        }
+            return Console.ReadKey(intercept: true);
         return null;
     }
 }
