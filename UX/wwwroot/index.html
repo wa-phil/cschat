@@ -44,7 +44,7 @@ body { overflow: hidden; background: var(--bg); color: var(--fg); }
 .bubble.tool thead th { position:sticky; top:calc(-1 * var(--pad-top)); z-index:2; background:#ddd; box-shadow:0 1px 0 #333 inset; }
 
 /* dock-bottom layout used by ChatSurface.Create(...) */
-.dock-bottom { display:flex; flex-direction:column; height:100%; min-height:0; scrollbar-gutter:stable both-edges; }
+.dock-bottom { display:flex; flex-direction:column; min-height:0; scrollbar-gutter:stable both-edges; }
 .dock-bottom > .first { flex:1; min-height:0; overflow:auto; }
 
 /* overlays container takes over the viewport and centers its children */
@@ -77,6 +77,11 @@ body { overflow: hidden; background: var(--bg); color: var(--fg); }
 
 .listview .lv-item { color:#ddd; }
 .listview .lv-item:hover { background:#111; }
+
+/* Grid layout for multi-column panels (e.g. mail client) */
+.ui-grid { flex: 1; min-height: 0; }
+.ui-grid > * { min-height: 0; overflow: hidden !important; }
+.ui-grid > * .listview { flex: 1; min-height: 0; max-height: none !important; }
 
 </style>
 </head>
@@ -160,8 +165,9 @@ body { overflow: hidden; background: var(--bg); color: var(--fg); }
         el.style.background = '#000';
         el.style.minHeight = '0';
         // Height prop: interpret as visible rows – fall back to 10
+        // rowH accounts for: 4px padding-top + ~20px text + 4px padding-bottom = 28px
         const rows = Number(p.Height ?? 10);
-        const rowH = 24; // px per row
+        const rowH = 28; // px per row
         el.style.maxHeight = Math.max(1, rows) * rowH + 8 + 'px';
         el.style.overflow = 'auto';
   
@@ -175,7 +181,7 @@ body { overflow: hidden; background: var(--bg); color: var(--fg); }
         Items(el, v){ renderListItems(el, { ...readProps(el), Items: v }); },
         SelectedIndex(el, v){ setSelected(el, Number(v)); },
         Height(el, v){
-          const rows = Number(v ?? 10); const rowH = 24;
+          const rows = Number(v ?? 10); const rowH = 28;
           el.style.maxHeight = Math.max(1, rows) * rowH + 8 + 'px';
         },
         Role(el, v){ el.dataset.role = String(v ?? '').toLowerCase(); },
@@ -209,6 +215,7 @@ body { overflow: hidden; background: var(--bg); color: var(--fg); }
       li.style.overflow = 'hidden';
       li.style.textOverflow = 'ellipsis';
       li.style.cursor = 'pointer';
+      li.style.flexShrink = '0'; // prevent flex from compressing rows below text height
       li.textContent = (raw ?? '').toString();  
 
       li.addEventListener('mouseenter', () => li.style.background = '#111');
@@ -234,7 +241,9 @@ body { overflow: hidden; background: var(--bg); color: var(--fg); }
       c.style.background = (i === el._selectedIndex) ? '#333' : 'transparent';
       c.style.color = (i === el._selectedIndex) ? '#fff' : '#ddd';
     });
-  }  
+    if(el._selectedIndex >= 0 && el.children[el._selectedIndex])
+      el.children[el._selectedIndex].scrollIntoView({ block: 'nearest' });
+  }
 
   function applyTextStyles(el, styles){
     if(styles?.ForegroundColor) el.style.color = mapConsoleColor(styles.ForegroundColor);
@@ -254,18 +263,40 @@ body { overflow: hidden; background: var(--bg); color: var(--fg); }
 
     // generic props/layout
     if(props.Width) el.style.width = props.Width;
-    if(props.Height && kind!=='Spacer') el.style.height = props.Height;
+    if(props.Height != null && kind!=='Spacer' && kind!=='ListView') {
+      const hv = typeof props.Height === 'string' ? props.Height : `${props.Height}px`;
+      el.style.height = hv;
+      if(typeof props.Height === 'string' && /v[hw]/.test(props.Height)) el.style.maxHeight = hv;
+    }
     if(props.Padding) el.style.padding = props.Padding;
     if(props.Scrollable || props.AutoScroll){ el.style.overflowY='auto'; if(props.AutoScroll) el.dataset.autoScroll='true'; }
-    if(props.Layout === 'dock-bottom'){ el.classList.add('dock-bottom'); el.style.height='100%'; el.style.minHeight='0'; }
+    if(props.Layout === 'dock-bottom'){
+      el.classList.add('dock-bottom'); el.style.minHeight='0';
+      // Only set height:100% when nested inside a container (not when this IS the flex:1 content area)
+      if(props.Role !== 'content') el.style.height='100%';
+    }
 	if(props.Role) el.dataset.role = props.Role.toString().toLowerCase();
 	if(props.Width) el.style.width = props.Width;   // already present; overlay CSS keeps a sensible max
 
     if(props.Role === 'content'){ el.style.flex='1'; el.style.minHeight='0'; }
+    if(props.Role === 'frame'){ el.style.height='100%'; el.style.width='100%'; }
 	
 	if (props.Role === 'body' || (kind==='ListView' && el.closest('[data-node-key="frame.overlays"]'))) {
 		el.dataset.role = 'body';
 		el.style.overflow = 'auto';
+	}
+	if(props.Layout === 'grid') {
+		const raw = props.Columns;
+		// GridColumns record serializes as {Columns:[{Kind:"Percent",Value:20},...]}
+		const specs = Array.isArray(raw) ? raw
+			: (raw && typeof raw === 'object' && Array.isArray(raw.Columns) ? raw.Columns : []);
+		const tpl = specs.length
+			? specs.map(c => c.Kind === 'Fr' ? `${c.Value}fr` : `${c.Value}%`).join(' ')
+			: '1fr';
+		el.classList.add('ui-grid');
+		el.style.display = 'grid';
+		el.style.gridTemplateColumns = tpl;
+		el.style.overflow = 'hidden';
 	}
 
     applyTextStyles(el, styles);

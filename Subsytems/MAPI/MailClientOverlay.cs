@@ -309,7 +309,7 @@ public static class MailClientOverlay
             BuildToolbar(),
             BuildBody(state, folders, viewH),
             Ui.Text("mail-status", state.Status).WithStyles(MailClientTheme.Status)
-        ).WithProps(new { Modal = true, Role = "overlay", Width = "100%" });
+        ).WithProps(new { Modal = true, Role = "overlay", Width = "100%", Height = "90vh" });
     }
 
     private static UiNode BuildToolbar()
