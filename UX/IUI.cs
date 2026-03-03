@@ -42,18 +42,23 @@ public interface IUi
     IRealtimeWriter BeginRealtime(string title);
 
     // progress reporting
-    string StartProgress(string title, CancellationTokenSource cts);
-    void UpdateProgress(string id, ProgressSnapshot snapshot);
-    void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown);
+    Task<string> StartProgressAsync(string title, CancellationTokenSource cts);
+    Task UpdateProgressAsync(string id, ProgressSnapshot snapshot);
+    Task CompleteProgressAsync(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown);
 
     
     IInputRouter GetInputRouter();
-    string? RenderMenu(string header, List<string> choices, int selected = 0);
+
+    /// <summary>Cancels all active progress ops. Returns true if any were active.
+    /// Called by the input loop on ESC so progress gets first claim on the key.</summary>
+    bool TryCancelActiveProgress();
+
+    Task<string?> RenderMenuAsync(string header, List<string> choices, int selected = 0);
     ConsoleKeyInfo ReadKey(bool intercept);
 
     // output
-    void RenderChatMessage(ChatMessage message);
-    void RenderChatHistory(IEnumerable<ChatMessage> messages);
+    Task RenderChatMessageAsync(ChatMessage message);
+    Task RenderChatHistoryAsync(IEnumerable<ChatMessage> messages);
 
     // low-level console-like I/O (to be removed)
     int CursorTop { get; }

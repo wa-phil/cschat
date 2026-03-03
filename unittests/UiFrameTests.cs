@@ -42,7 +42,7 @@ public class UiFrameTests
     }
 
     [Fact]
-    public void UiFrameBuilder_Create_WithOverlays_AddsOverlaysWithZIndex()
+    public void UiFrameBuilder_Create_WithOverlays_AddsOverlaysInChildOrder()
     {
         // Arrange
         var header = new UiNode("test-header", UiKind.Row, new Dictionary<UiProperty, object?>(), Array.Empty<UiNode>());
@@ -58,17 +58,14 @@ public class UiFrameTests
         var overlaysNode = frameNode.Children[2];
         Assert.Equal(2, overlaysNode.Children.Count);
 
-        // Verify first overlay has lower zIndex than second
+        // Verify overlays are ordered by child position (last child = topmost), no ZIndex prop
         var firstOverlay = overlaysNode.Children[0];
         var secondOverlay = overlaysNode.Children[1];
-        
-        Assert.True(firstOverlay.Props.ContainsKey(UiProperty.ZIndex));
-        Assert.True(secondOverlay.Props.ContainsKey(UiProperty.ZIndex));
-        
-        var firstZ = (int)firstOverlay.Props[UiProperty.ZIndex]!;
-        var secondZ = (int)secondOverlay.Props[UiProperty.ZIndex]!;
-        
-        Assert.True(secondZ > firstZ);
+
+        Assert.Equal("overlay-1", firstOverlay.Key);
+        Assert.Equal("overlay-2", secondOverlay.Key);
+        Assert.False(firstOverlay.Props.ContainsKey(UiProperty.Role) && firstOverlay.Props[UiProperty.Role]?.ToString() != "overlay");
+        Assert.False(secondOverlay.Props.ContainsKey(UiProperty.Role) && secondOverlay.Props[UiProperty.Role]?.ToString() != "overlay");
     }
 
     [Fact]
@@ -106,7 +103,6 @@ public class UiFrameTests
         Assert.Equal(int.MaxValue, op.Index); // Inserted at end
         Assert.True(op.Node.Props.ContainsKey(UiProperty.Role));
         Assert.Equal("overlay", op.Node.Props[UiProperty.Role]);
-        Assert.True(op.Node.Props.ContainsKey(UiProperty.ZIndex));
     }
 
     [Fact]

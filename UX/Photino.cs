@@ -455,7 +455,7 @@ public sealed class PhotinoUi : CUiBase
 		if (!string.IsNullOrWhiteSpace(title)) md = $"### {Escape(title)}\n\n" + md;
 		var message = new ChatMessage { Role = Roles.Tool, Content = md };
 		Program.Context.AddToolMessage(md);
-		RenderChatMessage(message);
+		_ = RenderChatMessageAsync(message);
 		return;
 
 		string Escape(string s) => s?.Replace("\n", " ").Replace("\r", " ").Replace("|", "\\|") ?? string.Empty;
@@ -467,7 +467,7 @@ public sealed class PhotinoUi : CUiBase
 		var md = report?.ToMarkdown() ?? "";
 		var message = new ChatMessage { Role = Roles.Tool, Content = md };
 		Program.Context.AddToolMessage(md);
-		RenderChatMessage(message);
+		_ = RenderChatMessageAsync(message);
 	}
 
 	public override ConsoleKeyInfo ReadKey(bool intercept)

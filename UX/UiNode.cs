@@ -81,7 +81,6 @@ public enum UiKind
 public enum UiProperty
 {
     // Semantic and layout
-    ZIndex,
     Role,
     Modal,
     Focusable,

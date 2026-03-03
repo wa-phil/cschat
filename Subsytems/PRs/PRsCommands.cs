@@ -20,7 +20,7 @@ public static class PRsCommands
                 new Command {
                     Name = "fetch", Description = () => "Fetch PRs for a profile (stale/new/closed)",
                     Action = async () => {
-                        var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
+                        var prof = await PickProfile(); if (prof is null) return Command.Result.Failed;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.prs.fetch",
                             new FetchPRsInput { ProfileName = prof.Name });
                         using var output = Program.ui.BeginRealtime("Fetching PRs...");
@@ -31,7 +31,7 @@ public static class PRsCommands
                 new Command {
                     Name = "report", Description = () => "Manager report (recent window: counts + linkable bullets)",
                     Action = async () => {
-                        var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
+                        var prof = await PickProfile(); if (prof is null) return Command.Result.Failed;
                         var winForm = UiForm.Create("Report options", new PRsWindowModel { Window = 14 });
                         winForm.AddInt<PRsWindowModel>("WindowDays", m => m.Window, (m,v)=> m.Window = v).IntBounds(1,60).WithHelp("Days back (1-60).");
                         if (!await Program.ui.ShowFormAsync(winForm)) { return Command.Result.Cancelled; }
@@ -46,9 +46,9 @@ public static class PRsCommands
                 new Command {
                     Name = "slice", Description = () => "Slice: stale/new/closed (filter & export)",
                     Action = async () => {
-                        var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
+                        var prof = await PickProfile(); if (prof is null) return Command.Result.Failed;
                         var sliceNames = new[]{"stale","new","closed"};
-                        var sel = Program.ui.RenderMenu("Pick slice:", sliceNames.ToList());
+                        var sel = await Program.ui.RenderMenuAsync("Pick slice:", sliceNames.ToList());
                         var chosen = sel ?? sliceNames[0];
                         var sliceForm = UiForm.Create("Slice options", new PRsLimitModel { Limit = 25 });
                         sliceForm.AddInt<PRsLimitModel>("Limit", m => m.Limit, (m,v)=> m.Limit = v).IntBounds(1,500).WithHelp("Max items (1-500).");
@@ -64,7 +64,7 @@ public static class PRsCommands
                 new Command {
                     Name = "coach", Description = () => "Analyze PR comment threads and suggest coaching points",
                     Action = async () => {
-                        var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
+                        var prof = await PickProfile(); if (prof is null) return Command.Result.Failed;
                         var coachForm = UiForm.Create("Coach options", new PRsMaxModel { Max = 2 });
                         coachForm.AddInt<PRsMaxModel>("MaxPerIC", m => m.Max, (m,v)=> m.Max = v).IntBounds(1,10).WithHelp("Max PRs per IC (1-10).");
                         if (!await Program.ui.ShowFormAsync(coachForm)) { return Command.Result.Cancelled; }
@@ -79,7 +79,7 @@ public static class PRsCommands
             }
         };
 
-        static PRsProfile? PickProfile()
+        static async Task<PRsProfile?> PickProfile()
         {
             var profiles = Program.userManagedData.GetItems<PRsProfile>().OrderBy(p => p.Name).ToList();
             if (profiles.Count == 0)
@@ -90,7 +90,7 @@ public static class PRsCommands
             }
             if (profiles.Count == 1) return profiles[0];
             var choices = profiles.Select(p => p.ToString()).ToList();
-            var sel = Program.ui.RenderMenu("Select PRs profile:", choices);
+            var sel = await Program.ui.RenderMenuAsync("Select PRs profile:", choices);
             if (sel == null) return null;
             var idx = choices.IndexOf(sel);
             if (idx >= 0) return profiles[idx];

@@ -144,7 +144,7 @@ public sealed class AsyncProgress
             using var pumpCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
             // Give UI the *run* CTS (so ESC cancels this run only)
-            var id = Program.ui.StartProgress(_title, runCts);
+            var id = await Program.ui.StartProgressAsync(_title, runCts);
 
             var all = items()?.ToList() ?? new List<T>();
             var sem = new SemaphoreSlim(_maxConcurrency);
@@ -159,7 +159,7 @@ public sealed class AsyncProgress
                 var t = pumpCts.Token;
                 while (!t.IsCancellationRequested)
                 {
-                    Program.ui.UpdateProgress(id, Snapshot(_title, _description, progressItems.Values.ToList(), active:true));
+                    await Program.ui.UpdateProgressAsync(id, Snapshot(_title, _description, progressItems.Values.ToList(), active:true));
                     try { await Task.Delay(100, t); } catch { /* canceled */ }
                 }
             }, pumpCts.Token);
@@ -215,7 +215,7 @@ public sealed class AsyncProgress
                 // 1. persist to chat history (do not render here -- UIs handle visuals)
                 try { Program.Context.AddToolMessage(summaryMd); } catch { /* best effort */ }
                 // 2. Tell the UI to freeze the live bubble into the artifact
-                try { Program.ui.CompleteProgress(id, final, summaryMd); } catch { /* best-effort */ }
+                try { await Program.ui.CompleteProgressAsync(id, final, summaryMd); } catch { /* best-effort */ }
                 try { if (!pump.IsCompleted) _ = pump.ContinueWith(_ => { }); } catch { }
             }
 

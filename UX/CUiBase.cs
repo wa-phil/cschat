@@ -199,7 +199,7 @@ public abstract partial class CUiBase : IUi
     protected readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _progressMap = new();
     private readonly Dictionary<string, UiNode> _progressPrevNodes = new(); // key: progress-{id}
 
-    public virtual string StartProgress(string title, CancellationTokenSource cts)
+    public virtual async Task<string> StartProgressAsync(string title, CancellationTokenSource cts)
     {
         var id = Guid.NewGuid().ToString("n");
         _progressMap[id] = cts;
@@ -221,9 +221,9 @@ public abstract partial class CUiBase : IUi
                 ));
 
                 // Use fluent builder to insert the node
-                MakePatch()
+                await MakePatch()
                     .Insert(UiFrameKeys.Messages, int.MaxValue, progressNode)
-                    .PatchAsync().GetAwaiter().GetResult();
+                    .PatchAsync();
 
                 // Cache as previous for reconciler-based updates
                 _progressPrevNodes[$"progress-{id}"] = progressNode;
@@ -237,21 +237,18 @@ public abstract partial class CUiBase : IUi
         return id;
     }
 
-    public virtual void UpdateProgress(string id, ProgressSnapshot snapshot)
+    public bool TryCancelActiveProgress()
+    {
+        if (_progressMap.IsEmpty) return false;
+        foreach (var cts in _progressMap.Values)
+            try { cts.Cancel(); } catch { }
+        return true;
+    }
+
+    public virtual async Task UpdateProgressAsync(string id, ProgressSnapshot snapshot)
     {
         try
         {
-            // Check for ESC key to cancel (delegate to platform-specific input router)
-            var router = GetInputRouter();
-            var key = router?.TryReadKey();
-            if (key.HasValue && key.Value.Key == ConsoleKey.Escape)
-            {
-                if (_progressMap.TryGetValue(id, out var cts))
-                {
-                    try { cts.Cancel(); } catch { }
-                }
-            }
-
             // Build composed progress subtree and either reconcile against existing node or insert if missing
             var nodeKey = $"progress-{id}";
             var newNode = ProgressUi.CreateNode(id, snapshot);
@@ -263,13 +260,13 @@ public abstract partial class CUiBase : IUi
                     // Try to pull from current tree as previous
                     prevNode = _uiTree.FindNode(nodeKey) ?? newNode;
                 }
-                this.ReconcileAsync(prevNode, newNode).GetAwaiter().GetResult();
+                await this.ReconcileAsync(prevNode, newNode);
                 _progressPrevNodes[nodeKey] = newNode;
             }
             else if (_uiTree.Root != null && _uiTree.FindNode(UiFrameKeys.Messages) != null)
             {
                 // Node doesn't exist yet (maybe tree was replaced) - insert it and seed cache
-                MakePatch().Insert(UiFrameKeys.Messages, int.MaxValue, newNode).PatchAsync().GetAwaiter().GetResult();
+                await MakePatch().Insert(UiFrameKeys.Messages, int.MaxValue, newNode).PatchAsync();
                 _progressPrevNodes[nodeKey] = newNode;
             }
         }
@@ -279,25 +276,25 @@ public abstract partial class CUiBase : IUi
         }
     }
 
-    public virtual void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown)
+    public virtual async Task CompleteProgressAsync(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown)
     {
-    _progressMap.TryRemove(id, out _);
-    _progressPrevNodes.Remove($"progress-{id}");
+        _progressMap.TryRemove(id, out _);
+        _progressPrevNodes.Remove($"progress-{id}");
 
         try
         {
             var nodeKey = $"progress-{id}";
-            
+
             // Remove the progress node
             if (_uiTree.Root != null && _uiTree.FindNode(nodeKey) != null)
             {
-                MakePatch()
+                await MakePatch()
                     .Remove(nodeKey)
-                    .PatchAsync().GetAwaiter().GetResult();
+                    .PatchAsync();
             }
 
             // Display the artifact as a Tool message (same as old behavior)
-            RenderChatMessage(new ChatMessage { Role = Roles.Tool, Content = artifactMarkdown });
+            await RenderChatMessageAsync(new ChatMessage { Role = Roles.Tool, Content = artifactMarkdown });
         }
         catch
         {
@@ -307,34 +304,21 @@ public abstract partial class CUiBase : IUi
 
     // Progress UI composition is implemented in ProgressUi.CreateNode
     public abstract IInputRouter GetInputRouter();
-    public string? RenderMenu(string header, List<string> choices, int selected = 0)
-    {
-        // Use MenuOverlay for UiNode-based menu rendering
-        // This is a synchronous wrapper around the async ShowAsync method
-        return MenuOverlay.ShowAsync(this, header, choices, selected).GetAwaiter().GetResult();
-    }
+    public Task<string?> RenderMenuAsync(string header, List<string> choices, int selected = 0)
+        => MenuOverlay.ShowAsync(this, header, choices, selected);
     
     public abstract ConsoleKeyInfo ReadKey(bool intercept);
-    public void RenderChatMessage(ChatMessage message)
+    public async Task RenderChatMessageAsync(ChatMessage message)
     {
-        // Use ChatSurface to render the message via patch
-        // Get current message count to determine the index
         var currentMessages = Program.Context?.Messages(InluceSystemMessage: false).ToList() ?? new List<ChatMessage>();
         var index = currentMessages.Count > 0 ? currentMessages.Count - 1 : 0;
-
-        // Apply patch to append the message
-        var patch = ChatSurface.AppendMessage(message, index);
-        PatchAsync(patch).GetAwaiter().GetResult();
+        await PatchAsync(ChatSurface.AppendMessage(message, index));
     }
 
-    public void RenderChatHistory(IEnumerable<ChatMessage> messages)
+    public async Task RenderChatHistoryAsync(IEnumerable<ChatMessage> messages)
     {
-        // Use ChatSurface to render all messages via patch
         var messageList = messages.ToList();
-
-        // Apply patch to update all messages
-        var patch = ChatSurface.UpdateMessages(messageList);
-        PatchAsync(patch).GetAwaiter().GetResult();
+        await PatchAsync(ChatSurface.UpdateMessages(messageList));
     }
         
     public abstract int CursorTop { get; }
@@ -376,7 +360,7 @@ public abstract partial class CUiBase : IUi
                     
                     // Insert as an ephemeral message in the messages panel
                     var patch = ChatSurface.InsertRealtimeMessage(_realtimeKey, _content.ToString());
-                    _ui.PatchAsync(patch).GetAwaiter().GetResult();
+                    _ = _ui.PatchAsync(patch);
                     _nodeInserted = true;
                 }
                 else
@@ -425,7 +409,7 @@ public abstract partial class CUiBase : IUi
                         // Update existing node
                         ctx.Append(Log.Data.Message, $"Updating realtime node {_realtimeKey}");
                         var patch = ChatSurface.UpsertRealtimeMessage(_realtimeKey, _content.ToString());
-                        _ui.PatchAsync(patch).GetAwaiter().GetResult();
+                        _ = _ui.PatchAsync(patch);
                         _nodeInserted = true;
                     }
                     else
@@ -433,7 +417,7 @@ public abstract partial class CUiBase : IUi
                         // Node doesn't exist (maybe tree was replaced) - insert it
                         ctx.Append(Log.Data.Message, $"Inserting realtime node {_realtimeKey}");
                         var patch = ChatSurface.InsertRealtimeMessage(_realtimeKey, _content.ToString());
-                        _ui.PatchAsync(patch).GetAwaiter().GetResult();
+                        _ = _ui.PatchAsync(patch);
                         _nodeInserted = true;
                     }
                 }
@@ -467,7 +451,7 @@ public abstract partial class CUiBase : IUi
                 {
                     // Update state to Finalized so it stays visible but won't be saved
                     var patch = ChatSurface.UpdateMessageState(_realtimeKey, ChatMessageState.Finalized);
-                    _ui.PatchAsync(patch).GetAwaiter().GetResult();
+                    _ = _ui.PatchAsync(patch);
                 }
                 catch
                 {

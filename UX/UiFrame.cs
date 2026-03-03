@@ -127,6 +127,10 @@ public sealed class UiFrameController
             // Toggle menu on ESC
             if (key.Key == ConsoleKey.Escape)
             {
+                // Progress takes priority — cancel if anything is running
+                if (_ui.TryCancelActiveProgress())
+                    continue;
+
                 if (_commands != null)
                 {
                     var choices = _commands.SubCommands
@@ -247,9 +251,7 @@ public static class UiFrameBuilder
 
         // Build overlays container
         var overlayChildren = frame.Overlays
-            .Select((overlay, idx) => AddRoleIfMissing(
-                AddZIndexIfMissing(overlay, 1000 + idx),
-                "overlay"))
+            .Select((overlay, idx) => AddRoleIfMissing(overlay, "overlay"))
             .ToList();
 
         var overlaysContainer = Ui.Column(UiFrameKeys.Overlays, overlayChildren.ToArray())
@@ -280,11 +282,7 @@ public static class UiFrameBuilder
         if (overlay == null)
             throw new ArgumentNullException(nameof(overlay));
 
-        // Note: We need to know the current overlay count to set proper zIndex
-        // For now, we'll use a high zIndex and let the caller manage order
-        var overlayWithRole = AddRoleIfMissing(
-            AddZIndexIfMissing(overlay, 2000), 
-            "overlay");
+        var overlayWithRole = AddRoleIfMissing(overlay, "overlay");
 
         // Insert at the end (highest index = topmost)
     return new UiPatchBuilder().Insert(UiFrameKeys.Overlays, int.MaxValue, overlayWithRole).Build();
@@ -327,17 +325,4 @@ public static class UiFrameBuilder
         return node with { Props = newProps };
     }
 
-    // Helper: adds zIndex prop if not present
-    private static UiNode AddZIndexIfMissing(UiNode node, int zIndex)
-    {
-        if (node.Props.ContainsKey(UiProperty.ZIndex))
-            return node;
-
-        var newProps = new Dictionary<UiProperty, object?>(node.Props)
-        {
-            [UiProperty.ZIndex] = zIndex
-        };
-
-        return node with { Props = newProps };
-    }
 }

@@ -242,36 +242,36 @@ public partial class CommandManager
                 new Command
                 {
                     Name = "display", Description = () => "Display an entry from the RAG store",
-                    Action = () =>
+                    Action = async () =>
                     {
                         if (Engine.VectorStore.IsEmpty)
                         {
                             Log.Method(ctx=>ctx.Append(Log.Data.Message, "RAG store is empty. Please add files or directories first."));
-                            return Task.FromResult(Command.Result.Success);
+                            return Command.Result.Success;
                         }
 
                         var entries = Engine.VectorStore.GetEntries();
                         var choices = entries.Select((entry, index) => $"{index}: {entry.Reference}").ToList();
 
-                        var selected = Program.ui.RenderMenu($"Select one of {Engine.VectorStore.Count} RAG Store Entries", choices);
+                        var selected = await Program.ui.RenderMenuAsync($"Select one of {Engine.VectorStore.Count} RAG Store Entries", choices);
                         if (selected == null)
                         {
                             Log.Method(ctx=>ctx.Append(Log.Data.Message, "No entry selected."));
-                            return Task.FromResult(Command.Result.Cancelled);
+                            return Command.Result.Cancelled;
                         }
 
                         int selectedIndex = int.Parse(selected.Split(':')[0]);
                         if (selectedIndex < 0 || selectedIndex >= entries.Count)
                         {
                             Log.Method(ctx=>ctx.Append(Log.Data.Message, "Invalid selection."));
-                            return Task.FromResult(Command.Result.Failed);
+                            return Command.Result.Failed;
                         }
 
                         var entry = entries[selectedIndex];
                         using var output = Program.ui.BeginRealtime($"RAG Entry: {entry.Reference}");
                         output.WriteLine(entry.Content);
 
-                        return Task.FromResult(Command.Result.Success);
+                        return Command.Result.Success;
                     }
                 },
                 new Command {

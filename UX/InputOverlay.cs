@@ -26,7 +26,7 @@ public static class ConfirmOverlay
                 Ui.Button("overlay-confirm-no",  yesDefault ? " No " : "[No] ")
                     .WithProps(new { Focusable = true })
             ).WithProps(new { Layout = "row-justify" })
-        ).WithProps(new { Modal = true, Role = "overlay", ZIndex = 5000, Width = "50%", Padding = "2" });
+        ).WithProps(new { Modal = true, Role = "overlay",Width = "50%", Padding = "2" });
     }
 
     public static async Task<bool> ShowAsync(IUi ui, string question, bool defaultAnswer = false)
@@ -92,7 +92,7 @@ public static class InputOverlay
         };
 
         return Ui.Column("overlay-input", children.ToArray())
-            .WithProps(new { Modal = true, Role = "overlay", ZIndex = 4000, Width = "60%", Padding = "2" });
+            .WithProps(new { Modal = true, Role = "overlay", Width = "60%", Padding = "2" });
     }
 
     public static async Task<string?> ShowAsync(IUi ui, string title, string? initial = null, string? placeholder = null)

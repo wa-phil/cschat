@@ -37,7 +37,7 @@ public static class ADOCommands
                                 // Build menu choices from saved queries
                                 var choices = savedQueries.Select(q => $"{q.Name} ({q.Project}) - {q.Path}").ToList();
                                 var header = "Select a saved query:\n" + new string('─', Math.Max(60, Program.ui.Width - 1));
-                                var selected = Program.ui.RenderMenu(header, choices);
+                                var selected = await Program.ui.RenderMenuAsync(header, choices);
 
                                 if (string.IsNullOrWhiteSpace(selected))
                                 {
@@ -78,7 +78,7 @@ public static class ADOCommands
                                 while (true)
                                 {
                                     // Use the existing interactive menu infra
-                                    var selectedWorkItem = Program.ui.RenderMenu(workItemHeader, workItemChoices); // returns selected row text or null
+                                    var selectedWorkItem = await Program.ui.RenderMenuAsync(workItemHeader, workItemChoices); // returns selected row text or null
                                     if (string.IsNullOrWhiteSpace(selectedWorkItem))
                                     {
                                         return Command.Result.Cancelled;
@@ -152,7 +152,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                 // Pick query
                                 var choices = savedQueries.Select(q => $"{q.Name} ({q.Project}) - {q.Path}").ToList();
                                 var header = "Select a saved query for ranking:\n" + new string('─', Math.Max(60, Program.ui.Width - 1));
-                                var selected = Program.ui.RenderMenu(header, choices);
+                                var selected = await Program.ui.RenderMenuAsync(header, choices);
                                 if (string.IsNullOrWhiteSpace(selected)) { return Command.Result.Cancelled; }
                                 var q = savedQueries[choices.IndexOf(selected)];
 
@@ -229,7 +229,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                 // Pick query
                                 var choices = savedQueries.Select(q => $"{q.Name} ({q.Project}) - {q.Path}").ToList();
                                 var header = "Select a saved query to summarize:\n" + new string('─', Math.Max(60, Program.ui.Width - 1));
-                                var selected = Program.ui.RenderMenu(header, choices);
+                                var selected = await Program.ui.RenderMenuAsync(header, choices);
                                 if (string.IsNullOrWhiteSpace(selected)) return Command.Result.Cancelled;
                                 var q = savedQueries[choices.IndexOf(selected)];
 
@@ -304,7 +304,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
 
                                 var choices = saved.Select(q => $"{q.Name} ({q.Project}) - {q.Path}").ToList();
                                 var header = "Select a saved query to triage:\n" + new string('─', Math.Max(60, Program.ui.Width - 1));
-                                var pickedStr = Program.ui.RenderMenu(header, choices);
+                                var pickedStr = await Program.ui.RenderMenuAsync(header, choices);
                                 if (string.IsNullOrWhiteSpace(pickedStr)) return Command.Result.Cancelled;
                                 var idx = choices.IndexOf(pickedStr);
                                 var picked = saved[idx];
@@ -420,7 +420,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                             var header = $"ADO Queries — {project}\nSelect a query to print its GUID (Press ESC to cancel)\n" +
                                         new string('─', Math.Max(60, Program.ui.Width - 1));
 
-                            var pick = Program.ui.RenderMenu(header, topChoices);
+                            var pick = await Program.ui.RenderMenuAsync(header, topChoices);
                             if (string.IsNullOrWhiteSpace(pick)) return Command.Result.Cancelled;
 
                             // Folder navigation loop
@@ -437,7 +437,7 @@ Be concise and include a short bullet list of actionable next steps if any.";
                                 choices.AddRange(items.Select(i => (i.IsFolder ? "📁 " : "📄 ") + i.Name));
 
                                 var head = $"{current}\n" + new string('─', Math.Max(60, Program.ui.Width - 1));
-                                var selection = Program.ui.RenderMenu(head, choices);
+                                var selection = await Program.ui.RenderMenuAsync(head, choices);
                                 if (string.IsNullOrWhiteSpace(selection)) break; // back to top-level
 
                                 if (selection.StartsWith(".."))

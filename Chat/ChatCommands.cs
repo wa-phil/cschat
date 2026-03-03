@@ -50,7 +50,7 @@ public partial class CommandManager
                         var items = Program.userManagedData.GetItems<ChatThread>()
                                 .OrderByDescending(t => t.LastUsedUtc).ToList();
 
-                        var chosen = Program.ui.RenderMenu("Switch to thread", items.Select(t => t.Name).ToList());
+                        var chosen = await Program.ui.RenderMenuAsync("Switch to thread", items.Select(t => t.Name).ToList());
                         if (string.IsNullOrEmpty(chosen)) return Command.Result.Cancelled;
                         var target = items.First(x => x.Name.Equals(chosen, StringComparison.OrdinalIgnoreCase));
 

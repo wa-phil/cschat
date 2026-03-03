@@ -38,7 +38,7 @@ public static class MailCommands
 
                         // Pick a favorite and N
                         var favChoices = favs.Select(f => f.DisplayName).ToList();
-                        var favPick = Program.ui.RenderMenu("Select a favorite folder\n" + new string('─', Math.Max(60, Program.ui.Width-1)), favChoices);
+                        var favPick = await Program.ui.RenderMenuAsync("Select a favorite folder\n" + new string('─', Math.Max(60, Program.ui.Width-1)), favChoices);
                         if (string.IsNullOrWhiteSpace(favPick)) return Command.Result.Cancelled;
 
                         int topN = Program.config.MailSettings.LookbackCount;
@@ -89,7 +89,7 @@ public static class MailCommands
                                             "From", "Date", "Subject", "First Line")+
                                         new string('─', Math.Max(60, Program.ui.Width-1));
                             var rows = ToRows(msgs);
-                            var selectedRow = Program.ui.RenderMenu(header, rows);
+                            var selectedRow = await Program.ui.RenderMenuAsync(header, rows);
                             if (string.IsNullOrWhiteSpace(selectedRow)) return Command.Result.Cancelled;
                             var idx = rows.IndexOf(selectedRow);
                             if (idx < 0) continue;
@@ -129,7 +129,7 @@ public static class MailCommands
                         }
 
                         var favChoices = favs.Select(f => f.DisplayName).ToList();
-                        var favPick = Program.ui.RenderMenu("Select a favorite folder\n" + new string('─', Math.Max(60, Program.ui.Width - 1)), favChoices);
+                        var favPick = await Program.ui.RenderMenuAsync("Select a favorite folder\n" + new string('─', Math.Max(60, Program.ui.Width - 1)), favChoices);
                         if (string.IsNullOrWhiteSpace(favPick)) return Command.Result.Cancelled;
 
                         int topN = Program.config.MailSettings.MaxEmailsToProcess;
@@ -256,7 +256,7 @@ If none of the above fits, assign 'Other'.";
                                 .Select(kv => $"{kv.Key} ({kv.Value.Count})")
                                 .ToList();
 
-                            var catPick = Program.ui.RenderMenu(
+                            var catPick = await Program.ui.RenderMenuAsync(
                                 "Select a category\n" + new string('─', Math.Max(60, Program.ui.Width - 1)),
                                 categoryChoices);
 
@@ -274,7 +274,7 @@ If none of the above fits, assign 'Other'.";
                                 $"{m.ReceivedDateTime.LocalDateTime:yyyy-MM-dd HH:mm} | {m.From?.EmailAddress} | {Utilities.TruncatePlain(m.Subject ?? string.Empty, 80)}")
                                 .ToList();
 
-                            var subjPick = Program.ui.RenderMenu(header, subjectChoices);
+                            var subjPick = await Program.ui.RenderMenuAsync(header, subjectChoices);
                             if (string.IsNullOrWhiteSpace(subjPick)) continue;
 
                             var idx = subjectChoices.IndexOf(subjPick);
@@ -306,7 +306,7 @@ If none of the above fits, assign 'Other'.";
                         while (true)
                         {
                             var rootChoices = roots.Select(r => $"{r.DisplayName} ({r.TotalItemCount}/{r.UnreadItemCount} unread)").ToList();
-                            var rootPick = Program.ui.RenderMenu("Select a root folder (ESC to exit)\n" + new string('─', Math.Max(60, Program.ui.Width-1)), rootChoices);
+                            var rootPick = await Program.ui.RenderMenuAsync("Select a root folder (ESC to exit)\n" + new string('─', Math.Max(60, Program.ui.Width-1)), rootChoices);
                             if (string.IsNullOrWhiteSpace(rootPick)) return Command.Result.Cancelled;
 
                             var root = roots[rootChoices.IndexOf(rootPick)];
@@ -321,7 +321,7 @@ If none of the above fits, assign 'Other'.";
                                 return $"{star} {sf.DisplayName} ({sf.TotalItemCount}/{sf.UnreadItemCount} unread)";
                             }).ToList();
 
-                            var subPick = Program.ui.RenderMenu("Toggle favorite with ENTER; ESC to go back\n" + new string('─', Math.Max(60, Program.ui.Width-1)), subChoices);
+                            var subPick = await Program.ui.RenderMenuAsync("Toggle favorite with ENTER; ESC to go back\n" + new string('─', Math.Max(60, Program.ui.Width-1)), subChoices);
                             if (string.IsNullOrWhiteSpace(subPick)) continue; // go back to root selection
 
                             var picked = subs[subChoices.IndexOf(subPick)];
@@ -450,7 +450,7 @@ If none of the above fits, assign 'Other'.";
             if (key.Key == ConsoleKey.Escape)
             {
                 var choices = new List<string> { "reply", "reply-all", "delete", "move" };
-                var pick = Program.ui.RenderMenu("Email actions (ESC to cancel)\n" + new string('─', Math.Max(60, Program.ui.Width - 1)), choices);
+                var pick = await Program.ui.RenderMenuAsync("Email actions (ESC to cancel)\n" + new string('─', Math.Max(60, Program.ui.Width - 1)), choices);
                 if (string.IsNullOrWhiteSpace(pick))
                 {
                     return;
@@ -481,7 +481,7 @@ If none of the above fits, assign 'Other'.";
                 {
                     var favs = Program.userManagedData.GetItems<FavoriteMailFolder>();
                     var destChoices = favs.Select(f => f.DisplayName).ToList();
-                    var dest = Program.ui.RenderMenu("Move to which favorite? (ESC to cancel)\n" + new string('─', Math.Max(60, Program.ui.Width - 1)), destChoices);
+                    var dest = await Program.ui.RenderMenuAsync("Move to which favorite? (ESC to cancel)\n" + new string('─', Math.Max(60, Program.ui.Width - 1)), destChoices);
                     if (!string.IsNullOrWhiteSpace(dest))
                     {
                         var target = await provider.GetFolderByIdOrNameAsync(dest);

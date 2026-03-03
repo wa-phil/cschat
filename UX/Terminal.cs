@@ -179,7 +179,7 @@ public class Terminal : CUiBase
         var text = sb.ToString().TrimEnd();
         var message = new ChatMessage { Role = Roles.Tool, Content = text };
         Program.Context.AddToolMessage(text);
-        RenderChatMessage(message);
+        _ = RenderChatMessageAsync(message);
     }
 
     public override void RenderReport(Report report)
@@ -188,7 +188,7 @@ public class Terminal : CUiBase
         var text = report?.ToPlainText(width) ?? "";
         var msg = new ChatMessage { Role = Roles.Tool, Content = text };
         Program.Context.AddToolMessage(text);
-        RenderChatMessage(msg);
+        _ = RenderChatMessageAsync(msg);
     }
 
     public override ConsoleKeyInfo ReadKey(bool intercept) => Console.ReadKey(intercept);
@@ -639,14 +639,8 @@ public class Terminal : CUiBase
             // Composite overlays on top (modal). Later overlays in the list have higher z-order.
             if (overlaysContainer != null && overlaysContainer.Children.Count > 0)
             {
-                // Sort by zIndex if present, stable otherwise.
-                IEnumerable<UiNode> overlayNodes = overlaysContainer.Children;
-                overlayNodes = overlayNodes
-                    .Select(n => (n, z: TryGetIntProp(n.Props, UiProperty.ZIndex) ?? 0))
-                    .OrderBy(t => t.z)
-                    .Select(t => t.n);
-
-                foreach (var overlay in overlayNodes)
+                // Stacking order is determined by child order (last child = topmost).
+                foreach (var overlay in overlaysContainer.Children)
                 {
                     CompositeOverlayBox(overlay, width, screenHeight, focusedKey, lines, keyMap);
                 }

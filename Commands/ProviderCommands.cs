@@ -14,17 +14,17 @@ public partial class CommandManager
                 new Command
                 {
                     Name = "select", Description = () => $"Select the LLM Provider [currently: {Program.config.Provider}]",
-                    Action = () =>
+                    Action = async () =>
                     {
                         var providers = Program.Providers.Keys.ToList();
-                        var selected = Program.ui.RenderMenu("Select a provider:", providers, providers.IndexOf(Program.config.Provider));
+                        var selected = await Program.ui.RenderMenuAsync("Select a provider:", providers, providers.IndexOf(Program.config.Provider));
                         if (!string.IsNullOrWhiteSpace(selected) && !selected.Equals(Program.config.Provider, StringComparison.OrdinalIgnoreCase))
                         {
                             Engine.SetProvider(selected);
                             Config.Save(Program.config, Program.ConfigFilePath);
-                            return Task.FromResult(Command.Result.Success);
+                            return Command.Result.Success;
                         }
-                        return Task.FromResult(Command.Result.Cancelled);
+                        return Command.Result.Cancelled;
                     }
                 },
                 new Command
@@ -139,10 +139,10 @@ public partial class CommandManager
                 {
                     Name = "toggle event sources",
                     Description = () => "Toggle event sources for verbose logging",
-                    Action = () =>
+                    Action = async () =>
                     {
                         var sources = Program.config.EventSources.Select(kvp => $"{kvp.Key} : {(kvp.Value ? "Enabled" : "Disabled")}").ToList();
-                        var selected = Program.ui.RenderMenu("Select an event source to toggle:", sources, -1);
+                        var selected = await Program.ui.RenderMenuAsync("Select an event source to toggle:", sources, -1);
                         if (selected != null)
                         {
                             selected = selected.Split(':')[0].Trim(); // Get the source name
@@ -150,10 +150,10 @@ public partial class CommandManager
                             {
                                 Program.config.EventSources[selected] = !enabled;
                                 Config.Save(Program.config, Program.ConfigFilePath);
-                                return Task.FromResult(Command.Result.Success);
+                                return Command.Result.Success;
                             }
                         }
-                        return Task.FromResult(Command.Result.Cancelled);
+                        return Command.Result.Cancelled;
                     }
                 }
             }

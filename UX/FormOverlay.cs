@@ -421,7 +421,7 @@ public static class FormOverlay
         );
 
         return Ui.Column("overlay-form", children.ToArray())
-            .WithProps(new { Modal = true, Role = "overlay", ZIndex = 3000, Width = "80%", Padding = "2" });
+            .WithProps(new { Modal = true, Role = "overlay",Width = "80%", Padding = "2" });
     }
 
     /// <summary>
@@ -874,7 +874,7 @@ public static class FormOverlay
         );
 
         return Ui.Column("overlay-form", children.ToArray())
-            .WithProps(new { Modal = true, Role = "overlay", ZIndex = 3000, Width = "80%", Padding = "2" });
+            .WithProps(new { Modal = true, Role = "overlay",Width = "80%", Padding = "2" });
     }
 
     private static UiNode CreateFieldInput(string fieldKey, IUiField field, string currentText)
