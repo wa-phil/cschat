@@ -11,37 +11,37 @@ html, body, #app { height: 100%; margin: 0; }
 body { overflow: hidden; background: var(--bg); color: var(--fg); }
 #app { display: block; }
 
-/* generic bubbles & tool styling kept for Tool/Report markdown */
-.bubble.tool { 
-	color:#000; 
-	--pad-top:10px; 
-	padding:var(--pad-top) 12px 10px; 
-	background:#eee; 
-	border:1px solid #eee; 
+/* generic bubbles & tool styling — dark mode */
+.bubble.tool {
+	--pad-top:10px;
+	padding:var(--pad-top) 12px 10px;
+	background:#161b22;
+	border:1px solid #30363d;
 	border-radius:10px;
-	box-sizing:border-box; 
-	max-height:65vh; 
+	box-sizing:border-box;
+	color:#e6edf3;
+	max-height:65vh;
 	min-height:220px;
-	overflow:auto; 
-	overflow-x:auto; 
+	overflow:auto;
+	overflow-x:auto;
 }
 
 .bubble.tool table { width:100%; border-collapse:collapse; table-layout:fixed; }
 .bubble.tool th, .bubble.tool td {
-	border:1px solid #333; 
-	padding:6px 8px; 
-	text-align:left; 
+	border:1px solid #30363d;
+	padding:6px 8px;
+	text-align:left;
 	vertical-align:top;
-	white-space:normal; 
-	overflow-wrap:anywhere; 
-	word-break:break-word; 
-	hyphens:auto; 
-	color:#000;
+	white-space:normal;
+	overflow-wrap:anywhere;
+	word-break:break-word;
+	hyphens:auto;
+	color:#c9d1d9;
 }
 
-.bubble.tool th { background:#ddd; }
-.bubble.tool tr:nth-child(even) td { background:#f5f5f5; }
-.bubble.tool thead th { position:sticky; top:calc(-1 * var(--pad-top)); z-index:2; background:#ddd; box-shadow:0 1px 0 #333 inset; }
+.bubble.tool th { background:#21262d; color:#f0f6fc; }
+.bubble.tool tr:nth-child(even) td { background:#1c2128; }
+.bubble.tool thead th { position:sticky; top:calc(-1 * var(--pad-top)); z-index:2; background:#21262d; box-shadow:0 1px 0 #30363d inset; }
 
 /* dock-bottom layout used by ChatSurface.Create(...) */
 .dock-bottom { display:flex; flex-direction:column; min-height:0; scrollbar-gutter:stable both-edges; }
@@ -83,6 +83,105 @@ body { overflow: hidden; background: var(--bg); color: var(--fg); }
 .ui-grid > * { min-height: 0; overflow: hidden !important; }
 .ui-grid > * .listview { flex: 1; min-height: 0; max-height: none !important; }
 
+/* Mermaid diagrams */
+.mermaid svg { max-width: 100%; height: auto; display: block; }
+
+/* ── Photino colour palette ───────────────────────────────────────────────
+   ConsoleColor names → CSS classes with dark-theme web-quality values.
+   Using classes (not inline styles) means ancestor [data-role] selectors
+   can override them naturally via specificity — no !important needed.    */
+.fg-black       { color: #1f2328; }
+.fg-darkblue    { color: #4b8bbe; }
+.fg-darkgreen   { color: #3fb950; }
+.fg-darkcyan    { color: #56b6c2; }
+.fg-darkred     { color: #e06c75; }
+.fg-darkmagenta { color: #c678dd; }
+.fg-darkyellow  { color: #e5c07b; }
+.fg-gray        { color: #9ca3af; }
+.fg-darkgray    { color: #6b7280; }
+.fg-blue        { color: #79c0ff; }
+.fg-green       { color: #56d364; }
+.fg-cyan        { color: #76e3ea; }
+.fg-red         { color: #ff7b72; }
+.fg-magenta     { color: #d2a8ff; }
+.fg-yellow      { color: #ffa657; }
+.fg-white       { color: #f0f6fc; }
+
+.bg-black     { background: #0d1117; }
+.bg-darkblue  { background: #1c2128; }
+.bg-darkgray  { background: #21262d; }
+.bg-gray      { background: #30363d; }
+
+/* ── Message bubbles ──────────────────────────────────────────────────────
+   Styled via data-role on the Column node emitted by ChatSurface.
+   [data-role] + * selectors have higher specificity (0,1,1) than .fg-*
+   classes (0,1,0), so these naturally override per-node colour classes.  */
+
+/* Shared bubble chrome */
+[data-role="user"],
+[data-role="assistant"],
+[data-role="system"],
+[data-role="tool"],
+[data-role="progress"] {
+	border-radius: 8px;
+	padding: 8px 12px;
+	border: 1px solid transparent;
+	max-width: 90%;
+	box-sizing: border-box;
+}
+
+/* User — blue pill, right-aligned */
+[data-role="user"]             { background: #1d3a6a; border-color: #2a5298; align-self: flex-end; }
+[data-role="user"],
+[data-role="user"] *           { color: #dbe9ff; }
+
+/* Assistant — dark card, left-aligned */
+[data-role="assistant"]        { background: #161b22; border-color: #30363d; }
+[data-role="assistant"],
+[data-role="assistant"] *      { color: #e6edf3; }
+
+/* System — muted, dashed */
+[data-role="system"]           { background: #1c2128; border-color: #30363d; border-style: dashed; }
+[data-role="system"],
+[data-role="system"] *         { color: #8b949e; }
+
+/* Tool — amber accent */
+[data-role="tool"]             { background: #161b22; border-color: #3d2a00; }
+[data-role="tool"],
+[data-role="tool"] *           { color: #ffa657; }
+
+/* Progress — teal accent */
+[data-role="progress"]         { background: #161b22; border-color: #003d40; }
+[data-role="progress"],
+[data-role="progress"] *       { color: #56d4dd; }
+
+/* Timestamp/role header label — smaller and dimmer than body */
+[data-role="user"]        [data-kind="Label"],
+[data-role="assistant"]   [data-kind="Label"],
+[data-role="system"]      [data-kind="Label"],
+[data-role="tool"]        [data-kind="Label"],
+[data-role="progress"]    [data-kind="Label"] {
+	font-size: 0.8em;
+	opacity: 0.6;
+}
+
+/* Strip the .bubble.tool card when nested inside a message bubble —
+   the message bubble already provides the container styling.         */
+[data-role] .bubble.tool {
+	background: transparent;
+	border: none;
+	border-radius: 0;
+	padding: 0;
+	min-height: 0;
+	max-height: none;
+	overflow: visible;
+	color: inherit;
+}
+[data-role] .bubble.tool th,
+[data-role] .bubble.tool td  { color: inherit; }
+[data-role] .bubble.tool th  { background: rgba(255,255,255,.08); }
+[data-role] .bubble.tool tr:nth-child(even) td { background: rgba(255,255,255,.04); }
+
 </style>
 </head>
 <body>
@@ -90,6 +189,7 @@ body { overflow: hidden; background: var(--bg); color: var(--fg); }
   <div id="app"></div>
 
 <script src="marked.min.js"></script>
+<script src="mermaid.min.js"></script>
 <script>
   // ----- host bridge helpers -----
   function post(obj){ try { window.external.sendMessage(JSON.stringify(obj)); } catch(e){ console.error('post failed:', e); } }
@@ -148,8 +248,16 @@ body { overflow: hidden; background: var(--bg); color: var(--fg); }
       }
     },
     Html:{ tag:'div',
-      init(el,p){ const c=p.Content||''; el.innerHTML=(typeof marked!=='undefined' && !c.trim().startsWith('<')) ? marked.parse(c) : c; el.classList.add('bubble','tool'); },
-      props:{ Content(el,v){ if(typeof v==='string'){ el.innerHTML=(typeof marked!=='undefined' && !v.trim().startsWith('<')) ? marked.parse(v) : v; } } }
+      init(el,p){
+        const c=p.Content||'';
+        el.innerHTML=(typeof marked!=='undefined' && !c.trim().startsWith('<')) ? marked.parse(c) : c;
+        el.classList.add('bubble','tool');
+        renderMermaid(el);
+      },
+      props:{ Content(el,v){ if(typeof v==='string'){
+        el.innerHTML=(typeof marked!=='undefined' && !v.trim().startsWith('<')) ? marked.parse(v) : v;
+        renderMermaid(el);
+      } } }
     },
     Spacer:{ tag:'div', init(el,p){ el.style.height = ((p.Height||1)*8)+'px'; } },
 	ListView: { tag: 'div',
@@ -245,9 +353,31 @@ body { overflow: hidden; background: var(--bg); color: var(--fg); }
       el.children[el._selectedIndex].scrollIntoView({ block: 'nearest' });
   }
 
+  // Mermaid: lazy-init once, then convert marked's <pre><code class="language-mermaid"> output
+  // to <div class="mermaid"> and ask mermaid to render them.
+  let _mermaidReady = false;
+  function renderMermaid(container) {
+    if (typeof mermaid === 'undefined') return;
+    if (!_mermaidReady) {
+      mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+      _mermaidReady = true;
+    }
+    // marked renders ```mermaid blocks as <pre><code class="language-mermaid">…</code></pre>
+    container.querySelectorAll('pre > code.language-mermaid, code.language-mermaid').forEach(code => {
+      const div = document.createElement('div');
+      div.className = 'mermaid';
+      div.textContent = code.textContent;
+      (code.parentElement.tagName === 'PRE' ? code.parentElement : code).replaceWith(div);
+    });
+    const nodes = Array.from(container.querySelectorAll('.mermaid:not([data-processed])'));
+    if (nodes.length > 0) mermaid.run({ nodes });
+  }
+
+  // CSS-class-based colour application — classes allow ancestor [data-role]
+  // rules to override via specificity without needing !important.
   function applyTextStyles(el, styles){
-    if(styles?.ForegroundColor) el.style.color = mapConsoleColor(styles.ForegroundColor);
-    if(styles?.BackgroundColor) el.style.background = mapConsoleColor(styles.BackgroundColor);
+    if(styles?.ForegroundColor) el.classList.add('fg-' + styles.ForegroundColor.toLowerCase());
+    if(styles?.BackgroundColor) el.classList.add('bg-' + styles.BackgroundColor.toLowerCase());
     if(styles?.Bold) el.style.fontWeight = 'bold';
     if(styles?.Align) el.style.textAlign = styles.Align;
     if(styles?.Wrap === false){ el.style.whiteSpace='nowrap'; el.style.overflow='hidden'; el.style.textOverflow='ellipsis'; }
@@ -377,13 +507,6 @@ body { overflow: hidden; background: var(--bg); color: var(--fg); }
         else if(op.type==='remove') removeNode(op.key);
       }catch(e){ debugLog(`[PatchControl] error: ${e.message}`); }
     }
-  }
-
-  function mapConsoleColor(c){
-    const m = { Black:'#000', DarkBlue:'#000080', DarkGreen:'#008000', DarkCyan:'#008080',
-      DarkRed:'#800000', DarkMagenta:'#800080', DarkYellow:'#808000', Gray:'#c0c0c0',
-      DarkGray:'#808080', Blue:'#00f', Green:'#0f0', Cyan:'#0ff', Red:'#f00', Magenta:'#f0f', Yellow:'#ff0', White:'#fff' };
-    return m[c] || c;
   }
 
   // Initialize minimal frame container and wire host→JS messages

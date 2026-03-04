@@ -204,6 +204,9 @@ public static class Ui
     public static UiNode Text(string key, string text) =>
         Node(key, UiKind.Label, new { Text = text });
 
+    public static UiNode Markdown(string key, string content) =>
+        Node(key, UiKind.Html, new { Content = content });
+
     public static UiNode Button(string key, string text, object? onClick = null) =>
         Node(key, UiKind.Button, new { Text = text, OnClick = onClick });
 

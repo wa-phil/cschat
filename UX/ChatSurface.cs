@@ -374,7 +374,7 @@ public static class ChatSurface
 
         return Ui.Column($"msg-{message.Id}",
                 Ui.Text($"msg-{message.Id}-header", header).WithStyles(Style.Color(color)),
-                Ui.Text($"msg-{message.Id}-content", message.Content ?? string.Empty).WithStyles(Style.Combine(Style.Color(color), Style.Wrap))
+                Ui.Markdown($"msg-{message.Id}-content", message.Content ?? string.Empty).WithStyles(Style.Combine(Style.Color(color), Style.Wrap))
             )
             .WithProps(new
             {
@@ -426,7 +426,7 @@ public static class ChatSurface
                 $"msg-{messageId}-content",
                 new Dictionary<UiProperty, object?>
                 {
-                    [UiProperty.Text] = newContent
+                    [UiProperty.Content] = newContent
                 }
             )
         );

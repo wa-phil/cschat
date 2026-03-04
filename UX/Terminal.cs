@@ -527,11 +527,26 @@ public class Terminal : CUiBase
                     }
                 },
 
-                // Html
+                // Html — shown as plain text in the terminal; respects the same styles as Label
                 [UiKind.Html] = (ctx, node) =>
                 {
-                    if (node.Props.TryGetValue(UiProperty.Content, out var htmlContent))
-                        ctx.Lines.Add(new TermLine($"{ctx.IndentStr}{htmlContent}", ConsoleColor.Gray, ConsoleColor.Black, TextAlign.Left));
+                    if (!node.Props.TryGetValue(UiProperty.Content, out var htmlContent)) return;
+                    var raw = htmlContent?.ToString() ?? string.Empty;
+                    var align = ResolveAlign(node);
+                    var wrap  = ResolveWrap(node);
+                    var fg    = ResolveFg(node, ConsoleColor.Gray);
+                    var bg    = ResolveBg(node, ConsoleColor.Black);
+                    if (wrap)
+                    {
+                        int avail = Math.Max(1, ctx.Width - ctx.Indent * 2);
+                        foreach (var seg in WrapText(raw, avail))
+                            ctx.Lines.Add(new TermLine(align == TextAlign.Center ? seg : $"{ctx.IndentStr}{seg}", fg, bg, align));
+                    }
+                    else
+                    {
+                        foreach (var part in raw.Replace("\r\n", "\n").Split('\n'))
+                            ctx.Lines.Add(new TermLine(align == TextAlign.Center ? part : $"{ctx.IndentStr}{part}", fg, bg, align));
+                    }
                 },
 
                 // Spacer
