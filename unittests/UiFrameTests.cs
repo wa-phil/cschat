@@ -21,15 +21,15 @@ public class UiFrameTests
         Assert.Equal(UiKind.Column, frameNode.Kind);
         Assert.Equal(3, frameNode.Children.Count); // header, content, overlays container
         
-        // Verify header
+        // Verify header — Create() remaps to canonical key so ReplaceHeader patches work
         var headerNode = frameNode.Children[0];
-        Assert.Equal("test-header", headerNode.Key);
+        Assert.Equal(UiFrameKeys.Header, headerNode.Key);
         Assert.True(headerNode.Props.ContainsKey(UiProperty.Role));
         Assert.Equal("header", headerNode.Props[UiProperty.Role]);
 
-        // Verify content
+        // Verify content — Create() remaps to canonical key so ReplaceContent patches work
         var contentNode = frameNode.Children[1];
-        Assert.Equal("test-content", contentNode.Key);
+        Assert.Equal(UiFrameKeys.Content, contentNode.Key);
         Assert.True(contentNode.Props.ContainsKey(UiProperty.Role));
         Assert.Equal("content", contentNode.Props[UiProperty.Role]);
 

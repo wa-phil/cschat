@@ -28,15 +28,14 @@ public partial class CommandManager
                         
                         // Create ChatSurface content for new thread
                         var chatContent = ChatSurface.Create(Array.Empty<ChatMessage>());
-                        
-                        // Wrap in UiFrame and mount
+
+                        // Wrap in UiFrame and remount via controller to keep reconciler caches in sync
                         var frame = new UiFrame(
                             Header: header,
                             Content: chatContent,
                             Overlays: Array.Empty<UiNode>()
                         );
-                        var frameRoot = UiFrameBuilder.Create(frame);
-                        await Program.ui.SetRootAsync(frameRoot, new UiControlOptions(TrapKeys: true, InitialFocusKey: "input"));
+                        await (Program.controller?.RemountAsync(frame) ?? Program.ui.SetRootAsync(UiFrameBuilder.Create(frame), new UiControlOptions(TrapKeys: true, InitialFocusKey: "input")));
                         
                         using var output = Program.ui.BeginRealtime("Creating new thread...");
                         output.WriteLine($"Switched to '{forked.Name}'.");
@@ -76,15 +75,14 @@ public partial class CommandManager
                         // Remount ChatSurface with new thread's messages
                         var messages = Program.Context.Messages(InluceSystemMessage: false).ToList();
                         var chatContent = ChatSurface.Create(messages);
-                        
-                        // Wrap in UiFrame and mount
+
+                        // Wrap in UiFrame and remount via controller to keep reconciler caches in sync
                         var frame = new UiFrame(
                             Header: header,
                             Content: chatContent,
                             Overlays: Array.Empty<UiNode>()
                         );
-                        var frameRoot = UiFrameBuilder.Create(frame);
-                        await Program.ui.SetRootAsync(frameRoot, new UiControlOptions(TrapKeys: true, InitialFocusKey: "input"));
+                        await (Program.controller?.RemountAsync(frame) ?? Program.ui.SetRootAsync(UiFrameBuilder.Create(frame), new UiControlOptions(TrapKeys: true, InitialFocusKey: "input")));
                         
                         using var output = Program.ui.BeginRealtime($"Switching from thread '{currentName}' to '{target.Name}'.");
                         return Command.Result.Success;
@@ -103,15 +101,14 @@ public partial class CommandManager
                         // Remount ChatSurface to refresh display
                         var messages = Program.Context.Messages(InluceSystemMessage: false).ToList();
                         var chatContent = ChatSurface.Create(messages);
-                        
-                        // Wrap in UiFrame and mount
+
+                        // Wrap in UiFrame and remount via controller to keep reconciler caches in sync
                         var frame = new UiFrame(
                             Header: header,
                             Content: chatContent,
                             Overlays: Array.Empty<UiNode>()
                         );
-                        var frameRoot = UiFrameBuilder.Create(frame);
-                        await Program.ui.SetRootAsync(frameRoot, new UiControlOptions(TrapKeys: true, InitialFocusKey: "input"));
+                        await (Program.controller?.RemountAsync(frame) ?? Program.ui.SetRootAsync(UiFrameBuilder.Create(frame), new UiControlOptions(TrapKeys: true, InitialFocusKey: "input")));
                         
                         return Command.Result.Success;
                     }

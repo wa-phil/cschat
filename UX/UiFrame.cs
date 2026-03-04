@@ -102,9 +102,9 @@ public sealed class UiFrameController
         await _ui.SetRootAsync(root, new UiControlOptions(TrapKeys: true, InitialFocusKey: "input"));
         _chatState.FocusKey = "input";
 
-        // Seed previous subtrees for future reconciler diffs
-        _prevHeaderNode = header;
-        _prevContentNode = content;
+        // Seed previous subtrees for future reconciler diffs using canonical frame keys
+        _prevHeaderNode = header with { Key = UiFrameKeys.Header };
+        _prevContentNode = content with { Key = UiFrameKeys.Content };
     }
 
     /// <summary>
@@ -113,12 +113,14 @@ public sealed class UiFrameController
     /// </summary>
     public async Task RunLoopAsync()
     {
-        while (true)
+        var ct = _ui.ShutdownToken;
+        while (!ct.IsCancellationRequested)
         {
             var maybeKey = _inputRouter.TryReadKey();
             if (maybeKey is null)
             {
-                await Task.Delay(10);
+                try { await Task.Delay(10, ct); }
+                catch (OperationCanceledException) { break; }
                 continue;
             }
 
@@ -167,7 +169,11 @@ public sealed class UiFrameController
 
             if (action == ChatSurface.ChatInputAction.Submit)
             {
-                var submittedText = _chatState.Text;
+                // In Photino mode, text edits arrive as change events (not keystrokes),
+                // so _chatState.Text may be empty. Fall back to the router's pending text.
+                var submittedText = string.IsNullOrEmpty(_chatState.Text)
+                    ? (_inputRouter.ConsumePendingText() ?? _chatState.Text)
+                    : _chatState.Text;
                 if (!string.IsNullOrWhiteSpace(submittedText))
                 {
                     await ChatSurface.ProcessChatInputAsync(
@@ -196,13 +202,29 @@ public sealed class UiFrameController
     }
 
     /// <summary>
+    /// Remounts the frame from a new UiFrame (e.g. after thread switch) and resets
+    /// the reconciler caches so subsequent UpdateHeaderAsync/UpdateContentAsync work correctly.
+    /// Use this instead of calling Program.ui.SetRootAsync directly.
+    /// </summary>
+    public async Task RemountAsync(UiFrame frame)
+    {
+        if (frame == null) throw new ArgumentNullException(nameof(frame));
+        var root = UiFrameBuilder.Create(frame);
+        await _ui.SetRootAsync(root, new UiControlOptions(TrapKeys: true, InitialFocusKey: "input"));
+        _chatState = new ChatSurface.ChatInputState { FocusKey = "input" };
+        _prevHeaderNode = frame.Header with { Key = UiFrameKeys.Header };
+        _prevContentNode = frame.Content with { Key = UiFrameKeys.Content };
+    }
+
+    /// <summary>
     /// Reconcile header against previous header subtree and patch minimal changes.
     /// </summary>
     public async Task UpdateHeaderAsync(UiNode nextHeader)
     {
         if (nextHeader == null) throw new ArgumentNullException(nameof(nextHeader));
-    await _ui.ReconcileAsync(_prevHeaderNode, nextHeader);
-        _prevHeaderNode = nextHeader;
+        var remapped = nextHeader with { Key = UiFrameKeys.Header };
+        await _ui.ReconcileAsync(_prevHeaderNode, remapped);
+        _prevHeaderNode = remapped;
     }
 
     /// <summary>
@@ -211,8 +233,9 @@ public sealed class UiFrameController
     public async Task UpdateContentAsync(UiNode nextContent)
     {
         if (nextContent == null) throw new ArgumentNullException(nameof(nextContent));
-        await _ui.ReconcileAsync(_prevContentNode, nextContent);
-        _prevContentNode = nextContent;
+        var remapped = nextContent with { Key = UiFrameKeys.Content };
+        await _ui.ReconcileAsync(_prevContentNode, remapped);
+        _prevContentNode = remapped;
     }
 }
 
@@ -243,11 +266,11 @@ public static class UiFrameBuilder
         if (frame == null)
             throw new ArgumentNullException(nameof(frame));
 
-        // Build header with role prop
-        var headerWithRole = AddRoleIfMissing(frame.Header, "header");
+        // Build header with canonical key and role prop
+        var headerWithRole = AddRoleIfMissing(frame.Header, "header") with { Key = UiFrameKeys.Header };
 
-        // Build content with role prop
-        var contentWithRole = AddRoleIfMissing(frame.Content, "content");
+        // Build content with canonical key and role prop
+        var contentWithRole = AddRoleIfMissing(frame.Content, "content") with { Key = UiFrameKeys.Content };
 
         // Build overlays container
         var overlayChildren = frame.Overlays

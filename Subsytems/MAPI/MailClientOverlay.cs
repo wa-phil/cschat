@@ -143,9 +143,9 @@ public static class MailClientOverlay
                     // Email action menu; if cancelled, stay in reading pane
                     next = await HandleActionsAsync(ui, provider, state, folders);
                 }
-                else if (state.Panel == ActivePanel.ReadingPane)
+                else if (state.Panel == ActivePanel.MessageList)
                 {
-                    next = state with { Panel = ActivePanel.MessageList };
+                    next = state with { Panel = ActivePanel.Sidebar };
                 }
                 else
                 {

@@ -14,6 +14,13 @@ public abstract partial class CUiBase : IUi
     protected readonly UiNodeTree _uiTree = new();
     protected UiControlOptions? _controlOptions;
 
+    /// <summary>
+    /// Fires when the UI host is shutting down. Override in platform implementations
+    /// that have an explicit close signal (e.g. Photino window close).
+    /// Terminal exits via Environment.Exit so this is never cancelled there.
+    /// </summary>
+    public virtual CancellationToken ShutdownToken => CancellationToken.None;
+
     // ========== Declarative Control Layer (Shared) ==========
 
     /// <summary>

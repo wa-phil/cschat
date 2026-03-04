@@ -70,7 +70,7 @@ public static class ChatSurface
             try { await Program.ui.FocusAsync("input"); } catch { /* best effort */ }
         };
 
-        return Ui.Column("chat-root",
+        return Ui.Column(UiFrameKeys.Content,
             messagesPanel,
             Ui.Spacer("spacer", new { Height = 1 }),
             CreateComposer(string.Empty, onSend, onInput)
@@ -110,7 +110,7 @@ public static class ChatSurface
             .WithProps(new { Scrollable = true, AutoScroll = true })
             .ForEach(vm.Messages.Select((msg, index) => (msg, index)), t => CreateMessageNode(t.msg, t.index));
 
-        var root = Ui.Column("chat-root",
+        var root = Ui.Column(UiFrameKeys.Content,
             messagesPanel,
             Ui.Spacer("spacer", new { Height = 1 }),
             CreateComposer(vm.InputText, onSend, onInput)
@@ -336,7 +336,7 @@ public static class ChatSurface
     {
         var title = string.IsNullOrEmpty(threadName) ? "Chat" : $"Chat: {threadName}";
 
-        return Ui.Row("header")
+        return Ui.Row(UiFrameKeys.Header)
             .WithChildren(
                 Ui.Text("thread-title", title)
                     .WithStyles(Style.Combine(Style.AlignCenter, Style.Color(ConsoleColor.Cyan))),
@@ -521,7 +521,7 @@ public static class ChatSurface
                 $"msg-{key}-content",
                 new Dictionary<UiProperty, object?>
                 {
-                    [UiProperty.Text] = content
+                    [UiProperty.Content] = content
                 }
             )
         );

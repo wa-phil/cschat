@@ -45,10 +45,15 @@ public sealed class PhotinoUi : CUiBase
 	public PhotinoUi(string title = "CSChat") { _title = title; }
 	private string IndexHtmlPath => Path.Combine(AppContext.BaseDirectory, "UX/wwwroot", "index.html");
 	private readonly string _title;
+	private readonly CancellationTokenSource _shutdownCts = new();
+	public override CancellationToken ShutdownToken => _shutdownCts.Token;
 
 	private void NudgeWaitersAndStop()
 	{
 		_tcsKey?.TrySetResult(new ConsoleKeyInfo('\0', ConsoleKey.Escape, false, false, false));
+
+		// Signal shutdown to RunLoopAsync so it can exit cleanly
+		try { _shutdownCts.Cancel(); } catch { }
 
 		// Complete channels to stop pumps
 		try { _tx.Writer.TryComplete(); } catch { }
@@ -669,6 +674,7 @@ public sealed class PhotinoUi : CUiBase
 public sealed class PhotinoInputRouter : IInputRouter
 {
     private string _currentInputText = "";
+    private string? _pendingSubmitText;
     private readonly Queue<ConsoleKeyInfo> _keyQueue = new();
     private ConsoleKeyInfo _lastKey;
 
@@ -701,6 +707,17 @@ public sealed class PhotinoInputRouter : IInputRouter
     }
 
     /// <summary>
+    /// Returns the text captured from the last GUI submit event and clears it.
+    /// Used by RunLoopAsync when _chatState.Text is empty (Photino doesn't track text via keystrokes).
+    /// </summary>
+    public string? ConsumePendingText()
+    {
+        var text = _pendingSubmitText;
+        _pendingSubmitText = null;
+        return text;
+    }
+
+    /// <summary>
     /// Called when a ControlEvent is received from the web view
     /// This is wired up in PhotinoUi.HandleInbound (ControlEvent case)
     /// </summary>
@@ -715,9 +732,8 @@ public sealed class PhotinoInputRouter : IInputRouter
         // Handle submit events (Enter key or Send button click)
 		else if ((key == "input" && eventName == "enter") || (key == UiFrameKeys.SendButton && eventName == "click"))
         {
-            var textToSubmit = _currentInputText;
-            
-            // Also enqueue synthetic Enter key for TryReadKey consumers
+            // Capture the current text for RunLoopAsync to consume on Submit
+            _pendingSubmitText = _currentInputText;
             EnqueueKey(new ConsoleKeyInfo('\r', ConsoleKey.Enter, false, false, false));
         }
         

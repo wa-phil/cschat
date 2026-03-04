@@ -25,6 +25,12 @@ public interface IInputRouter
     /// Backend must not block the caller. The actual key processing is deferred to the UI layer.
     /// </summary>
     ConsoleKeyInfo? TryReadKey();
+
+    /// <summary>
+    /// Returns pending submitted text captured from a GUI event (e.g. Photino change events),
+    /// clearing the pending value. Returns null in terminal mode where text is tracked via keystrokes.
+    /// </summary>
+    string? ConsumePendingText() => null;
 }
 
 public interface IUi
@@ -80,6 +86,12 @@ public interface IUi
 
     // lets each UI decide how to run/pump itself
     Task RunAsync(Func<Task> appMain);
+
+    /// <summary>
+    /// Cancellation token that fires when the UI host is shutting down (e.g. Photino window closed).
+    /// Terminal mode returns CancellationToken.None (process exits via Environment.Exit).
+    /// </summary>
+    CancellationToken ShutdownToken { get; }
 
     // Declarative control layer (UiNode/UiPatch)
     /// <summary>

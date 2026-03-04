@@ -21,6 +21,7 @@ public static class Program
     public static SubsystemManager SubsystemManager = null!;
     public static UserManagedData userManagedData = null!;
     public static IUi ui = new Terminal();
+    public static UiFrameController? controller;
 
     static Dictionary<string, Type> DictionaryOfTypesToNamesForInterface<T>(ServiceCollection serviceCollection, IEnumerable<Type> types)
         where T : class
@@ -220,6 +221,7 @@ public static class Program
                 // Mount the chat surface early so realtime output can be displayed properly
                 var inputRouter = ui.GetInputRouter();
                 var controller = new UiFrameController(ui, inputRouter, Context, config);
+                Program.controller = controller;
                 await controller.InitializeAsync(); // Mounts the chat surface
                 
                 // Now run initialization with realtime output
