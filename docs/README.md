@@ -38,6 +38,7 @@ CSChat is an interactive C# console/GUI chat client for LLM servers (Ollama and 
 | [rag.md](rag.md) | Full RAG pipeline: chunkers, vector store, graph store, file types |
 | [tools.md](tools.md) | ITool interface, ToolRegistry, built-in tools, Planner |
 | [ux.md](ux.md) | IUi abstraction, Terminal, Photino, Progress, UiForm |
+| [UxRefactor.md](UxRefactor.md) | **Feature spec:** declarative UiNode/UiPatch control layer, ChatSurface, frame model, overlays — status, what works, what remains |
 | [chat.md](chat.md) | Chat thread management: ChatThread, ChatManager, ChatCommands |
 | [commands.md](commands.md) | CommandManager tree, all command group files |
 | [json.md](json.md) | Custom JSON parser/writer (no external dependency) |

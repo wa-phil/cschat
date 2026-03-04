@@ -8,24 +8,24 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 
-public sealed class PhotinoUi : IUi
+public sealed class PhotinoUi : CUiBase
 {
 	private class BoolBox { public bool Answer { get; set; } }
 	private PhotinoWindow? _win;
 	private Thread? _uiThread;
-	private readonly Queue<string> _outbox = new();
-	private readonly object _gate = new();
+	// Outbound and inbound message channels
+	private readonly Channel<string> _tx = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+	private readonly Channel<string> _rx = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+	private Task? _txPumpTask;
+	private Task? _rxPumpTask;
+	private int _txStarted = 0; // 0 = not started, 1 = started
 
-	private volatile bool _ready = false;
-	private volatile bool _uiAlive = false;
-
-	private TaskCompletionSource<string?>? _tcsReadLine;
-	private TaskCompletionSource<string?>? _tcsMenu;
 	private TaskCompletionSource<ConsoleKeyInfo>? _tcsKey;
-	private TaskCompletionSource<Dictionary<string,string?>?>? _tcsForm;
 
 	private readonly IFilePicker _picker = FilePicker.Create();
+	private PhotinoInputRouter? _inputRouter;
 
 	private int _width = 120;
 	private int _height = 40;
@@ -33,40 +33,7 @@ public sealed class PhotinoUi : IUi
 	private ConsoleColor _bg = ConsoleColor.Black;
 	private string? _lastInput;
 
-	private sealed class PhotinoRealtimeWriter : IRealtimeWriter
-	{
-		private readonly PhotinoUi _ui;
-		private readonly string _id;
-		private bool _closed;
-
-		public PhotinoRealtimeWriter(PhotinoUi ui, string title)
-		{
-			_ui = ui;
-			_id = Guid.NewGuid().ToString("n");
-			_ui.Post(new { type = "StartRealtime", id = _id, title });
-		}
-
-		public void Write(string text)
-		{
-			if (_closed) return;
-			_ui.Post(new { type = "RealtimeAppend", id = _id, text = text ?? "", newline = false });
-		}
-
-		public void WriteLine(string? text = null)
-		{
-			if (_closed) return;
-			_ui.Post(new { type = "RealtimeAppend", id = _id, text = text ?? "", newline = true });
-		}
-
-		public void Dispose()
-		{
-			if (_closed) return;
-			_closed = true;
-			_ui.Post(new { type = "RealtimeComplete", id = _id });
-		}
-	}
-
-	public Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
+	public override Task<bool> ConfirmAsync(string question, bool defaultAnswer = false)
 	{
 		var model = new BoolBox { Answer = defaultAnswer };
 		var form = UiForm.Create(question, model);
@@ -78,16 +45,22 @@ public sealed class PhotinoUi : IUi
 	public PhotinoUi(string title = "CSChat") { _title = title; }
 	private string IndexHtmlPath => Path.Combine(AppContext.BaseDirectory, "UX/wwwroot", "index.html");
 	private readonly string _title;
+	private readonly CancellationTokenSource _shutdownCts = new();
+	public override CancellationToken ShutdownToken => _shutdownCts.Token;
 
 	private void NudgeWaitersAndStop()
 	{
-		_uiAlive = false;
-		_tcsReadLine?.TrySetResult(null);
-		_tcsMenu?.TrySetResult(null);
 		_tcsKey?.TrySetResult(new ConsoleKeyInfo('\0', ConsoleKey.Escape, false, false, false));
+
+		// Signal shutdown to RunLoopAsync so it can exit cleanly
+		try { _shutdownCts.Cancel(); } catch { }
+
+		// Complete channels to stop pumps
+		try { _tx.Writer.TryComplete(); } catch { }
+		try { _rx.Writer.TryComplete(); } catch { }
 	}
 
-	public async Task RunAsync(Func<Task> appMain)
+	public override async Task RunAsync(Func<Task> appMain)
 	{
 		if (OperatingSystem.IsWindows())
 		{
@@ -141,18 +114,24 @@ public sealed class PhotinoUi : IUi
 					.SetTitle(_title)
 					.SetUseOsDefaultSize(true)
 					.SetResizable(true)
+					.SetDevToolsEnabled(true)  // Enable F12 developer tools
 					.Center();
 
 			_win.RegisterWindowClosingHandler((s, e) => { NudgeWaitersAndStop(); return false; });
+
+			// Start inbound pump and register handler BEFORE loading HTML so window.external is available
+			_rxPumpTask = Task.Run(PumpInboundAsync);
+			_win.RegisterWebMessageReceivedHandler((sender, raw) =>
+			{
+				// Enqueue inbound messages for processing on background pump
+				_rx.Writer.TryWrite(raw);
+			});
 
 			if (File.Exists(IndexHtmlPath))
 			{
 				_win.Load(IndexHtmlPath);
 			}
 
-			_win.RegisterWebMessageReceivedHandler((sender, raw) => HandleInbound(raw));
-
-			_uiAlive = true;
 			if (OperatingSystem.IsWindows()) { uiReady!.Set(); }
 			// Block the main thread here
 			_win.WaitForClose();
@@ -160,7 +139,6 @@ public sealed class PhotinoUi : IUi
 		finally
 		{
 			NudgeWaitersAndStop();
-			_uiAlive = false;
 			if (OperatingSystem.IsWindows())
 			{
 				uiExited!.Set();
@@ -172,8 +150,8 @@ public sealed class PhotinoUi : IUi
 		}
 		return;
 	}
-	
-	public Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt)
+
+	public override Task<IReadOnlyList<string>> PickFilesAsync(FilePickerOptions opt)
 	{
 		var tcs = new TaskCompletionSource<IReadOnlyList<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -199,45 +177,12 @@ public sealed class PhotinoUi : IUi
 
 		return tcs.Task;
 	}
-	
-    private readonly ConcurrentDictionary<string, CancellationTokenSource> _progressMap = new();
-
-    public string StartProgress(string title, CancellationTokenSource cts)
-	{
-        var id = Guid.NewGuid().ToString("n");
-		Post(new { type = "StartProgress", id, title, cancellable = true });
-        _progressMap[id] = cts;
-
-        return id;
-	}
-
-	public void UpdateProgress(string id, ProgressSnapshot snapshot)
-	{
-		Post(new {
-			type = "UpdateProgress", id,
-			items = snapshot.Items.Select(x => new { name = x.name, percent = x.percent, state = x.state.ToString(), note = x.note, done = x.steps.done, total = x.steps.total }).ToList(),
-			stats = new { snapshot.Stats.running, snapshot.Stats.queued, snapshot.Stats.completed, snapshot.Stats.failed, snapshot.Stats.canceled },
-			eta = snapshot.EtaHint, active = snapshot.IsActive
-		});
-	}
-
-    public void CompleteProgress(string id, ProgressSnapshot finalSnapshot, string artifactMarkdown)
-	{
-		Post(new { type = "CompleteProgress", id, artifact = artifactMarkdown });
-        _progressMap.TryRemove(id, out _);
-	}
 
 	private void HandleInbound(string raw) => Log.Method(ctx =>
 	{
 		ctx.OnlyEmitOnFailure();
 		try
 		{
-			if (!_ready)
-			{
-				_ready = true; SafeFlush();
-				SafeFlush();
-			}
-
 			var map = JSONParser.FromJson<Dictionary<string, object?>>(raw);
 			if (map is null) return;
 
@@ -273,45 +218,57 @@ public sealed class PhotinoUi : IUi
 
 			switch (type)
 			{
-				case "OpenExternal":
-				{
-					var url = S("url", "href", "Url", "Href");
-					if (!string.IsNullOrWhiteSpace(url))
+				case "Ready":
 					{
-						try
+						Log.Method(ctx =>
 						{
-							// Launch with the default handler (browser, mail client, etc.)
-							Process.Start(new ProcessStartInfo
+							ctx.Append(Log.Data.Message, "Received Ready from JS");
+							ctx.Succeeded();
+						});
+						// Start outbound pump exactly once, then send an immediate ack and ticks
+						if (System.Threading.Interlocked.Exchange(ref _txStarted, 1) == 0)
+						{
+							_txPumpTask = Task.Run(PumpAsync);
+						}
+						Post(new { type = "Debug", message = "Host Ack Ready" });
+						_ = Task.Run(async () =>
+						{
+							for (int i = 1; i <= 3; i++)
 							{
-								FileName = url,
-								UseShellExecute = true
-							});
-						}
-						catch (Exception ex)
-						{
-							// Optional: surface a tiny error toast/log if you want
-							WriteLine($"Failed to open link: {ex.Message}");
-						}
+								await Task.Delay(500);
+								Post(new { type = "Debug", message = $"Host Tick {i}" });
+							}
+						});
+						break;
 					}
-					break;
-				}
+				case "OpenExternal":
+					{
+						var url = S("url", "href", "Url", "Href");
+						if (!string.IsNullOrWhiteSpace(url))
+						{
+							try
+							{
+								// Launch with the default handler (browser, mail client, etc.)
+								Process.Start(new ProcessStartInfo
+								{
+									FileName = url,
+									UseShellExecute = true
+								});
+							}
+							catch (Exception ex)
+							{
+								// Optional: surface a tiny error toast/log if you want
+								WriteLine($"Failed to open link: {ex.Message}");
+							}
+						}
+						break;
+					}
 
-				case "CancelProgress":
-				{
-					var pid = S("id","Id");
-					if (!string.IsNullOrWhiteSpace(pid) && _progressMap.TryGetValue(pid, out var cts))
-						try { cts.Cancel(); } catch { }
-					break;
-				}
+				// CancelProgress no longer used; ESC key cancels via input router
 
 				case "UserText":
-					_tcsReadLine?.TrySetResult(S("text", "Text"));
 					if (!string.IsNullOrWhiteSpace(S("text", "Text")))
 						_lastInput = S("text", "Text");
-					break;
-
-				case "MenuResult":
-					_tcsMenu?.TrySetResult(S("text", "Text"));
 					break;
 
 				case "Key":
@@ -320,6 +277,9 @@ public sealed class PhotinoUi : IUi
 						var chr = S("char", "Char");
 						var cki = MapToConsoleKeyInfo(key, chr, B("shift", "Shift"), B("ctrl", "Ctrl"), B("alt", "Alt"));
 						_tcsKey?.TrySetResult(cki);
+						
+						// Also enqueue to the input router's key queue for TryReadKey
+						_inputRouter?.EnqueueKey(cki);
 						break;
 					}
 
@@ -328,18 +288,14 @@ public sealed class PhotinoUi : IUi
 					var h = I("height", "Height"); if (h > 0) _height = h;
 					break;
 
-				case "FormResult":
+				case "Debug":
 					{
-						// map: { ok: bool, values?: { "Label": "stringValue", ... } }
-						bool ok = B("ok", "OK");
-						if (!ok) { _tcsForm?.TrySetResult(null); break; }
-
-						var dict = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-						if (map.TryGetValue("values", out var v) && v is Dictionary<string, object?> dv)
+						var msg = S("message", "msg", "text") ?? "<no message>";
+						Log.Method(ctx =>
 						{
-							foreach (var kv in dv) dict[kv.Key] = Convert.ToString(kv.Value);
-						}
-						_tcsForm?.TrySetResult(dict);
+							ctx.Append(Log.Data.Message, msg);
+							ctx.Succeeded();
+						});
 						break;
 					}
 
@@ -395,6 +351,68 @@ public sealed class PhotinoUi : IUi
 
 						break;
 					}
+
+				case "ControlEvent":
+					{
+						// payload: { type:"ControlEvent", key:"node-key", name:"click"|"change"|"enter", value?:"..." }
+						var key = S("key", "Key");
+						var name = S("name", "Name");
+						var value = S("value", "Value");
+
+						if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(name))
+							break;
+
+						// Route composer input/send-btn events to InputRouter if active
+						// This handles the unified I/O stack for ChatSurface integration
+						if (_inputRouter != null && (key == "input" || key == UiFrameKeys.SendButton))
+						{
+							_inputRouter.HandleControlEvent(key, name, value);
+							break;
+						}
+
+						// (e.g., ReadInputWithFeaturesAsync before full InputRouter migration)
+						if ((key == "input" && name == "enter") || (key == UiFrameKeys.SendButton && name == "click"))
+						{
+							if (!string.IsNullOrWhiteSpace(value))
+								_lastInput = value;
+							break;
+						}
+
+						// For all other ControlEvents, find and invoke the UiNode event handler
+						var node = _uiTree.FindNode(key);
+						if (node == null)
+							break;
+
+						// Map event name to handler property key (UiProperty)
+						UiProperty? handlerProp = name switch
+						{
+							"click" => UiProperty.OnClick,
+							"change" => UiProperty.OnChange,
+							"enter" => UiProperty.OnEnter,
+							"toggle" => UiProperty.OnToggle,
+							"itemActivated" => UiProperty.OnItemActivated,
+							_ => null
+						};
+
+						if (handlerProp.HasValue && node.Props.TryGetValue(handlerProp.Value, out var handlerObj) && handlerObj is UiHandler handler)
+						{
+							var evt = new UiEvent(key, name, value, null);
+							// Invoke the handler asynchronously
+							_ = Task.Run(async () =>
+							{
+								try
+								{
+									await handler(evt);
+								}
+								catch (Exception ex)
+								{
+									Log.Method(ctx => ctx.Failed($"Error in UiEvent handler for {key}.{name}", ex));
+								}
+							});
+						}
+
+						break;
+					}
 			}
 
 			ctx.Succeeded();
@@ -406,120 +424,17 @@ public sealed class PhotinoUi : IUi
 		}
 	});
 
-	// ------------ High-level I/O -------------
-	public async Task<bool> ShowFormAsync(UiForm form)
-	{
-		while (true)
-		{
-			_tcsForm = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-			var fields = new List<object>();
-			foreach (var f in form.Fields)
-			{
-				var current = f.Formatter(form.Model);
-				fields.Add(new {
-					key = f.Key,
-					label = f.Label,
-					kind = f.Kind.ToString(),
-					required = f.Required,
-					help = f.Help,
-					placeholder = f.Placeholder,
-					pattern = f.Pattern,
-					patternMessage = f.PatternMessage,
-					pathMode = f.PathMode.ToString(),
-					current,
-					min = f.MinInt(),
-					max = f.MaxInt(),
-					choices = f.EnumChoices()
-				});
-			}
-
-			Post(new { type = "ShowForm", title = form.Title, fields });
-
-			var values = await _tcsForm.Task;
-			if (values is null) return false; // cancelled
-
-			bool allOk = true;
-
-			// 1) per-field application
-			foreach (var f in form.Fields)
-			{
-				values.TryGetValue(f.Key, out var raw);
-				if (!f.TrySetFromString(form.Model!, raw, out var err))
-				{
-					allOk = false;
-					Post(new { type = "FormError", key = f.Key, message = err });        // keep dialog open
-				}
-			}
-
-			// 2) optional form-level validation
-			if (allOk && form.Validate is not null)
-			{
-				var errs = form.Validate(form.Model!);
-				foreach (var (key, message) in errs ?? Array.Empty<(string,string)>())
-				{
-					allOk = false;
-					Post(new { type = "FormError", key, message });
-				}
-			}
-
-			if (allOk)
-			{
-				Post(new { type = "FocusInput" }); // return focus to composer after closing form
-				return true;
-			}
-			// else: loop; user fixes inline and re-submits
-		}
-	}
-
 	// ---------- Input ----------
-	public async Task<string?> ReadInputWithFeaturesAsync(CommandManager commandManager)
+	public override IInputRouter GetInputRouter()
 	{
-		_tcsReadLine = new(TaskCreationOptions.RunContinuationsAsynchronously);
-		Post(new { type = "FocusInput" });
-
-		_ = Task.Run(async () =>
+		if (_inputRouter == null)
 		{
-			var keyWait = ReadKeyInternalAsync(intercept: true);
-			while (_uiAlive)
-			{
-				var k = await keyWait;
-				if (k.Key == ConsoleKey.Escape)
-				{
-					var result = await commandManager.Action();
-					// TODO: maybe find another/better way to do this...  if (result == Command.Result.Failed) WriteLine("Command failed.");
-					Post(new { type = "FocusInput" });
-				}
-				keyWait = ReadKeyInternalAsync(intercept: true);
-			}
-		});
-
-		var text = await _tcsReadLine.Task;
-		return string.IsNullOrWhiteSpace(text) ? null : text;
+			_inputRouter = new PhotinoInputRouter();
+		}
+		return _inputRouter;
 	}
 
-	public async Task<string?> ReadPathWithAutocompleteAsync(bool isDirectory) => await Log.MethodAsync(async ctx =>
-	{
-		var results = await PickFilesAsync(new FilePickerOptions(Multi: false, Filters: null, Mode: PathPickerMode.OpenExisting));
-		ctx.Append(Log.Data.Result, results.Count == 0 ? "<empty>" : string.Join(", ", results));
-		if (results.Count == 0)
-		{
-			ctx.Append(Log.Data.Message, "user cancelled");
-			ctx.Succeeded(); 
-			return null;
-		}
-		var path = results[0];
-		if (isDirectory && !Directory.Exists(path) || !isDirectory && !File.Exists(path))
-		{
-			ctx.Append(Log.Data.Message, "path does not exist");
-			ctx.Succeeded();
-			return null;
-		}
-		ctx.Succeeded();
-		return path;
-	});
-
-	public void RenderTable(Table table, string? title = null)
+	public override async Task RenderTableAsync(Table table, string? title = null)
 	{
 		var sb = new StringBuilder();
 
@@ -545,34 +460,25 @@ public sealed class PhotinoUi : IUi
 		if (!string.IsNullOrWhiteSpace(title)) md = $"### {Escape(title)}\n\n" + md;
 		var message = new ChatMessage { Role = Roles.Tool, Content = md };
 		Program.Context.AddToolMessage(md);
-		RenderChatMessage(message);
+		await RenderChatMessageAsync(message);
 		return;
-		
+
 		string Escape(string s) => s?.Replace("\n", " ").Replace("\r", " ").Replace("|", "\\|") ?? string.Empty;
 	}
 
-	public string? RenderMenu(string header, List<string> choices, int selected = 0)
-	{
-		_tcsMenu = new(TaskCreationOptions.RunContinuationsAsynchronously);
-		Post(new { type = "ShowMenu", header, choices, selected });
-		return _tcsMenu.Task.GetAwaiter().GetResult();
-	}
-
-	public void RenderReport(Report report)
+	public override async Task RenderReportAsync(Report report)
 	{
 		// Photino renders as markdown tool bubble
 		var md = report?.ToMarkdown() ?? "";
 		var message = new ChatMessage { Role = Roles.Tool, Content = md };
 		Program.Context.AddToolMessage(md);
-		RenderChatMessage(message);
+		await RenderChatMessageAsync(message);
 	}
 
-	public IRealtimeWriter BeginRealtime(string title) => new PhotinoRealtimeWriter(this, title ?? "Output");
+	public override Task<ConsoleKeyInfo> ReadKeyAsync(bool intercept)
+		=> ReadKeyInternalAsync(intercept);
 
-	public ConsoleKeyInfo ReadKey(bool intercept)
-			=> ReadKeyInternalAsync(intercept).GetAwaiter().GetResult();
-
-	private Task<ConsoleKeyInfo> ReadKeyInternalAsync(bool intercept)
+	internal Task<ConsoleKeyInfo> ReadKeyInternalAsync(bool intercept)
 	{
 		_tcsKey = new(TaskCreationOptions.RunContinuationsAsynchronously);
 		Post(new { type = "CaptureKey", intercept });
@@ -580,60 +486,52 @@ public sealed class PhotinoUi : IUi
 	}
 
 	// ---------- Output ----------
-	public void RenderChatMessage(ChatMessage message)
-			=> Post(new { type = "AppendMessage", role = message.Role.ToString(), content = message.Content, timestamp = message.CreatedAt });
-	public void RenderChatHistory(IEnumerable<ChatMessage> messages)
-			=> Post(new
-			{
-				type = "RenderHistory",
-				items = messages.Select(m => new { role = m.Role.ToString(), content = m.Content, timestamp = m.CreatedAt }).ToList()
-			});
 
-	public void Write(string text) => Post(new { type = "ConsoleWrite", text = text ?? "" });
-	public void WriteLine(string? text = null) => Post(new { type = "ConsoleWriteLine", text = text ?? "" });
-	public void Clear() => Post(new { type = "Clear" });
+	public override void Write(string text) => Post(new { type = "ConsoleWrite", text = text ?? "" });
+	public override void WriteLine(string? text = null) => Post(new { type = "ConsoleWriteLine", text = text ?? "" });
+	public override void Clear() => Post(new { type = "Clear" });
 
 	// ---------- Console-ish ----------
-	public int CursorTop => 0;
-	public int CursorLeft => 0;
-	public int Width => _width;
-	public int Height => _height;
-	public bool KeyAvailable => false;
-	public bool IsOutputRedirected => true;
-	public bool CursorVisible { set { } }
-	public void SetCursorPosition(int left, int top) { }
-	public ConsoleColor ForegroundColor { get => _fg; set => _fg = value; }
-	public ConsoleColor BackgroundColor { get => _bg; set => _bg = value; }
-	public void ResetColor() { _fg = ConsoleColor.Gray; _bg = ConsoleColor.Black; }
+	public override int CursorTop => 0;
+	public override int Width => _width;
+	public override int Height => _height;
+	public override bool KeyAvailable => false;
+	public override bool IsOutputRedirected => true;
+	public override void SetCursorPosition(int left, int top) { }
+	public override ConsoleColor ForegroundColor { get => _fg; set => _fg = value; }
+	public override ConsoleColor BackgroundColor { get => _bg; set => _bg = value; }
+	public override void ResetColor() { _fg = ConsoleColor.Gray; _bg = ConsoleColor.Black; }
 
 	// ---------- Internals ----------
 	private void Post(object payload)
 	{
+		// Serialize and enqueue; the pump will deliver when the webview is ready
 		var json = payload.ToJson();
-		lock (_gate) { _outbox.Enqueue(json); }
-		SafeFlush();
+		_tx.Writer.TryWrite(json);
 	}
 
-	private void SafeFlush()
+	private async Task PumpAsync()
 	{
-		if (!_uiAlive || _win is null || !_ready) return;
-		try
+		await foreach (var msg in _tx.Reader.ReadAllAsync())
 		{
-			_win.Invoke(() =>
+			var win = _win;
+			if (win is null) continue;
+			try
 			{
-				lock (_gate)
-				{
-					while (_outbox.Count > 0)
-					{
-						var json = _outbox.Dequeue();
-						_win.SendWebMessage(json);
-					}
-				}
-			});
+				win.Invoke(() => win.SendWebMessage(msg));
+			}
+			catch
+			{
+				// UI going down or unavailable
+			}
 		}
-		catch
+	}
+
+	private async Task PumpInboundAsync()
+	{
+		await foreach (var raw in _rx.Reader.ReadAllAsync())
 		{
-			// UI going down
+			HandleInbound(raw);
 		}
 	}
 
@@ -644,19 +542,19 @@ public sealed class PhotinoUi : IUi
 
 		var parsed = (key ?? string.Empty) switch
 		{
-			"Enter"					=> ConsoleKey.Enter,
-			"Escape"				=> ConsoleKey.Escape,
-			"Backspace"				=> ConsoleKey.Backspace,
-			"Tab"					=> ConsoleKey.Tab,
-			"Up" or "ArrowUp" 		=> ConsoleKey.UpArrow,
-			"Down" or "ArrowDown" 	=> ConsoleKey.DownArrow,
-			"Left" or "ArrowLeft" 	=> ConsoleKey.LeftArrow,
+			"Enter" => ConsoleKey.Enter,
+			"Escape" => ConsoleKey.Escape,
+			"Backspace" => ConsoleKey.Backspace,
+			"Tab" => ConsoleKey.Tab,
+			"Up" or "ArrowUp" => ConsoleKey.UpArrow,
+			"Down" or "ArrowDown" => ConsoleKey.DownArrow,
+			"Left" or "ArrowLeft" => ConsoleKey.LeftArrow,
 			"Right" or "ArrowRight" => ConsoleKey.RightArrow,
-			"Home"					=> ConsoleKey.Home,
-			"End"					=> ConsoleKey.End,
-			"PageUp"				=> ConsoleKey.PageUp,
-			"PageDown"				=> ConsoleKey.PageDown,
-			"Delete"				=> ConsoleKey.Delete,
+			"Home" => ConsoleKey.Home,
+			"End" => ConsoleKey.End,
+			"PageUp" => ConsoleKey.PageUp,
+			"PageDown" => ConsoleKey.PageDown,
+			"Delete" => ConsoleKey.Delete,
 			_ when !string.IsNullOrEmpty(key) && key!.Length == 1 &&
 					Enum.TryParse<ConsoleKey>(key.ToUpper(), out var pk) => pk,
 			_ => default
@@ -664,4 +562,185 @@ public sealed class PhotinoUi : IUi
 
 		return new ConsoleKeyInfo(c, parsed, shift, alt, ctrl);
 	}
+
+	// Declarative control layer - override base implementations for Photino-specific rendering
+	
+	protected override Task PostSetRootAsync(UiNode root, UiControlOptions options)
+	{
+		// Convert the tree into a series of ReplaceOp patches. JavaScript 
+		// already has frame.root created in initializeRootContainer()
+		
+		// Replace frame.root with the new root tree
+		var patch = new UiPatch(new ReplaceOp(UiFrameKeys.Root, root));
+		
+		// Send the patch to mount the tree
+		var result = PostPatchAsync(patch);
+
+		return result;
+	}
+
+	protected override Task PostPatchAsync(UiPatch patch)
+	{
+		// Queue patches - they will be flushed once _ready is true
+		// Build ops list manually to avoid any LINQ generic inference issues (previous CS0411)
+		var ops = new List<object>(patch.Ops.Length);
+		foreach (var op in patch.Ops)
+		{
+			switch (op)
+			{
+				case ReplaceOp replaceOp:
+					ops.Add(new { type = "replace", key = replaceOp.Key, node = SerializeNode(replaceOp.Node) });
+					break;
+				case UpdatePropsOp updatePropsOp:
+					// Convert UiProperty enum keys to strings
+					var propsDict = new Dictionary<string, object?>();
+					foreach (var kvp in updatePropsOp.Props)
+					{
+						propsDict[kvp.Key.ToString()] = kvp.Value;
+					}
+					ops.Add(new { type = "updateProps", key = updatePropsOp.Key, props = propsDict });
+					break;
+				case InsertChildOp insertChildOp:
+					ops.Add(new { type = "insertChild", parentKey = insertChildOp.ParentKey, index = insertChildOp.Index, node = SerializeNode(insertChildOp.Node) });
+					break;
+				case RemoveOp removeOp:
+					ops.Add(new { type = "remove", key = removeOp.Key });
+					break;
+				default:
+					throw new InvalidOperationException($"Unknown operation type: {op.GetType().Name}");
+			}
+		}
+
+		// Send patch message to the web view
+		var json = new { type = "PatchControl", patch = new { ops } };
+		Post(json);
+		return Task.CompletedTask;
+	}
+
+	protected override Task PostFocusAsync(string key)
+	{
+		// Queue the focus message - it will be flushed once _ready is true
+		// Send focus message to the web view
+		Post(new { type = "FocusControl", key });
+
+		return Task.CompletedTask;
+	}
+
+	/// <summary>
+	/// Serializes a UiNode to an object suitable for JSON transmission to the web view
+	/// </summary>
+	private object SerializeNode(UiNode node)
+	{
+		// Build children list
+		var childList = new List<object>(node.Children.Count);
+		foreach (var c in node.Children)
+		{
+			childList.Add(SerializeNode(c));
+		}
+
+		// Serialize props as a dictionary with string keys (property names)
+		var propsDict = new Dictionary<string, object?>();
+		foreach (var kvp in node.Props)
+		{
+			var propName = kvp.Key.ToString(); // Convert enum to string
+			propsDict[propName] = kvp.Value;
+		}
+
+		// Serialize styles if present
+		var stylesDict = new Dictionary<string, object?>();
+		if (node.Styles != null && node.Styles != UiStyles.Empty)
+		{
+			foreach (var kvp in node.Styles.Values)
+			{
+				var styleName = kvp.Key.ToString();
+				stylesDict[styleName] = kvp.Value;
+			}
+		}
+
+		return new
+		{
+			key = node.Key,
+			kind = node.Kind.ToString(),
+			props = propsDict,
+			styles = stylesDict.Count > 0 ? stylesDict : null,
+			children = childList
+		};
+	}
+}
+
+/// <summary>
+/// Photino implementation of IInputRouter
+/// </summary>
+public sealed class PhotinoInputRouter : IInputRouter
+{
+    private string _currentInputText = "";
+    private string? _pendingSubmitText;
+    private readonly Queue<ConsoleKeyInfo> _keyQueue = new();
+    private ConsoleKeyInfo _lastKey;
+
+	/// <summary>
+	/// Non-blocking poll for key input. For Photino, this returns the next synthetic key from the queue
+	/// or null if no keys are available.
+	/// </summary>
+	public ConsoleKeyInfo? TryReadKey()
+	{
+		lock (_keyQueue)
+		{
+			if (_keyQueue.Count > 0)
+			{
+				_lastKey = _keyQueue.Dequeue();
+				return _lastKey;
+			}
+		}
+		return null;
+	}
+
+    /// <summary>
+    /// Enqueues a synthetic key (called from web view events)
+    /// </summary>
+    internal void EnqueueKey(ConsoleKeyInfo key)
+    {
+        lock (_keyQueue)
+        {
+            _keyQueue.Enqueue(key);
+        }
+    }
+
+    /// <summary>
+    /// Returns the text captured from the last GUI submit event and clears it.
+    /// Used by RunLoopAsync when _chatState.Text is empty (Photino doesn't track text via keystrokes).
+    /// </summary>
+    public string? ConsumePendingText()
+    {
+        var text = _pendingSubmitText;
+        _pendingSubmitText = null;
+        return text;
+    }
+
+    /// <summary>
+    /// Called when a ControlEvent is received from the web view
+    /// This is wired up in PhotinoUi.HandleInbound (ControlEvent case)
+    /// </summary>
+    public void HandleControlEvent(string key, string eventName, string? value)
+    {
+        // Handle input change events
+        if (eventName == "change" && key == "input")
+        {
+            _currentInputText = value ?? "";
+        }
+        
+        // Handle submit events (Enter key or Send button click)
+		else if ((key == "input" && eventName == "enter") || (key == UiFrameKeys.SendButton && eventName == "click"))
+        {
+            // Capture the current text for RunLoopAsync to consume on Submit
+            _pendingSubmitText = _currentInputText;
+            EnqueueKey(new ConsoleKeyInfo('\r', ConsoleKey.Enter, false, false, false));
+        }
+        
+        // Handle cancel/escape
+        else if (eventName == "escape")
+        {
+            EnqueueKey(new ConsoleKeyInfo('\0', ConsoleKey.Escape, false, false, false));
+        }
+    }
 }

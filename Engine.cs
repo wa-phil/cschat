@@ -247,7 +247,7 @@ public static class Engine
         // If you want an extra assistant message beyond the artifact:
         if (failures.Count > 0)
         {
-            Program.ui.RenderChatMessage(new ChatMessage {
+            await Program.ui.RenderChatMessageAsync(new ChatMessage {
                 Role = Roles.Assistant,
                 Content = $"Finished with {failures.Count} failures."
             });
@@ -393,7 +393,7 @@ public static class Engine
             return null;
         }
 
-        var selected = Program.ui.RenderMenu("Available models:", models, models.IndexOf(Program.config.Model));
+        var selected = await Program.ui.RenderMenuAsync("Available models:", models, models.IndexOf(Program.config.Model));
         ctx.Append(Log.Data.Model, selected ?? "<nothing>");
         ctx.Succeeded();
         return selected;

@@ -59,7 +59,7 @@ public static class KustoCommands
                     Description = () => "Fetch & cache schema for a config; seed it into chat context",
                     Action = async () =>
                     {
-                        var cfg = PickConfig();
+                        var cfg = await PickConfig();
                         if (cfg is null) return Command.Result.Failed;
                         using var output = Program.ui.BeginRealtime($"Fetching schema for {cfg.Name}...");
 
@@ -77,7 +77,7 @@ public static class KustoCommands
                     Action = async () =>
                     {
                         await Task.Yield();
-                        var cfg = PickConfig();
+                        var cfg = await PickConfig();
                         using var output = Program.ui.BeginRealtime("List saved queries...");
                         if (cfg is null)
                         {
@@ -105,13 +105,13 @@ public static class KustoCommands
                     Action = async () => await Log.MethodAsync(async ctx=>
                     {
                         ctx.OnlyEmitOnFailure();
-                        var cfg = PickConfig();
+                        var cfg = await PickConfig();
                         if (cfg is null) return Command.Result.Failed;
-                        var q = PickQuery(cfg);
+                        var q = await PickQuery(cfg);
                         if (q is null) return Command.Result.Failed;
 
                         var table = await kusto.QueryAsync(cfg, q.Kql);
-                        Program.ui.RenderTable(table, $"Results: {cfg.Name} / {q.Name}");
+                        await Program.ui.RenderTableAsync(table, $"Results: {cfg.Name} / {q.Name}");
 
                         var exportForm = UiForm.Create("Export results", new ExportModel { Format = "none", Path = "results.txt" });
                         exportForm.AddChoice<ExportModel>("Format", new[]{"none","csv","json"}, m => m.Format, (m,v)=> m.Format = v);
@@ -139,7 +139,7 @@ public static class KustoCommands
                         }
 
                         Program.userManagedData.UpdateItem(cfg, x => x.Name.Equals(cfg.Name, StringComparison.OrdinalIgnoreCase));
-                        Program.ui.RenderTable(table, $"Results: {cfg.Name} / {q.Name}");
+                        await Program.ui.RenderTableAsync(table, $"Results: {cfg.Name} / {q.Name}");
                         await ContextManager.AddContent(table.ToCsv(), $"kusto/{cfg.Name}/results/{q.Name}");
                         ctx.Succeeded(exportSucceed);
                         return Command.Result.Success;
@@ -152,7 +152,7 @@ public static class KustoCommands
                     Action = async () =>
                     {
                         await Task.Yield();
-                        var cfg = PickConfig();
+                        var cfg = await PickConfig();
                         if (cfg is null) return Command.Result.Failed;
 
                         var saveForm = UiForm.Create("Save query", new SaveQueryModel { Name = "", Description = "" });
@@ -189,7 +189,7 @@ public static class KustoCommands
                     Description = () => "Run an ad-hoc KQL against a config (optionally save)",
                     Action = async () =>
                     {
-                        var cfg = PickConfig();
+                        var cfg = await PickConfig();
                         if (cfg is null) return Command.Result.Failed;
 
                         // Collect adhoc KQL via a form
@@ -199,7 +199,7 @@ public static class KustoCommands
                         var kql = ((KqlInputModel)adhocForm.Model!).Kql;
 
                         var table = await kusto.QueryAsync(cfg, kql);
-                        Program.ui.RenderTable(table, $"Results: {cfg.Name} / __adhoc__");
+                        await Program.ui.RenderTableAsync(table, $"Results: {cfg.Name} / __adhoc__");
                         await ContextManager.AddContent(table.ToCsv(), $"kusto/{cfg.Name}/results/__adhoc__");
 
                         if (await Program.ui.ConfirmAsync("Save this as a named query?", false))
@@ -231,9 +231,9 @@ public static class KustoCommands
                     Action = async () =>
                     {
                         await Task.Yield();
-                        var cfg = PickConfig();
+                        var cfg = await PickConfig();
                         if (cfg is null) return Command.Result.Failed;
-                        var q = PickQuery(cfg);
+                        var q = await PickQuery(cfg);
                         if (q is null) return Command.Result.Failed;
 
                         cfg.Queries.RemoveAll(x => x.Name.Equals(q.Name, StringComparison.OrdinalIgnoreCase));
@@ -245,7 +245,7 @@ public static class KustoCommands
         };
 
         // ----- local helpers -----
-        static KustoConfig? PickConfig()
+        static async Task<KustoConfig?> PickConfig()
         {
             var configs = Program.userManagedData.GetItems<KustoConfig>().OrderBy(c => c.Name).ToList();
             if (configs.Count == 0)
@@ -257,7 +257,7 @@ public static class KustoCommands
             if (configs.Count == 1) return configs[0];
 
             var choices = configs.Select(c => $"{c.Name} @ {c.ClusterUri} | {c.Database}").ToList();
-            var sel = Program.ui.RenderMenu("Select config:", choices);
+            var sel = await Program.ui.RenderMenuAsync("Select config:", choices);
             if (sel == null) return null;
             var idx = choices.IndexOf(sel);
             if (idx >= 0) return configs[idx];
@@ -267,7 +267,7 @@ public static class KustoCommands
             return configs.FirstOrDefault(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         }
 
-        static KustoQuery? PickQuery(KustoConfig cfg)
+        static async Task<KustoQuery?> PickQuery(KustoConfig cfg)
         {
             if (cfg.Queries.Count == 0)
             {
@@ -278,7 +278,7 @@ public static class KustoCommands
             if (list.Count == 1) return list[0];
 
             var choices = list.Select(q => $"{q.Name} — {q.Description}").ToList();
-            var sel = Program.ui.RenderMenu($"Select query for {cfg.Name}:", choices);
+            var sel = await Program.ui.RenderMenuAsync($"Select query for {cfg.Name}:", choices);
             if (sel == null) return null;
             var idx = choices.IndexOf(sel);
             if (idx >= 0) return list[idx];

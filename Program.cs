@@ -8,7 +8,7 @@ using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text;
 
-static class Program
+public static class Program
 {
     public static string ConfigFilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
     public static Config config = null!;
@@ -21,6 +21,7 @@ static class Program
     public static SubsystemManager SubsystemManager = null!;
     public static UserManagedData userManagedData = null!;
     public static IUi ui = new Terminal();
+    public static UiFrameController? controller;
 
     static Dictionary<string, Type> DictionaryOfTypesToNamesForInterface<T>(ServiceCollection serviceCollection, IEnumerable<Type> types)
         where T : class
@@ -83,7 +84,7 @@ static class Program
         Environment.CurrentDirectory = Program.config.DefaultDirectory;
     }
 
-    public static async Task InitProgramAsync()
+    public static async Task InitProgramAsync(IRealtimeWriter output)
     {
         Context = new Context(config.SystemPrompt);
         ToolRegistry.Initialize();
@@ -125,7 +126,7 @@ static class Program
 
         // Ensure Engine has up-to-date list
         Engine.RefreshSupportedFileTypesFromUserManaged();
-        SubsystemManager.Connect();
+        SubsystemManager.Connect(output);
 
         // initialize chat manager to monitor thread deletions, load last active thread or create a new one
         Directory.CreateDirectory(Program.config.ChatThreadSettings.RootDirectory);
@@ -176,8 +177,6 @@ static class Program
     [STAThread]
     static async Task Main(string[] args)
     {
-        Console.WriteLine($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
-
         Startup();
 
         bool showHelp = false;
@@ -201,7 +200,6 @@ static class Program
         switch (config.UiMode)
         {
             case UiMode.Terminal:
-                Console.WriteLine("Using terminal UI mode.");
                 ui = new Terminal();
                 break;
             case UiMode.Gui:
@@ -217,59 +215,55 @@ static class Program
             // ----- Run the application loop via the UI -----
             await ui.RunAsync(async () =>
             {
-                await InitProgramAsync();
-
-                if (string.IsNullOrWhiteSpace(config.Model))
+                // Initialize a minimal context first (needed for chat surface)
+                Context = new Context(config.SystemPrompt);
+                
+                // Mount the chat surface early so realtime output can be displayed properly
+                var inputRouter = ui.GetInputRouter();
+                var controller = new UiFrameController(ui, inputRouter, Context, config);
+                Program.controller = controller;
+                await controller.InitializeAsync(); // Mounts the chat surface
+                
+                // Now run initialization with realtime output
+                using (IRealtimeWriter output = ui.BeginRealtime($"Console# Chat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})"))
                 {
-                    var selected = await Engine.SelectModelAsync();
-                    if (selected == null) return;
-                    config.Model = selected;
-                }
+                    await InitProgramAsync(output);
 
-                Config.Save(config, ConfigFilePath);
+                    if (string.IsNullOrWhiteSpace(config.Model))
+                    {
+                        var selected = await Engine.SelectModelAsync();
+                        if (selected == null) return;
+                        config.Model = selected;
+                    }
 
-                {
-                    using var output = ui.BeginRealtime("Chat Session");
+                    Config.Save(config, ConfigFilePath);
+
                     output.WriteLine($"Connecting to {config.Provider} at {config.Host} using model '{config.Model}'");
                     output.WriteLine("Type your message and press Enter. Press the ESC key for the menu.");
                     output.WriteLine();
                 }
 
-                // Render existing chat history from the loaded thread
-                ui.RenderChatHistory(Context.Messages());
+                // Attach the initialized command manager, update the controller's context reference to 
+                // the loaded one, and then refresh the chat surface with loaded messages from the thread
+                controller.SetCommandManager(commandManager);                
+                controller.UpdateContext(Context);
+                await controller.RefreshMessagesAsync();
 
-                while (true)
-                {
-                    if (UiMode.Terminal == config.UiMode) ui.Write("> ");
-                    var userInput = await ui.ReadInputWithFeaturesAsync(commandManager);
-
-                    // IMPORTANT: when the Photino window closes, ReadInput... returns null -> exit loop
-                    if (userInput is null) break;
-
-                    if (string.IsNullOrWhiteSpace(userInput)) continue;
-
-                    // Add and render user message with proper formatting
-                    Context.AddUserMessage(userInput);
-                    var userMessage = Context.Messages().Last(); // Get the message we just added
-                    ui.RenderChatMessage(userMessage);
-
-                    var (response, updatedContext) = await Engine.PostChatAsync(Context);
-                    var assistantMessage = new ChatMessage { Role = Roles.Assistant, Content = response, CreatedAt = DateTime.Now };
-                    ui.RenderChatMessage(assistantMessage);
-                    Context = updatedContext;
-                    Context.AddAssistantMessage(response);
-                }
+                await controller.RunLoopAsync();
             });
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Exception: {ex.Message}");
-            Console.WriteLine("Log Entries:");
+            // write crash data to crash.txt in the current directory
+            var crashFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash.txt");
+            using var writer = new StreamWriter(crashFile, append: true);
+            writer.WriteLine($"----- Crash at {DateTime.Now} -----");
+            writer.WriteLine("Chat History:");
+            Context.Messages().ToList().ForEach(msg => writer.WriteLine($"{msg.Role}: {msg.Content}"));
             var entries = Log.GetOutput().ToList();
-            Console.WriteLine($"Log Entries [{entries.Count}]:");
-            entries.ToList().ForEach(entry => Console.WriteLine(entry));
-            Console.WriteLine("Chat History:");
-            ui.RenderChatHistory(Context.Messages());
+            writer.WriteLine($"Log Entries [{entries.Count}]:");
+            entries.ToList().ForEach(entry => writer.WriteLine(entry));
+            writer.WriteLine($"Exception: {ex.Message}");
             throw; // unhandled exceptions result in a stack trace in the Program.ui.
         }
         finally

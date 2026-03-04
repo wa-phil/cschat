@@ -112,7 +112,7 @@ public static class DataCommands
                     }
 
                     // pick
-                    var selected = Program.ui.RenderMenu($"Select {metadata.Name} to update:", items.Select((o,i)=>$"{i}: {o}").ToList());
+                    var selected = await Program.ui.RenderMenuAsync($"Select {metadata.Name} to update:", items.Select((o,i)=>$"{i}: {o}").ToList());
                     if (selected == null)
                     {
                         ctx.Append(Log.Data.Message, "User cancelled selection");
@@ -282,7 +282,7 @@ public static class DataCommands
 
                     // Use the menu system to select an item to delete
                     var choices = itemList.Select((item, index) => $"{index}: {item}").ToList();
-                    var selected = Program.ui.RenderMenu(
+                    var selected = await Program.ui.RenderMenuAsync(
                         $"Select {metadata.Name} to delete:",
                         choices
                     );

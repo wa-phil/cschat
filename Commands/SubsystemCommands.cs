@@ -10,7 +10,7 @@ public partial class CommandManager
         return new Command
         {
             Name = "Subsystem", Description = () => "Enable/disable subsystem state",    
-            Action = () => Log.Method(ctx =>
+            Action = () => Log.MethodAsync(async ctx =>
             {
                 ctx.OnlyEmitOnFailure();
                 // use menu to select subsystem
@@ -18,27 +18,27 @@ public partial class CommandManager
                 if (!subsystems.Any())
                 {
                     ctx.Append(Log.Data.Message, "No subsystems available to toggle.");
-                    return Task.FromResult(Command.Result.Success);
+                    return Command.Result.Success;
                 }
 
-                var selected = Program.ui.RenderMenu("select subsystem to toggle",subsystems.Select(s => $"{s} : [{(Program.SubsystemManager.IsEnabled(s)?"enabled":"disabled")}]").ToList());
+                var selected = await Program.ui.RenderMenuAsync("select subsystem to toggle",subsystems.Select(s => $"{s} : [{(Program.SubsystemManager.IsEnabled(s)?"enabled":"disabled")}]").ToList());
                 if (string.IsNullOrWhiteSpace(selected))
                 {
                     ctx.Append(Log.Data.Message, "No subsystem selected.");
                     ctx.Succeeded();
-                    return Task.FromResult(Command.Result.Cancelled);
+                    return Command.Result.Cancelled;
                 }
                 var name = selected.Split(':').FirstOrDefault()?.Trim();
                 if (string.IsNullOrWhiteSpace(name))
                 {
                     ctx.Append(Log.Data.Message, "Invalid subsystem name.");
-                    return Task.FromResult(Command.Result.Cancelled);
+                    return Command.Result.Cancelled;
                 }
                 Program.SubsystemManager.SetEnabled(name, !Program.SubsystemManager.IsEnabled(name));
                 Config.Save(Program.config, Program.ConfigFilePath);
                 ctx.Append(Log.Data.Message, $"Subsystem '{name}' is now {(Program.SubsystemManager.IsEnabled(name) ? "enabled" : "disabled")}.");
                 ctx.Succeeded();
-                return Task.FromResult(Command.Result.Success);
+                return Command.Result.Success;
             })
         };
     }

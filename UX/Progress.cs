@@ -144,7 +144,7 @@ public sealed class AsyncProgress
             using var pumpCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
             // Give UI the *run* CTS (so ESC cancels this run only)
-            var id = Program.ui.StartProgress(_title, runCts);
+            var id = await Program.ui.StartProgressAsync(_title, runCts);
 
             var all = items()?.ToList() ?? new List<T>();
             var sem = new SemaphoreSlim(_maxConcurrency);
@@ -159,7 +159,7 @@ public sealed class AsyncProgress
                 var t = pumpCts.Token;
                 while (!t.IsCancellationRequested)
                 {
-                    Program.ui.UpdateProgress(id, Snapshot(_title, _description, progressItems.Values.ToList(), active:true));
+                    await Program.ui.UpdateProgressAsync(id, Snapshot(_title, _description, progressItems.Values.ToList(), active:true));
                     try { await Task.Delay(100, t); } catch { /* canceled */ }
                 }
             }, pumpCts.Token);
@@ -172,9 +172,12 @@ public sealed class AsyncProgress
                     var pi = new ProgressItem(nameOf(item));
                     progressItems[item!] = pi;
 
-                    await sem.WaitAsync(ct);
+                    bool acquired = false;
                     try
                     {
+                        await sem.WaitAsync(ct);
+                        acquired = true;
+
                         var result = await processAsync(item, pi, ct);
 
                         // if the worker didn’t set a total, guarantee a completion transition
@@ -184,6 +187,7 @@ public sealed class AsyncProgress
                     }
                     catch (OperationCanceledException)
                     {
+                        // Swallow OCE to avoid bubbling to WhenAll; mark item canceled
                         pi.Cancel("canceled");
                         failures.Add((pi.Name, "canceled"));
                     }
@@ -194,7 +198,7 @@ public sealed class AsyncProgress
                     }
                     finally
                     {
-                        sem.Release();
+                        if (acquired) sem.Release();
                     }
                 }).ToList();
 
@@ -211,7 +215,7 @@ public sealed class AsyncProgress
                 // 1. persist to chat history (do not render here -- UIs handle visuals)
                 try { Program.Context.AddToolMessage(summaryMd); } catch { /* best effort */ }
                 // 2. Tell the UI to freeze the live bubble into the artifact
-                try { Program.ui.CompleteProgress(id, final, summaryMd); } catch { /* best-effort */ }
+                try { await Program.ui.CompleteProgressAsync(id, final, summaryMd); } catch { /* best-effort */ }
                 try { if (!pump.IsCompleted) _ = pump.ContinueWith(_ => { }); } catch { }
             }
 
@@ -274,5 +278,79 @@ $@"**{s.Title+(string.IsNullOrWhiteSpace(s.Description) ? "" : $": {s.Descriptio
 
 {(f>0 ? ("### Failed items\n" + string.Join("\n", failedList) + moreLine) : "_No failures._")}";
         }
+    }
+}
+
+/// <summary>
+/// UI composition helpers for Progress. Builds a backend-agnostic UiNode subtree
+/// for rendering progress as generic nodes (Column/Row/Label).
+/// </summary>
+public static class ProgressUi
+{
+    /// <summary>
+    /// Create a composed progress node with header (title + stats/eta), items list, and footer hint.
+    /// Root node key: "progress-{id}".
+    /// </summary>
+    public static UiNode CreateNode(string id, ProgressSnapshot snapshot)
+    {
+        var keyPrefix = $"progress-{id}";
+
+        // Header: left title, right stats+eta
+        var (running, queued, completed, failed, canceled) = snapshot.Stats;
+        var statsText = $"in-flight: {running}   queued: {queued}   completed: {completed}   failed: {failed}   canceled: {canceled}";
+        var etaText = !string.IsNullOrWhiteSpace(snapshot.EtaHint) ? $"ETA: {snapshot.EtaHint}" : null;
+
+        var rightHeaderText = string.IsNullOrWhiteSpace(etaText) ? statsText : $"{statsText}   {etaText}";
+
+        var header = Ui.Row($"{keyPrefix}-header",
+                Ui.Text($"{keyPrefix}-title", snapshot.Title).WithStyles(Style.Bold),
+                Ui.Text($"{keyPrefix}-stats", rightHeaderText).WithStyles(Style.AlignRight)
+            )
+            .WithProps(new { Layout = "row-justify" });
+
+        // Items list (rank interesting tasks first)
+        static int Rank(ProgressState s) => s switch
+        {
+            ProgressState.Running => 3,
+            ProgressState.Queued => 2,
+            ProgressState.Failed => 1,
+            _ => 0
+        };
+
+        var items = snapshot.Items ?? Array.Empty<(string name, double percent, ProgressState state, string? note, (int done, int total) steps)>();
+        var rows = items
+            .OrderByDescending(x => Rank(x.state))
+            .ThenBy(x => x.percent)
+            .ThenBy(x => x.name)
+            .Take(Math.Min(10, Program.config.MaxMenuItems))
+            .Select((r, idx) =>
+            {
+                var glyph = r.state switch
+                {
+                    ProgressState.Running => "▶",
+                    ProgressState.Completed => "✓",
+                    ProgressState.Failed => "✖",
+                    ProgressState.Canceled => "■",
+                    _ => "•"
+                };
+                var steps = r.steps.total > 0 ? $" ({r.steps.done}/{r.steps.total})" : string.Empty;
+                var leftText = $"{glyph} {r.name}" + (string.IsNullOrWhiteSpace(r.note) ? string.Empty : $" — {r.note}");
+                var rightText = $"{r.percent:0.0}%{steps}";
+
+                var left = Ui.Text($"{keyPrefix}-item-{idx}-left", leftText);
+                var right = Ui.Text($"{keyPrefix}-item-{idx}-right", rightText).WithStyles(Style.AlignRight);
+
+                return Ui.Row($"{keyPrefix}-item-{idx}", left, right)
+                    .WithProps(new { Layout = "row-justify" });
+            })
+            .ToArray();
+
+        var itemsContainer = Ui.Column($"{keyPrefix}-items", rows);
+
+        // Footer hint
+        var hint = Ui.Text($"{keyPrefix}-hint", "Press ESC to cancel").WithProps(new { Style = "dim" });
+
+        return Ui.Column(keyPrefix, header, itemsContainer, hint)
+            .WithProps(new { State = ChatMessageState.EphemeralActive.ToString(), Role = "progress" });
     }
 }

@@ -18,7 +18,7 @@ public static class S360Commands
                 new Command {
                     Name = "fetch", Description = () => "Fetch action items for a profile",
                     Action = async () => {
-                        var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
+                        var prof = await PickProfile(); if (prof is null) return Command.Result.Failed;
                         var resp = await ToolRegistry.InvokeToolAsync("tool.s360.fetch",
                             new FetchS360Input { ProfileName = prof.Name });
                         using var output = Program.ui.BeginRealtime("Fetching action items...");
@@ -29,7 +29,7 @@ public static class S360Commands
                 new Command {
                     Name = "triage", Description = () => "Score & summarize (briefing + action plan)",
                     Action = async () => {
-                        var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
+                        var prof = await PickProfile(); if (prof is null) return Command.Result.Failed;
 
                         var form = UiForm.Create("Triage options", 15);
                         form.AddInt("Top N")
@@ -92,7 +92,7 @@ public static class S360Commands
 
                         // Persist and render
                         await ContextManager.AddContent(report.ToMarkdown(), $"s360/{prof.Name}/triage");
-                        Program.ui.RenderReport(report);
+                        await Program.ui.RenderReportAsync(report);
 
                         realtime.WriteLine("Triage complete.");
                         return Command.Result.Success;
@@ -102,9 +102,9 @@ public static class S360Commands
                 new Command {
                     Name = "slices", Description = () => "Show focused slices: stale/no-eta/due-soon/needs-owner/at-risk-sla/delegated/churny-eta/off-track-wave/burndown-negative",
                     Action = async () => {
-                        var prof = PickProfile(); if (prof is null) return Command.Result.Failed;
+                        var prof = await PickProfile(); if (prof is null) return Command.Result.Failed;
                         var sliceNames = new[]{"stale","no-eta","due-soon","needs-owner","at-risk-sla","delegated","churny-eta","off-track-wave","burndown-negative"};
-                        var sel = Program.ui.RenderMenu("Pick slice:", sliceNames.ToList());
+                        var sel = await Program.ui.RenderMenuAsync("Pick slice:", sliceNames.ToList());
                         var chosen = sel ?? sliceNames[0];
                         var limitForm = UiForm.Create("Slice options", new S360LimitModel { Limit = 25 });
                         limitForm.AddInt<S360LimitModel>("Limit", m => m.Limit, (m,v)=> m.Limit = v).IntBounds(1,500).WithHelp("Max items to fetch (1-500).");
@@ -121,7 +121,7 @@ public static class S360Commands
         };
 
         // ----- local helpers (mirror KustoCommands style) -----
-        static S360Profile? PickProfile()
+        static async Task<S360Profile?> PickProfile()
         {
             var profiles = Program.userManagedData.GetItems<S360Profile>().OrderBy(p => p.Name).ToList();
             if (profiles.Count == 0)
@@ -133,7 +133,7 @@ public static class S360Commands
 
             if (profiles.Count == 1) return profiles[0];
             var choices = profiles.Select(p => $"{p.Name} (services:{p.ServiceIds.Count})").ToList();
-            var sel = Program.ui.RenderMenu("Select S360 profile:", choices);
+            var sel = await Program.ui.RenderMenuAsync("Select S360 profile:", choices);
             if (sel == null) return null;
             var idx = choices.IndexOf(sel);
             if (idx >= 0) return profiles[idx];

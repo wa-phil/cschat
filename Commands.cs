@@ -41,7 +41,7 @@ public class Command
         {
             // render the menu of subcommands, the text passed in should be a concatenation of the subcommand names with their descriptions,
             // formatted such that the descriptions are aligned with the command names
-            var selected = Program.ui.RenderMenu($"{GetFullPath()} commands", SubCommands.Select(c => $"{c.Name} - {c.Description()}").ToList());
+            var selected = await Program.ui.RenderMenuAsync($"{GetFullPath()} commands", SubCommands.Select(c => $"{c.Name} - {c.Description()}").ToList());
             if (string.IsNullOrEmpty(selected))
             {
                 ctx.Succeeded();
@@ -190,7 +190,7 @@ public partial class CommandManager : Command
                     ContextManager.ClearCaches();
                     GraphStoreManager.Graph.Clear();
                     Log.ClearOutput();
-                    await Program.InitProgramAsync();
+                    await Program.InitProgramAsync(output);
                     output.WriteLine("Chat history, RAG state, and logs have been reset.");
                     output.WriteLine("Current Configuration:");
                     output.WriteLine(Program.config.ToJson());

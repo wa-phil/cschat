@@ -69,8 +69,30 @@ public class Ollama : IChatProvider, IEmbeddingProvider
             var response = await client.PostAsync($"{config.Host}/api/chat", content);
             if (!response.IsSuccessStatusCode)
             {
-                ctx.Append(Log.Data.Response, response.StatusCode.ToString());
-                return $"Error: {response.StatusCode}";
+                var status = response.StatusCode;
+                string body = string.Empty;
+                try { body = await response.Content.ReadAsStringAsync(); } catch { /* ignore */ }
+                ctx.Append(Log.Data.Response, $"{(int)status} {status}");
+                if (!string.IsNullOrWhiteSpace(body)) ctx.Append(Log.Data.Result, body);
+
+                // Map common HTTP errors to CsChat Error codes
+                Error code = Error.Unknown;
+                switch ((int)status)
+                {
+                    case 400: code = Error.InvalidInput; break;
+                    case 401:
+                    case 403: code = Error.ConnectionFailed; break;
+                    case 404: code = Error.ModelNotFound; break;
+                    case 408:
+                    case 429:
+                    case 500:
+                    case 502:
+                    case 503:
+                    case 504: code = Error.ConnectionFailed; break;
+                    default: code = Error.Unknown; break;
+                }
+
+                throw new CsChatException($"Ollama chat API returned {(int)status} {status}: {body}", code);
             }
 
             respJson = await response.Content.ReadAsStringAsync();

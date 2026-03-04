@@ -22,10 +22,10 @@ public partial class CommandManager
                     new Command
                     {
                         Name = "show", Description = () => "Show the contents of the log",
-                        Action = () =>
+                        Action = async () =>
                         {
-                            Log.GenerateTable();
-                            return Task.FromResult(Command.Result.Success);
+                            await Log.GenerateTableAsync();
+                            return Command.Result.Success;
                         }
                     },
                     new Command
@@ -107,9 +107,10 @@ public partial class CommandManager
                         Name = "factory reset", Description = () => "Delete the current configuration and reset everything to defaults",
                         Action = async () =>
                         {
+                            using var output = Program.ui.BeginRealtime("Resetting back to factory...");
                             File.Delete(Program.ConfigFilePath);
                             Program.config = new Config(); // Reset to default config
-                            await Program.InitProgramAsync();
+                            await Program.InitProgramAsync(output);
                             return Command.Result.Success;
                         }
                     },
@@ -226,9 +227,9 @@ public partial class CommandManager
                         Action = async () =>
                         {
                             var form = UiForm.Create("Configure menu items", Program.config);
-                form.AddInt<Config>("Max menu items", c => c.MaxMenuItems, (c,v) => c.MaxMenuItems = v)
-                                    .IntBounds(min: 1, max: 200)
-                                    .WithHelp("Controls how many choices are rendered at once, range is 1 to 200.");
+                            form.AddInt<Config>("Max menu items", c => c.MaxMenuItems, (c,v) => c.MaxMenuItems = v)
+                                .IntBounds(min: 1, max: 200)
+                                .WithHelp("Controls how many choices are rendered at once, range is 1 to 200.");
                             if (await Program.ui.ShowFormAsync(form))
                             {
                                 Program.config = (Config)form.Model!;        // commit the edited clone
@@ -244,9 +245,9 @@ public partial class CommandManager
                         Action = async () =>
                         {
                             var form = UiForm.Create("Configure maximum steps", Program.config);
-                form.AddInt<Config>("Max steps", c => c.MaxSteps, (c,v) => c.MaxSteps = v)
-                                    .IntBounds(min: 1, max: 100)
-                                    .WithHelp("Controls how many steps the planner can take, range is 1 to 100.");
+                            form.AddInt<Config>("Max steps", c => c.MaxSteps, (c,v) => c.MaxSteps = v)
+                                .IntBounds(min: 1, max: 100)
+                                .WithHelp("Controls how many steps the planner can take, range is 1 to 100.");
                             if (await Program.ui.ShowFormAsync(form))
                             {
                                 Program.config = (Config)form.Model!;        // commit the edited clone
@@ -271,14 +272,17 @@ public partial class CommandManager
         subCommands.Add(new Command
         {
             Name = "about", Description = () => "Show information about Console# Chat",
-            Action = () =>
+            Action = () => Log.Method(ctx=>
             {
+                ctx.OnlyEmitOnFailure();
                 using var output = Program.ui.BeginRealtime("About CSChat");
+                ctx.Append(Log.Data.Message, "Realtime output started");
                 output.WriteLine($"CSChat v{BuildInfo.GitVersion} ({BuildInfo.GitCommitHash})");
                 output.WriteLine("A chat application with RAG capabilities.");
                 output.WriteLine("For more information, visit: https://github.com/wa-phil/cschat");
+                ctx.Succeeded();
                 return Task.FromResult(Command.Result.Success);
-            }
+            })
         });
 
         return new Command { Name = "system", Description = () => "System commands", SubCommands = subCommands };

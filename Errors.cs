@@ -39,3 +39,19 @@ public class CsChatException : Exception
         ErrorCode = errorCode;
     }
 }
+
+/// <summary>
+/// Exception thrown when UI operations are attempted before the platform is initialized
+/// </summary>
+public class PlatformNotReadyException : CsChatException
+{
+    public PlatformNotReadyException(string message) 
+        : base(message, Error.InitializationFailed)
+    {
+    }
+
+    public PlatformNotReadyException(string message, Exception innerException) 
+        : base(message, innerException, Error.InitializationFailed)
+    {
+    }
+}

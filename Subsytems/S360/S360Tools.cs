@@ -39,7 +39,7 @@ public sealed class S360FetchTool : ITool
             Description = a("KpiDescriptionHtml")
         }));
 
-        Program.ui.RenderTable(projected, "active S360 items");
+        await Program.ui.RenderTableAsync(projected, "active S360 items");
         await ContextManager.AddContent(table.ToCsv(), $"s360/{profile.Name}/results");
 
         if (!string.IsNullOrWhiteSpace(p.Export))
@@ -120,7 +120,7 @@ public sealed class S360SliceTool : ITool
         }).ToList();
 
         var outTable = new Table(headers, outRows);
-        Program.ui.RenderTable(outTable, "S360 Results");
+        await Program.ui.RenderTableAsync(outTable, "S360 Results");
         ctx.AddToolMessage(outTable.ToCsv());
 
         if (!string.IsNullOrWhiteSpace(p.Export))

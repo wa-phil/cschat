@@ -158,13 +158,12 @@ public class SubsystemManager
         ctx.Succeeded();
     });
 
-    public void Connect() => Log.Method(ctx =>
+    public void Connect(IRealtimeWriter output) => Log.Method(ctx =>
     {
         ctx.OnlyEmitOnFailure();
         // Iterate a snapshot of the configured subsystems to avoid
         // modifying the collection (SetEnabled updates Program.config.Subsystems)
         var subsystems = Program.config.Subsystems.ToList();
-        using var output = Program.ui.BeginRealtime("Connecting to subsystems...");
         foreach (var kv in subsystems)
         {
             ctx.Append(Log.Data.Message, $"Setting subsystem '{kv.Key}' enabled to {kv.Value}.");

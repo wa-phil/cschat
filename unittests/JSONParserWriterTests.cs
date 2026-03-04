@@ -433,7 +433,7 @@ namespace unittests
             var json = "[]";
             var parsed = json.FromJson<List<object>>();
             Assert.NotNull(parsed);
-            Assert.Equal(0, parsed.Count);
+            Assert.Empty(parsed);
 
             // Also ensure nested empty arrays parse correctly
             var nested = "{\"items\": []}".FromJson<Dictionary<string, object>>();

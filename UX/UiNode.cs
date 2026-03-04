@@ -1,0 +1,905 @@
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Runtime.Serialization;
+using System.ComponentModel.DataAnnotations;
+
+// Visual style keys usable with UiNode.Styles
+public enum UiStyleKey
+{
+    ForegroundColor,
+    BackgroundColor,
+    Bold,
+    Style,   // string tag (e.g., "dim")
+    Wrap,
+    Align,   // "left" | "center" | "right"
+    Justify  // reserved for future layout semantics
+}
+
+public sealed record UiStyles(IReadOnlyDictionary<UiStyleKey, object?> Values)
+{
+    public static readonly UiStyles Empty = new(new Dictionary<UiStyleKey, object?>());
+
+    public T? Get<T>(UiStyleKey key)
+    {
+        if (Values.TryGetValue(key, out var v) && v is T tv) return tv;
+        return default;
+    }
+
+    public UiStyles With(UiStyleKey key, object? value)
+    {
+        var dict = new Dictionary<UiStyleKey, object?>(Values) { [key] = value };
+        return new UiStyles(dict);
+    }
+
+    public static UiStyles Of(params (UiStyleKey key, object? value)[] entries)
+    {
+        var d = new Dictionary<UiStyleKey, object?>();
+        foreach (var (k, v) in entries) d[k] = v;
+        return new UiStyles(d);
+    }
+}
+
+// Structured grid column specification
+public enum GridUnitKind { Percent, Fr }
+
+public sealed record GridColumnSpec(GridUnitKind Kind, double Value)
+{
+    public static GridColumnSpec Percent(double p) => new(GridUnitKind.Percent, p);
+    public static GridColumnSpec Fr(double f) => new(GridUnitKind.Fr, f);
+}
+
+public sealed record GridColumns(IReadOnlyList<GridColumnSpec> Columns)
+{
+    public static GridColumns Of(params GridColumnSpec[] cols) => new(cols);
+}
+
+/// <summary>
+/// Kinds of UI nodes supported in the declarative control layer
+/// </summary>
+public enum UiKind
+{
+    Column,
+    Row,
+    Accordion,
+    Label,
+    Button,
+    CheckBox,
+    Toggle,
+    TextBox,
+    TextArea,
+    ListView,
+    Html,
+    Spacer
+}
+
+/// <summary>
+/// Strongly-typed UI property keys used in UiNode.Props
+/// Values derived from all current usages across the UX layer
+/// </summary>
+public enum UiProperty
+{
+    // Semantic and layout
+    Role,
+    Modal,
+    Focusable,
+    Width,
+    Height,
+    Padding,
+    Layout,
+    Columns,
+
+    // Content and styling
+    Text,
+    Value,        // legacy fallback for Text
+    Placeholder,
+    Style,
+    Content,
+    Title,
+    Expanded,
+
+    // Collections / selection
+    Items,
+    SelectedIndex,
+
+    // State/metadata
+    Enabled,
+    Scrollable,
+    AutoScroll,
+    Timestamp,
+    State,
+    Min,
+    Max,
+    Label,
+    Checked,
+
+    // Event handlers
+    OnClick,
+    OnChange,
+    OnEnter,
+    OnToggle,
+    OnItemActivated,
+}
+
+/// <summary>
+/// Declarative UI node for retained-mode control layer
+/// </summary>
+public sealed record UiNode(
+    string Key,
+    UiKind Kind,
+    IReadOnlyDictionary<UiProperty, object?> Props,
+    IReadOnlyList<UiNode> Children
+)
+{
+    // New: optional styles bag separate from generic props
+    public UiStyles Styles { get; init; } = UiStyles.Empty;
+
+    // Convenience ctor to allow passing styles at construction time
+    public UiNode(string key, UiKind kind, IReadOnlyDictionary<UiProperty, object?> props, IReadOnlyList<UiNode> children, UiStyles styles)
+        : this(key, kind, props, children)
+    {
+        Styles = styles ?? UiStyles.Empty;
+    }
+}
+
+/// <summary>
+/// Event emitted from a UI node
+/// </summary>
+public sealed record UiEvent(
+    string Key,
+    string Name,
+    string? Value,
+    object? Tag
+);
+
+/// <summary>
+/// Options for mounting a control surface
+/// </summary>
+public sealed record UiControlOptions(
+    bool TrapKeys = true,
+    string? InitialFocusKey = null
+);
+
+/// <summary>
+/// Handler delegate for UI events
+/// </summary>
+[IgnoreTypeAttribute]
+public delegate Task UiHandler(UiEvent e);
+
+/// <summary>
+/// Base class for patch operations
+/// </summary>
+public abstract record UiOp;
+
+/// <summary>
+/// Replace an entire node in the tree
+/// </summary>
+public sealed record ReplaceOp(string Key, UiNode Node) : UiOp;
+
+/// <summary>
+/// Update properties of an existing node
+/// </summary>
+// Replaced with enum-based props variant
+// public sealed record UpdatePropsOp(string Key, IReadOnlyDictionary<string, object?> Props) : UiOp;
+public sealed record UpdatePropsOp(string Key, IReadOnlyDictionary<UiProperty, object?> Props) : UiOp;
+
+/// <summary>
+/// Insert a child node at a specific index
+/// </summary>
+public sealed record InsertChildOp(string ParentKey, int Index, UiNode Node) : UiOp;
+
+/// <summary>
+/// Remove a node from the tree
+/// </summary>
+public sealed record RemoveOp(string Key) : UiOp;
+
+/// <summary>
+/// Collection of operations to apply to the UI tree
+/// </summary>
+public sealed record UiPatch(params UiOp[] Ops)
+{
+    /// <summary>
+    /// Convenience method to create a patch that replaces a single node
+    /// </summary>
+    public static UiPatch Replace(string key, UiNode n) => new(new ReplaceOp(key, n));
+}
+
+/// <summary>
+/// Fluent builder for constructing UiPatch instances with multiple operations
+/// without verbose new UiPatch(new Op(...)) boilerplate.
+/// </summary>
+public sealed class UiPatchBuilder
+{
+    private readonly List<UiOp> _ops = new();
+    private readonly IUi? _ui;
+
+    public UiPatchBuilder()
+    {
+    }
+
+    public UiPatchBuilder(IUi ui)
+    {
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
+    }
+
+    /// <summary>
+    /// Queue a replace operation for the node with the given key.
+    /// </summary>
+    public UiPatchBuilder Replace(string key, UiNode node)
+    {
+        _ops.Add(new ReplaceOp(key, node));
+        return this;
+    }
+
+    /// <summary>
+    /// Queue an update-properties operation for an existing node.
+    /// </summary>
+    public UiPatchBuilder Update(string key, IReadOnlyDictionary<UiProperty, object?> props)
+    {
+        _ops.Add(new UpdatePropsOp(key, props));
+        return this;
+    }
+
+    /// <summary>
+    /// Queue an insert-child operation under the specified parent at index.
+    /// </summary>
+    public UiPatchBuilder Insert(string parentKey, int index, UiNode node)
+    {
+        _ops.Add(new InsertChildOp(parentKey, index, node));
+        return this;
+    }
+
+    /// <summary>
+    /// Queue a remove operation for the node with the given key.
+    /// </summary>
+    public UiPatchBuilder Remove(string key)
+    {
+        _ops.Add(new RemoveOp(key));
+        return this;
+    }
+
+    /// <summary>
+    /// Build a UiPatch containing all queued operations.
+    /// </summary>
+    public UiPatch Build() => new UiPatch(_ops.ToArray());
+
+    /// <summary>
+    /// Builds and applies this patch using a bound IUi if available.
+    /// Use via: await ui.MakePatch().Update(...).PatchAsync();
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown if the builder wasn't created via IUi.MakePatch()</exception>
+    public Task PatchAsync()
+    {
+        if (_ui is null)
+            throw new InvalidOperationException("UiPatchBuilder is not bound to a UI. Use ui.MakePatch() to obtain a bound builder or call Build() and ui.PatchAsync(...) manually.");
+        return _ui.PatchAsync(Build());
+    }
+}
+
+/// <summary>
+/// Manages a retained-mode UI tree with validation and patch operations
+/// </summary>
+public sealed class UiNodeTree
+{
+    private UiNode? _root;
+    private readonly Dictionary<string, UiNode> _nodeMap = new();
+    private readonly Dictionary<string, string> _parentMap = new(); // child key -> parent key
+    private string? _focusedKey;
+
+    public UiNode? Root => _root;
+    public string? FocusedKey => _focusedKey;
+    public bool IsEmpty => _root == null;
+
+    /// <summary>
+    /// Validates that all keys in the subtree are unique
+    /// </summary>
+    private void ValidateUniqueKeys(UiNode node, HashSet<string> seen)
+    {
+        if (string.IsNullOrEmpty(node.Key))
+            throw new InvalidOperationException("Node keys cannot be null or empty");
+
+        if (!seen.Add(node.Key))
+            throw new InvalidOperationException($"Duplicate keys in surface: '{node.Key}' appears more than once");
+
+        foreach (var child in node.Children)
+        {
+            ValidateUniqueKeys(child, seen);
+        }
+    }
+
+    /// <summary>
+    /// Builds the internal node map and parent map for fast lookups
+    /// </summary>
+    private void BuildMaps(UiNode node, string? parentKey = null)
+    {
+        _nodeMap[node.Key] = node;
+        if (parentKey != null)
+        {
+            _parentMap[node.Key] = parentKey;
+        }
+
+        foreach (var child in node.Children)
+        {
+            BuildMaps(child, node.Key);
+        }
+    }
+
+    /// <summary>
+    /// Validates that props are appropriate for the node kind
+    /// </summary>
+    private void ValidateProps(UiKind kind, IReadOnlyDictionary<UiProperty, object?> props)
+    {
+        // Basic validation - can be extended based on requirements
+        if (props == null)
+            throw new ValidationException($"Props cannot be null for {kind}");
+
+        // Add kind-specific validation as needed
+        switch (kind)
+        {
+            case UiKind.TextBox:
+            case UiKind.TextArea:
+                // Could validate text, placeholder, maxLength, etc.
+                break;
+            case UiKind.ListView:
+                // Could validate items, selectedIndex, etc.
+                break;
+                // Add more validations as needed
+        }
+    }
+
+    /// <summary>
+    /// Sets a new root node, replacing any existing tree
+    /// </summary>
+    public void SetRoot(UiNode root)
+    {
+        if (root == null)
+            throw new ArgumentNullException(nameof(root));
+
+        // Validate unique keys
+        var seen = new HashSet<string>();
+        ValidateUniqueKeys(root, seen);
+
+        // Clear existing state
+        _root = root;
+        _nodeMap.Clear();
+        _parentMap.Clear();
+        _focusedKey = null;
+
+        // Build lookup maps
+        BuildMaps(root);
+    }
+
+    /// <summary>
+    /// Finds a node by key
+    /// </summary>
+    public UiNode? FindNode(string key)
+    {
+        return _nodeMap.TryGetValue(key, out var node) ? node : null;
+    }
+
+    /// <summary>
+    /// Determines if a node is focusable based on its kind
+    /// </summary>
+    public bool IsFocusable(UiKind kind)
+    {
+        return kind switch
+        {
+            UiKind.Button => true,
+            UiKind.CheckBox => true,
+            UiKind.Toggle => true,
+            UiKind.TextBox => true,
+            UiKind.TextArea => true,
+            UiKind.ListView => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Sets the focused key
+    /// </summary>
+    public void SetFocus(string key)
+    {
+        if (!_nodeMap.TryGetValue(key, out var node))
+            throw new KeyNotFoundException($"Node with key '{key}' not found");
+
+        if (!IsFocusable(node.Kind))
+            throw new InvalidOperationException($"Node '{key}' of kind {node.Kind} is not focusable");
+
+        _focusedKey = key;
+    }
+
+    /// <summary>
+    /// Creates a new node with updated children (used for patching)
+    /// </summary>
+    private UiNode ReplaceChild(UiNode parent, int index, UiNode newChild)
+    {
+        var newChildren = parent.Children.ToList();
+        newChildren[index] = newChild;
+        return parent with { Children = newChildren };
+    }
+
+    /// <summary>
+    /// Rebuilds a node's path from root with a replacement at a specific key
+    /// </summary>
+    private UiNode RebuildPath(string targetKey, Func<UiNode, UiNode> transform)
+    {
+        if (_root == null)
+            throw new InvalidOperationException("No root node set");
+
+        if (!_nodeMap.ContainsKey(targetKey))
+            throw new KeyNotFoundException($"Node with key '{targetKey}' not found");
+
+        // If target is the root, transform it directly
+        if (targetKey == _root.Key)
+        {
+            return transform(_root);
+        }
+
+        // Build path from target to root
+        var path = new List<string> { targetKey };
+        var current = targetKey;
+        while (_parentMap.TryGetValue(current, out var parent))
+        {
+            path.Add(parent);
+            current = parent;
+        }
+        path.Reverse(); // Now path goes from root to target
+
+        // Recursively rebuild from root down
+        return RebuildNode(_root.Key, path, 0, targetKey, transform);
+    }
+
+    /// <summary>
+    /// Recursively rebuilds a node and its descendants along the path to the target
+    /// </summary>
+    private UiNode RebuildNode(string currentKey, List<string> path, int pathIndex, string targetKey, Func<UiNode, UiNode> transform)
+    {
+        var node = _nodeMap[currentKey];
+
+        // If this is the target node, apply the transformation
+        if (currentKey == targetKey)
+        {
+            return transform(node);
+        }
+
+        // If we've reached the end of the path, return the node unchanged
+        if (pathIndex >= path.Count - 1)
+        {
+            return node;
+        }
+
+        // Find which child is on the path to the target
+        var nextKeyInPath = path[pathIndex + 1];
+        var childIndex = node.Children.ToList().FindIndex(c => c.Key == nextKeyInPath);
+
+        if (childIndex < 0)
+        {
+            // Child not found - this shouldn't happen if maps are consistent
+            return node;
+        }
+
+        // Rebuild the child that's on the path
+        var rebuiltChild = RebuildNode(nextKeyInPath, path, pathIndex + 1, targetKey, transform);
+
+        // Create a new version of this node with the rebuilt child
+        return ReplaceChild(node, childIndex, rebuiltChild);
+    }
+
+    /// <summary>
+    /// Helper to rebuild a subtree starting from a key
+    /// </summary>
+    private UiNode RebuildFromKey(string key, Func<UiNode, UiNode> transform, string targetKey)
+    {
+        var node = _nodeMap[key];
+        if (key == targetKey)
+        {
+            return transform(node);
+        }
+
+        // Check if any child needs transformation
+        var newChildren = new List<UiNode>();
+        bool childChanged = false;
+        foreach (var child in node.Children)
+        {
+            if (IsAncestor(child.Key, targetKey))
+            {
+                newChildren.Add(RebuildFromKey(child.Key, transform, targetKey));
+                childChanged = true;
+            }
+            else
+            {
+                newChildren.Add(child);
+            }
+        }
+
+        return childChanged ? node with { Children = newChildren } : node;
+    }
+
+    /// <summary>
+    /// Checks if a node is an ancestor of another
+    /// </summary>
+    private bool IsAncestor(string ancestorKey, string descendantKey)
+    {
+        var current = descendantKey;
+        while (_parentMap.TryGetValue(current, out var parent))
+        {
+            if (parent == ancestorKey) return true;
+            current = parent;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Applies a replace operation
+    /// </summary>
+    public void ApplyReplace(string key, UiNode newNode)
+    {
+        // Allow setting the root when tree is empty and the caller intends to replace the root key.
+        // This makes initial ReplaceOp("frame.root", node) work even when no root was previously set.
+
+        // Validate the new node's subtree for duplicate keys
+        var seen = new HashSet<string>();
+        ValidateUniqueKeys(newNode, seen);
+
+        if (_root == null)
+        {
+            // If there's no root, only allow replacing when the requested key matches the new node's key.
+            if (key != newNode.Key)
+                throw new InvalidOperationException("No root node set");
+
+            // Set the provided node as the new root
+            SetRoot(newNode);
+            return;
+        }
+
+        if (key == _root.Key)
+        {
+            // Replacing root
+            SetRoot(newNode);
+        }
+        else
+        {
+            _root = RebuildPath(key, _ => newNode);
+            _nodeMap.Clear();
+            _parentMap.Clear();
+            BuildMaps(_root);
+        }
+    }
+
+    /// <summary>
+    /// Applies an update props operation
+    /// </summary>
+    public void ApplyUpdateProps(string key, IReadOnlyDictionary<UiProperty, object?> props)
+    {
+        if (!_nodeMap.TryGetValue(key, out var node))
+            throw new KeyNotFoundException($"Node with key '{key}' not found");
+
+        // Merge new props into existing rather than replace, so persistent props (e.g., Items, Role) are preserved
+        var merged = new Dictionary<UiProperty, object?>(node.Props);
+        foreach (var kv in props)
+        {
+            merged[kv.Key] = kv.Value;
+        }
+
+        ValidateProps(node.Kind, merged);
+
+        var updatedNode = node with { Props = merged };
+
+        if (_root == null)
+            throw new InvalidOperationException("No root node set");
+
+        if (key == _root.Key)
+        {
+            _root = updatedNode;
+            _nodeMap[key] = updatedNode;
+        }
+        else
+        {
+            _root = RebuildPath(key, _ => updatedNode);
+            _nodeMap.Clear();
+            _parentMap.Clear();
+            BuildMaps(_root);
+        }
+    }
+
+    /// <summary>
+    /// Applies an insert child operation
+    /// </summary>
+    public void ApplyInsertChild(string parentKey, int index, UiNode newChild)
+    {
+        if (!_nodeMap.TryGetValue(parentKey, out var parent))
+        {
+            // Spec invariant: Patch is atomic; missing parent should surface as KeyNotFound so
+            // the entire patch rolls back. Silent skip previously led to later UpdateProps
+            // exceptions for children that never got inserted. Restoring strict behavior.
+            var availableKeys = string.Join(", ", _nodeMap.Keys.Take(20));
+            var treeState = _root == null ? "null" : $"root='{_root.Key}'";
+            throw new KeyNotFoundException($"Parent node with key '{parentKey}' not found for insert of '{newChild?.Key}'. Tree state: {treeState}, Available keys ({_nodeMap.Count}): {availableKeys}");
+        }
+        // Allow callers to specify an index beyond the current child count to mean "append".
+        // This makes patch producers more resilient to race conditions or off-by-one calculations.
+        if (index < 0)
+            throw new InvalidOperationException($"Index {index} is negative for parent '{parentKey}'");
+        if (index > parent.Children.Count)
+        {
+            // Clamp to append position instead of throwing.
+            index = parent.Children.Count;
+        }
+
+        // If a node with the same key already exists anywhere in the tree, treat this
+        // insert as a move/replace: remove the existing node first, then insert the new one.
+        // This makes overlay/menu "re-open" operations and similar idempotent.
+        if (_nodeMap.ContainsKey(newChild.Key))
+        {
+            // Determine if the existing node is under the same parent to adjust index after removal
+            var existingParentKey = _parentMap.TryGetValue(newChild.Key, out var pk) ? pk : null;
+            int originalSiblingIndex = -1;
+            if (existingParentKey != null && _nodeMap.TryGetValue(existingParentKey, out var existingParent))
+            {
+                originalSiblingIndex = existingParent.Children.ToList().FindIndex(c => c.Key == newChild.Key);
+            }
+
+            // Remove existing node with the same key
+            ApplyRemove(newChild.Key);
+
+            // Re-resolve parent after structural change
+            if (!_nodeMap.TryGetValue(parentKey, out parent))
+                throw new InvalidOperationException($"Parent '{parentKey}' not found after removing existing node '{newChild.Key}'");
+
+            // If we removed from the same parent and the original index was before the desired insert index,
+            // the list has shifted left; adjust the target index accordingly.
+            if (existingParentKey == parentKey && originalSiblingIndex >= 0 && originalSiblingIndex < index)
+            {
+                index--;
+            }
+        }
+
+        // Validate new child doesn't have duplicate keys with existing tree (after any removal)
+        var seen = new HashSet<string>(_nodeMap.Keys);
+        ValidateUniqueKeys(newChild, seen);
+
+        var newChildren = parent.Children.ToList();
+        newChildren.Insert(index, newChild);
+        var updatedParent = parent with { Children = newChildren };
+
+        if (_root == null)
+            throw new InvalidOperationException("No root node set");
+
+        if (parentKey == _root.Key)
+        {
+            _root = updatedParent;
+        }
+        else
+        {
+            _root = RebuildPath(parentKey, _ => updatedParent);
+        }
+
+        _nodeMap.Clear();
+        _parentMap.Clear();
+        BuildMaps(_root);
+
+        // Validate that the operation succeeded correctly
+        if (!_nodeMap.ContainsKey(parentKey))
+        {
+            throw new InvalidOperationException($"Internal error: Parent key '{parentKey}' missing from rebuilt tree after insert operation");
+        }
+    }
+
+    /// <summary>
+    /// Applies a remove operation
+    /// </summary>
+    public void ApplyRemove(string key)
+    {
+        if (_root == null)
+            throw new InvalidOperationException("No root node set");
+
+        if (key == _root.Key)
+            throw new InvalidOperationException("Cannot remove root node");
+
+        if (!_nodeMap.TryGetValue(key, out var node))
+            throw new KeyNotFoundException($"Node with key '{key}' not found");
+
+        if (!_parentMap.TryGetValue(key, out var parentKey))
+            throw new InvalidOperationException($"Node '{key}' has no parent");
+
+        var parent = _nodeMap[parentKey];
+        var newChildren = parent.Children.Where(c => c.Key != key).ToList();
+        var updatedParent = parent with { Children = newChildren };
+
+        _root = RebuildPath(parentKey, _ => updatedParent);
+        _nodeMap.Clear();
+        _parentMap.Clear();
+        BuildMaps(_root);
+
+        // Clear focus if the focused node was removed
+        if (_focusedKey == key || IsAncestor(key, _focusedKey ?? ""))
+        {
+            _focusedKey = null;
+        }
+    }
+
+    /// <summary>
+    /// Applies all operations in a patch atomically
+    /// </summary>
+    public void ApplyPatch(UiPatch patch)
+    {
+        if (patch == null)
+            throw new ArgumentNullException(nameof(patch));
+
+        // Store original state for rollback
+        var originalRoot = _root;
+        var originalNodeMap = new Dictionary<string, UiNode>(_nodeMap);
+        var originalParentMap = new Dictionary<string, string>(_parentMap);
+        var originalFocusedKey = _focusedKey;
+
+        try
+        {
+            foreach (var op in patch.Ops)
+            {
+                switch (op)
+                {
+                    case ReplaceOp replaceOp:
+                        ApplyReplace(replaceOp.Key, replaceOp.Node);
+                        break;
+                    case UpdatePropsOp updatePropsOp:
+                        ApplyUpdateProps(updatePropsOp.Key, updatePropsOp.Props);
+                        break;
+                    case InsertChildOp insertChildOp:
+                        ApplyInsertChild(insertChildOp.ParentKey, insertChildOp.Index, insertChildOp.Node);
+                        break;
+                    case RemoveOp removeOp:
+                        ApplyRemove(removeOp.Key);
+                        break;
+                    default:
+                        throw new InvalidOperationException($"Unknown operation type: {op.GetType().Name}");
+                }
+            }
+        }
+        catch
+        {
+            // Rollback on any error
+            _root = originalRoot;
+            _nodeMap.Clear();
+            _parentMap.Clear();
+            foreach (var kvp in originalNodeMap) _nodeMap[kvp.Key] = kvp.Value;
+            foreach (var kvp in originalParentMap) _parentMap[kvp.Key] = kvp.Value;
+            _focusedKey = originalFocusedKey;
+            throw;
+        }
+    }
+}
+
+/// <summary>
+/// Reconciler for UiNode trees with stable keys.
+/// - Keys drive identity. When a key exists in prev but not in next: Remove.
+/// - When key exists in next but not in prev: Insert at computed index.
+/// - When both exist: if Kind or Styles differ -> Replace; else compare props and recurse children.
+/// </summary>
+public sealed class UiReconciler 
+{
+    public UiPatch BuildPatch(UiNode? prev, UiNode next)
+    {
+        var ops = new List<UiOp>();
+
+        // No previous subtree → replace target by next at next.Key (mount semantics).
+        if (prev is null)
+        {
+            ops.Add(new ReplaceOp(next.Key, next));
+            return new UiPatch(ops.ToArray());
+        }
+
+        // If identity (key) changed or kind changed, or styles changed → replace entire subtree at prev location.
+        if (!string.Equals(prev.Key, next.Key, StringComparison.Ordinal) ||
+            prev.Kind != next.Kind ||
+            !StylesEqual(prev.Styles, next.Styles))
+        {
+            // Replace at existing location (prev.Key) so ApplyReplace can find the target.
+            ops.Add(new ReplaceOp(prev.Key, next));
+            return new UiPatch(ops.ToArray());
+        }
+
+        // Diff props (enum-keyed). We only set changed/added props. We do not remove missing props to preserve persistent metadata.
+        var propUpdates = DiffProps(prev.Props, next.Props);
+        if (propUpdates.Count > 0)
+        {
+            ops.Add(new UpdatePropsOp(prev.Key, propUpdates));
+        }
+
+        // Diff children keyed by .Key with order reconciliation (remove+insert to reorder).
+        ops.AddRange(DiffChildren(prev, next));
+
+        return new UiPatch(ops.ToArray());
+    }
+
+    private static bool StylesEqual(UiStyles a, UiStyles b)
+    {
+        // Null-safe and empty-handled: UiStyles.Empty is the default.
+        var ad = a?.Values ?? new Dictionary<UiStyleKey, object?>();
+        var bd = b?.Values ?? new Dictionary<UiStyleKey, object?>();
+        if (ad.Count != bd.Count) return false;
+        foreach (var kv in ad)
+        {
+            if (!bd.TryGetValue(kv.Key, out var bv)) return false;
+            if (!object.Equals(kv.Value, bv)) return false;
+        }
+        return true;
+    }
+
+    private static Dictionary<UiProperty, object?> DiffProps(
+        IReadOnlyDictionary<UiProperty, object?> prev,
+        IReadOnlyDictionary<UiProperty, object?> next)
+    {
+        var updates = new Dictionary<UiProperty, object?>();
+
+        // Only emit changed or added props; leave removals to Replace semantics.
+        foreach (var kv in next)
+        {
+            if (!prev.TryGetValue(kv.Key, out var pv) || !object.Equals(pv, kv.Value))
+            {
+                updates[kv.Key] = kv.Value;
+            }
+        }
+
+        return updates;
+    }
+
+    private static IEnumerable<UiOp> DiffChildren(UiNode prev, UiNode next)
+    {
+        var ops = new List<UiOp>();
+
+        var prevList = prev.Children.ToList();
+        var nextList = next.Children.ToList();
+
+        var prevIndexByKey = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (int i = 0; i < prevList.Count; i++) prevIndexByKey[prevList[i].Key] = i;
+
+        var nextKeySet = new HashSet<string>(nextList.Select(c => c.Key), StringComparer.Ordinal);
+        var prevKeySet = new HashSet<string>(prevList.Select(c => c.Key), StringComparer.Ordinal);
+
+        // 1) Remove children that no longer exist (in reverse order to keep indices valid from a conceptual standpoint; UiNodeTree handles atomically anyway).
+        for (int i = prevList.Count - 1; i >= 0; i--)
+        {
+            var child = prevList[i];
+            if (!nextKeySet.Contains(child.Key))
+            {
+                ops.Add(new RemoveOp(child.Key));
+                prevList.RemoveAt(i);
+            }
+        }
+
+        // Rebuild index mapping after removals
+        prevIndexByKey.Clear();
+        for (int i = 0; i < prevList.Count; i++) prevIndexByKey[prevList[i].Key] = i;
+
+        // 2) Walk next children in order; insert new or moved children at the correct position; reconcile existing.
+        for (int i = 0; i < nextList.Count; i++)
+        {
+            var nextChild = nextList[i];
+            if (!prevIndexByKey.TryGetValue(nextChild.Key, out var currentIndex))
+            {
+                // Brand-new child → insert at desired index
+                ops.Add(new InsertChildOp(prev.Key, i, nextChild));
+            }
+            else
+            {
+                // Child exists; if position differs, move by remove + insert
+                if (currentIndex != i)
+                {
+                    // Movement: remove old and insert next at desired spot; subtree is provided by nextChild
+                    ops.Add(new RemoveOp(nextChild.Key));
+                    ops.Add(new InsertChildOp(prev.Key, i, nextChild));
+                }
+                else
+                {
+                    // No movement: diff the subtree (props/content)
+                    var prevChild = prev.Children.First(c => c.Key == nextChild.Key);
+                    var subPatch = new UiReconciler().BuildPatch(prevChild, nextChild);
+                    ops.AddRange(subPatch.Ops);
+                }
+            }
+        }
+
+        return ops;
+    }
+}
