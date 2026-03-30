@@ -1,4 +1,6 @@
+using CSChat.Storage;
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -908,6 +910,166 @@ public class GraphStore
         output.WriteLine("└──────────┴──────────┴──────────┴─────────────────────────────────────┘");
         output.WriteLine("\nUse PrintDetailedCommunityInfo(communityId) for detailed analysis of specific communities.");
         output.WriteLine("=================================");
+    }
+
+    // ==================== SQLITE STORAGE INTEGRATION ====================
+    
+    /// <summary>
+    /// Save the entire graph to SQLite database
+    /// </summary>
+    public async Task SaveToSqliteAsync(string databasePath = "graph.db")
+    {
+        var storage = new CSChat.Storage.GraphSqliteStorage(databasePath);
+        await storage.InitializeAsync();
+        await storage.SaveGraphStoreAsync(this);
+    }
+
+    /// <summary>
+    /// Load the entire graph from SQLite database
+    /// </summary>
+    public static async Task<GraphStore> LoadFromSqliteAsync(string databasePath = "graph.db")
+    {
+        var storage = new CSChat.Storage.GraphSqliteStorage(databasePath);
+        if (!storage.DatabaseExists())
+            throw new FileNotFoundException($"Database not found at {databasePath}");
+
+        return await storage.LoadGraphStoreAsync();
+    }
+
+    /// <summary>
+    /// Save the graph and print status information
+    /// </summary>
+    public async Task SaveWithStatusAsync(string databasePath = "graph.db", IRealtimeWriter? output = null)
+    {
+        output = output ?? Program.ui.BeginRealtime("=== SAVING GRAPH TO SQLITE ===");
+        
+        try
+        {
+            var storage = new CSChat.Storage.GraphSqliteStorage(databasePath);
+            await storage.InitializeAsync();
+            
+            output.WriteLine($"Saving graph with {EntityCount} entities and {RelationshipCount} relationships...");
+            var startTime = DateTime.Now;
+            
+            await storage.SaveGraphStoreAsync(this);
+            
+            var elapsed = DateTime.Now - startTime;
+            var (entityCount, relationshipCount, lastSaved) = await storage.GetStatisticsAsync();
+            
+            output.WriteLine($"✓ Graph saved successfully in {elapsed.TotalMilliseconds:F1}ms");
+            output.WriteLine($"✓ Database: {storage.GetDatabasePath()}");
+            output.WriteLine($"✓ Entities saved: {entityCount}");
+            output.WriteLine($"✓ Relationships saved: {relationshipCount}");
+            output.WriteLine($"✓ Last saved: {lastSaved:yyyy-MM-dd HH:mm:ss} UTC");
+        }
+        catch (Exception ex)
+        {
+            output.WriteLine($"✗ Failed to save graph: {ex.Message}");
+            throw;
+        }
+        
+        output.WriteLine("=== SAVE COMPLETE ===");
+    }
+
+    /// <summary>
+    /// Load the graph and print status information
+    /// </summary>
+    public static async Task<GraphStore> LoadWithStatusAsync(string databasePath = "graph.db", IRealtimeWriter? output = null)
+    {
+        output = output ?? Program.ui.BeginRealtime("=== LOADING GRAPH FROM SQLITE ===");
+        
+        try
+        {
+            var storage = new CSChat.Storage.GraphSqliteStorage(databasePath);
+            
+            if (!storage.DatabaseExists())
+            {
+                output.WriteLine($"✗ Database not found at {databasePath}");
+                throw new FileNotFoundException($"Database not found at {databasePath}");
+            }
+
+            output.WriteLine($"Loading graph from {databasePath}...");
+            var startTime = DateTime.Now;
+            
+            var graphStore = await storage.LoadGraphStoreAsync();
+            
+            var elapsed = DateTime.Now - startTime;
+            var (entityCount, relationshipCount, lastSaved) = await storage.GetStatisticsAsync();
+            
+            output.WriteLine($"✓ Graph loaded successfully in {elapsed.TotalMilliseconds:F1}ms");
+            output.WriteLine($"✓ Entities loaded: {entityCount}");
+            output.WriteLine($"✓ Relationships loaded: {relationshipCount}");
+            if (lastSaved.HasValue)
+                output.WriteLine($"✓ Originally saved: {lastSaved:yyyy-MM-dd HH:mm:ss} UTC");
+            
+            output.WriteLine("=== LOAD COMPLETE ===");
+            return graphStore;
+        }
+        catch (Exception ex)
+        {
+            output.WriteLine($"✗ Failed to load graph: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Get database statistics without loading the entire graph
+    /// </summary>
+    public static async Task<(int entityCount, int relationshipCount, DateTime? lastSaved)> GetDatabaseStatisticsAsync(string databasePath = "graph.db")
+    {
+        var storage = new CSChat.Storage.GraphSqliteStorage(databasePath);
+        if (!storage.DatabaseExists())
+            return (0, 0, null);
+        
+        return await storage.GetStatisticsAsync();
+    }
+
+    /// <summary>
+    /// Search for entities in the database without loading the entire graph
+    /// </summary>
+    public static async Task<List<Entity>> SearchEntitiesInDatabaseAsync(string searchTerm, string databasePath = "graph.db", string? entityType = null)
+    {
+        var storage = new CSChat.Storage.GraphSqliteStorage(databasePath);
+        if (!storage.DatabaseExists())
+            return new List<Entity>();
+        
+        return await storage.SearchEntitiesAsync(searchTerm, entityType);
+    }
+
+    /// <summary>
+    /// Clear all data from the database
+    /// </summary>
+    public static async Task ClearDatabaseAsync(string databasePath = "graph.db", IRealtimeWriter? output = null)
+    {
+        output = output ?? Program.ui.BeginRealtime("=== CLEARING DATABASE ===");
+        
+        try
+        {
+            var storage = new CSChat.Storage.GraphSqliteStorage(databasePath);
+            if (!storage.DatabaseExists())
+            {
+                output.WriteLine($"Database doesn't exist at {databasePath}");
+                return;
+            }
+
+            await storage.ClearGraphAsync();
+            output.WriteLine($"✓ Database cleared successfully");
+        }
+        catch (Exception ex)
+        {
+            output.WriteLine($"✗ Failed to clear database: {ex.Message}");
+            throw;
+        }
+        
+        output.WriteLine("=== CLEAR COMPLETE ===");
+    }
+
+    /// <summary>
+    /// Get a storage instance for advanced operations
+    /// </summary>
+    public CSChat.Storage.GraphSqliteStorage GetStorage(string databasePath = "graph.db")
+    {
+        return new CSChat.Storage.GraphSqliteStorage(databasePath);
     }    
 }
 
@@ -1274,7 +1436,55 @@ public class GraphMetrics
 }
 
 public static class GraphStoreManager
-{
+{    
+    /// <summary>
+    /// Demonstrates saving the current graph if it has data
+    /// </summary>
+    public static async Task SaveCurrentGraphAsync(string dbPath = "current_graph.db")
+    {
+        var currentGraph = GraphStoreManager.Graph;
+        
+        if (currentGraph.IsEmpty)
+        {
+            Console.WriteLine("Current graph is empty. Nothing to save.");
+            return;
+        }
+        
+        Console.WriteLine($"Saving current graph ({currentGraph.EntityCount} entities, {currentGraph.RelationshipCount} relationships) to {dbPath}...");
+        await currentGraph.SaveWithStatusAsync(dbPath);
+        Console.WriteLine($"Graph saved to: {System.IO.Path.GetFullPath(dbPath)}");
+    }
+    
+    /// <summary>
+    /// Demonstrates loading a graph and setting it as current
+    /// </summary>
+    public static async Task LoadIntoCurrentGraphAsync(string dbPath = "current_graph.db")
+    {
+        if (!System.IO.File.Exists(dbPath))
+        {
+            Console.WriteLine($"Database not found at {dbPath}");
+            return;
+        }
+        
+        Console.WriteLine($"Loading graph from {dbPath}...");
+        var loadedGraph = await GraphStore.LoadWithStatusAsync(dbPath);
+        
+        // Clear the current graph and copy loaded data
+        GraphStoreManager.Graph.Clear();
+        
+        foreach (var entity in loadedGraph.Entities.Values)
+        {
+            GraphStoreManager.Graph.AddEntity(entity);
+        }
+        
+        foreach (var relationship in loadedGraph.Relationships)
+        {
+            GraphStoreManager.Graph.AddRelationship(relationship.Source, relationship.Target, relationship.Type, relationship.Description);
+        }
+        
+        Console.WriteLine($"Graph loaded into current context: {GraphStoreManager.Graph.EntityCount} entities, {GraphStoreManager.Graph.RelationshipCount} relationships");
+    }
+
     /// <summary>
     /// Returns clusters and their entities/relationships as a string (instead of printing).
     /// </summary>

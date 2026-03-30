@@ -92,11 +92,54 @@ public partial class CommandManager
                         },
                         new Command
                         {
+                            Name = "save", Description = () => "Save all nodes/edges in the graph in a sqlite database",
+                            Action = async () =>
+                            {
+                                // Use UiForm to get save location
+                                var form = UiForm.Create("Save Graph to SQLite Database", new PathModel());
+                                form.AddPath<PathModel>("Database File", m => m.Path, (m,v)=> m.Path = v)
+                                    .WithHelp("Select location to save the graph database (.db file).")
+                                    .WithPathMode(PathPickerMode.SaveFile);
+
+                                if (!await Program.ui.ShowFormAsync(form)) { return Command.Result.Cancelled; }
+                                var path = ((PathModel)form.Model!).Path?.Trim();
+                                if (string.IsNullOrWhiteSpace(path)) return Command.Result.Cancelled;
+                                
+                                // Ensure .db extension
+                                if (!path.EndsWith(".db", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    path += ".db";
+                                }
+                                
+                                await GraphStoreManager.SaveCurrentGraphAsync(path);
+                                return Command.Result.Success;
+                            }
+                        },
+                        new Command
+                        {
+                            Name = "load", Description = () => "Load all nodes/edges in the graph from a sqlite database",
+                            Action = async () =>
+                            {
+                                // Use UiForm instead of direct path prompt
+                                var form = UiForm.Create("Load Graph from File", new PathModel());
+                                form.AddPath<PathModel>("File", m => m.Path, (m,v)=> m.Path = v)
+                                    .WithHelp("Select a file whose contents will be loaded into the Graph.")
+                                    .WithPathMode(PathPickerMode.OpenExisting);
+
+                                if (!await Program.ui.ShowFormAsync(form)) { return Command.Result.Cancelled; }
+                                var path = ((PathModel)form.Model!).Path?.Trim();
+                                if (string.IsNullOrWhiteSpace(path)) return Command.Result.Cancelled;
+                                await GraphStoreManager.LoadIntoCurrentGraphAsync(path);
+                                return Command.Result.Success;
+                            }
+                        },
+                        new Command
+                        {
                             Name = "dump", Description = () => "Dump all nodes/edges in the graph",
-                            Action = () =>
+                            Action = async () =>
                             {
                                 GraphStoreManager.Graph.PrintGraph();
-                                return Task.FromResult(Command.Result.Success);
+                                return Command.Result.Success;
                             }
                         },
                         new Command
